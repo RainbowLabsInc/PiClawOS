@@ -1,0 +1,23 @@
+# PiClaw Watchdog Configuration
+# File: /etc/piclaw/watchdog.toml
+# Owner: piclaw-watchdog (separate from main config)
+#
+# IMPORTANT: Use a SEPARATE Telegram bot token for the watchdog.
+# This ensures watchdog alerts arrive even if the mainagent bot is compromised.
+
+# ── Telegram (watchdog's own bot) ────────────────────────────────
+# Create a new bot via @BotFather and add it here
+telegram_token   = ""     # ← EDIT: watchdog's own bot token
+telegram_chat_id = ""     # ← EDIT: your Telegram user/group ID
+
+# ── Schedule ──────────────────────────────────────────────────────
+daily_report_time   = "07:00"   # HH:MM – when to send daily summary
+check_interval_s    = 60        # full system check every N seconds
+integrity_interval_s = 300      # file integrity check every N seconds
+
+# ── Thresholds (override defaults) ───────────────────────────────
+# disk_warn_pct  = 85
+# disk_crit_pct  = 95
+# temp_warn_c    = 75.0
+# temp_crit_c    = 80.0
+# ram_warn_pct   = 90

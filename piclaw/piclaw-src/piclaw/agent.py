@@ -1,0 +1,381 @@
+"""
+PiClaw OS – Core Agent
+"""
+
+import asyncio
+import logging
+import traceback
+from datetime import datetime
+
+from piclaw.config import PiClawConfig, CRASH_DIR
+from piclaw.llm    import create_backend, Message, ToolDefinition, ToolCall
+from piclaw.taskutils import create_background_task
+
+from piclaw.tools  import shell    as shell_mod
+from piclaw.tools  import network  as network_mod
+from piclaw.tools  import gpio     as gpio_mod
+from piclaw.tools  import services as services_mod
+from piclaw.tools  import updater  as updater_mod
+from piclaw.tools.scheduler import Scheduler
+
+from piclaw.memory        import QMDBackend, MemoryMiddleware
+from piclaw.memory.tools  import TOOL_DEFS as MEMORY_TOOL_DEFS
+from piclaw.memory.tools  import build_handlers as build_memory_handlers
+from piclaw.agents        import heartbeat_loop
+from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS
+from piclaw.agents.orchestration import build_handlers as build_agent_handlers
+from piclaw.agents.sa_registry   import SubAgentRegistry
+from piclaw.agents.runner        import SubAgentRunner
+from piclaw.agents.sa_tools      import TOOL_DEFS as SA_TOOL_DEFS
+from piclaw.agents.sa_tools      import build_handlers as build_sa_handlers
+from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS
+from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers
+from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
+from piclaw import soul as soul_mod
+from piclaw.tools import homeassistant as ha_mod
+
+log = logging.getLogger("piclaw.agent")
+
+# Base capabilities block (appended after the soul)
+BASE_CAPABILITIES = """\
+## Fähigkeiten
+
+- Shell-Befehle ausführen (mit Sicherheits-Allowlist)
+- WLAN und Netzwerkverbindungen verwalten
+- GPIO-Pins lesen und steuern (Sensoren, LEDs, Relais)
+- systemd-Services starten, stoppen, überwachen
+- Wiederkehrende Hintergrundaufgaben planen
+- System-Updates durchführen
+- Webseiten abrufen und HTTP-Anfragen stellen
+- Persistentes Memory durchsuchen und beschreiben
+- Sub-Agenten erstellen, starten und überwachen
+- LLM-Backends verwalten und konfigurieren
+
+## Memory-Anweisungen
+
+- Vor Antworten zu vergangenen Arbeiten oder Entscheidungen: memory_search nutzen.
+- Wenn der Nutzer sagt "merke dir das" oder etwas Wichtiges entschieden wird: memory_write.
+- Wichtige Ereignisse mit memory_log protokollieren.
+- Memories gelten für lokalen und Cloud-KI-Modus gleichermaßen.
+
+## Kontext
+
+Datum/Zeit: {date}  |  Hostname: {hostname}  |  Agent: {name}
+"""
+
+
+class Agent:
+    def __init__(self, cfg: PiClawConfig):
+        self.cfg            = cfg
+        self.llm            = create_backend(cfg)
+        self.scheduler      = Scheduler()
+        self.scheduler.set_agent(self)
+        self.qmd            = QMDBackend()
+        self.memory         = MemoryMiddleware(self.qmd, self.llm)
+        self.sa_registry    = SubAgentRegistry()
+        self.sa_runner: SubAgentRunner | None = None  # built after notify is set
+        self._telegram_send = lambda text: None       # replaced by messaging hub
+        self._build_tools()
+
+    def _build_tools(self):
+        """Assemble all tool definitions and handlers."""
+        self._tool_defs:  list[ToolDefinition] = []
+        self._handlers:   dict[str, callable]  = {}
+
+        def _reg(defs, handlers):
+            self._tool_defs.extend(defs)
+            self._handlers.update(handlers)
+
+        _reg(shell_mod.TOOL_DEFS,    shell_mod.build_handlers(self.cfg.shell))
+        _reg(network_mod.TOOL_DEFS,  network_mod.HANDLERS)
+        _reg(gpio_mod.TOOL_DEFS,     gpio_mod.HANDLERS)
+        _reg(services_mod.TOOL_DEFS, services_mod.build_handlers(self.cfg.services))
+        _reg(updater_mod.TOOL_DEFS,  updater_mod.build_handlers(self.cfg.updater))
+        _reg(self.scheduler.TOOL_DEFS if hasattr(self.scheduler, 'TOOL_DEFS') else [],
+             self.scheduler.build_handlers())
+        _reg(MEMORY_TOOL_DEFS,    build_memory_handlers(self.qmd))
+        _reg(AGENT_TOOL_DEFS,     build_agent_handlers(self._telegram_send))
+        _reg(LLM_MGMT_TOOL_DEFS,  build_llm_mgmt_handlers(self.llm.registry, self.llm))
+
+        # Hardware tools (pi_info, sensors, i2c_scan, thermal_status)
+        _reg(HW_TOOL_DEFS, HW_HANDLERS)
+
+        # HTTP tool
+        from piclaw.tools import http as http_mod
+        _reg(http_mod.TOOL_DEFS, http_mod.HANDLERS)
+
+        # Home Assistant tools (nur wenn konfiguriert)
+        self._ha_client = ha_mod.get_client()
+        if self._ha_client:
+            ha_tool_defs = [
+                ToolDefinition(
+                    name=t["name"],
+                    description=t["description"],
+                    parameters=t["input_schema"],
+                )
+                for t in ha_mod.TOOL_DEFS
+            ]
+            ha_handlers = {
+                t["name"]: (lambda n: lambda **kw: ha_mod.handle_tool(n, kw, self._ha_client))(t["name"])
+                for t in ha_mod.TOOL_DEFS
+            }
+            _reg(ha_tool_defs, ha_handlers)
+            log.info("Home Assistant tools registered (%d)", len(ha_tool_defs))
+
+        # Routinen-Tools werden lazy registriert (ProactiveRunner startet nach __init__)
+        # Siehe: _register_late_tools() wird vor dem ersten run() aufgerufen
+
+        # Soul tools (read/write soul file)
+        _reg(*self._build_soul_tools())
+
+        # Marketplace tools (Kleinanzeigen, eBay, Websuche)
+        from piclaw.tools.marketplace import marketplace_search, format_results
+        from piclaw.llm.base import ToolDefinition as _TD
+        _marketplace_tool = _TD(
+            name="marketplace_search",
+            description=(
+                "Sucht auf Marktplätzen (Kleinanzeigen.de, eBay.de, Web) nach neuen Inseraten. "
+                "Meldet nur Inserate die seit der letzten Suche neu hinzugekommen sind. "
+                "Beispiel: 'Suche nach Raspberry Pi 5 unter 100€ in Hamburg auf Kleinanzeigen'"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query":     {"type": "string",  "description": "Suchbegriff"},
+                    "platforms": {"type": "array", "items": {"type": "string"},
+                                  "description": "Plattformen: kleinanzeigen, ebay, web"},
+                    "max_price": {"type": "number",  "description": "Maximaler Preis in Euro"},
+                    "location":  {"type": "string",  "description": "Ort oder PLZ (für Kleinanzeigen)"},
+                    "max_results": {"type": "integer", "description": "Max. Ergebnisse pro Plattform (default: 10)"},
+                },
+                "required": ["query"],
+            },
+        )
+
+        async def _marketplace_handler(**kw):
+            result = await marketplace_search(
+                query=kw.get("query", ""),
+                platforms=kw.get("platforms", ["kleinanzeigen", "ebay", "web"]),
+                max_price=kw.get("max_price"),
+                location=kw.get("location"),
+                max_results=int(kw.get("max_results", 10)),
+            )
+            return format_results(result)
+
+        _reg([_marketplace_tool], {"marketplace_search": _marketplace_handler})
+        log.info("Marketplace-Tool registriert (Kleinanzeigen, eBay, Web)")
+
+    def _build_soul_tools(self):
+        """Inline soul management tools."""
+        from piclaw.llm.base import ToolDefinition
+        defs = [
+            ToolDefinition(
+                name="soul_read",
+                description="Read the current soul file (personality, mission, guidelines).",
+                parameters={"type": "object", "properties": {}},
+            ),
+            ToolDefinition(
+                name="soul_write",
+                description="Overwrite the soul file with new content. Use with care – this changes the agent's core personality.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string", "description": "Full new soul file content (Markdown)"},
+                    },
+                    "required": ["content"],
+                },
+            ),
+            ToolDefinition(
+                name="soul_append",
+                description="Append a new section to the soul file without replacing existing content.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "section": {"type": "string", "description": "New section to append"},
+                    },
+                    "required": ["section"],
+                },
+            ),
+        ]
+        handlers = {
+            "soul_read":   lambda **_: soul_mod.load(),
+            "soul_write":  lambda content, **_: soul_mod.save(content),
+            "soul_append": lambda section, **_: soul_mod.append(section),
+        }
+        return defs, handlers
+
+    def _wire_sa_runner(self):
+        """Build and wire the SubAgentRunner after notify is available.
+
+        The notify lambda deliberately uses late binding (self._telegram_send)
+        so that when api.py replaces _telegram_send after boot, sub-agents
+        automatically pick up the real messaging-hub sender.
+        """
+        async def _notify(text: str):
+            # Late-bound: always uses the current value of self._telegram_send,
+            # not the no-op placeholder that existed at _wire_sa_runner() time.
+            fn = self._telegram_send
+            result = fn(text)
+            if asyncio.iscoroutine(result):
+                await result
+
+        async def _memory_log(entry: str):
+            # Write sub-agent output into QMD memory so the mainagent can
+            # answer questions like "Was hat TempMonitor gestern gemeldet?"
+            handler = self._handlers.get("memory_log")
+            if handler:
+                result = handler(entry=entry)
+                if asyncio.iscoroutine(result):
+                    await result
+
+        self.sa_runner = SubAgentRunner(
+            registry=self.sa_registry,
+            llm=self.llm,
+            tool_defs=self._tool_defs,
+            handlers=self._handlers,
+            notify=_notify,
+            memory_log=_memory_log,
+        )
+        # Register sub-agent tools
+        sa_defs     = SA_TOOL_DEFS
+        sa_handlers = build_sa_handlers(self.sa_registry, self.sa_runner)
+        self._tool_defs.extend(sa_defs)
+        self._handlers.update(sa_handlers)
+
+    # ── Tool dispatch ───────────────────────────────────────────────
+
+    async def _dispatch(self, call: ToolCall) -> str:
+        handler = self._handlers.get(call.name)
+        if not handler:
+            return f"[ERROR] Unknown tool: {call.name}"
+        try:
+            result = handler(**call.arguments)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return str(result)
+        except Exception as e:
+            tb = traceback.format_exc()
+            self._save_crash(f"tool_{call.name}", tb)
+            return f"[TOOL ERROR] {call.name}: {e}"
+
+    # ── Lazy tool registration ────────────────────────────────────────
+
+    def _register_late_tools(self) -> None:
+        """Registriert Tools die beim __init__ noch nicht verfügbar waren (ProactiveRunner)."""
+        if getattr(self, "_late_tools_registered", False):
+            return
+        self._late_tools_registered = True
+        try:
+            from piclaw import proactive as proactive_mod
+            from piclaw.routines import TOOL_DEFS as ROUTINE_TOOL_DEFS
+            from piclaw.routines import build_handlers as build_routine_handlers
+            runner = proactive_mod.get_runner()
+            if runner:
+                for td in ROUTINE_TOOL_DEFS:
+                    self._tool_defs.append(td)
+                self._handlers.update(build_routine_handlers(runner.registry, runner))
+                log.info("Routine tools lazy-registered (%d)", len(ROUTINE_TOOL_DEFS))
+        except Exception as e:
+            log.debug("Routine tools late-registration: %s", e)
+
+    # ── Main agentic loop ────────────────────────────────────────────
+
+    async def run(
+        self,
+        user_input: str,
+        history: list[Message] | None = None,
+        on_token=None,  # Optional[Callable] - callable|None not supported in Python 3.13
+    ) -> str:
+        self._register_late_tools()  # no-op after first call
+        import socket
+        system = soul_mod.build_system_prompt(
+            name=self.cfg.agent_name,
+            date=datetime.now().strftime("%Y-%m-%d %H:%M"),
+            hostname=socket.gethostname(),
+            base_capabilities=BASE_CAPABILITIES,
+        )
+        messages: list[Message] = [Message(role="system", content=system)]
+        if history:
+            messages.extend(history[-20:])
+        messages.append(Message(role="user", content=user_input))
+
+        # Memory-Recall: kurzer Timeout damit Agent immer antwortet
+        try:
+            messages = await asyncio.wait_for(
+                self.memory.enrich(messages), timeout=8.0
+            )
+        except asyncio.TimeoutError:
+            log.debug("Memory enrich timeout – weiter ohne Memory-Kontext")
+        except Exception as _me:
+            log.debug("Memory enrich error: %s", _me)
+
+        MAX_STEPS   = 15
+        final_reply = "(empty response)"
+
+        for step in range(MAX_STEPS):
+            try:
+                if on_token and step == 0:
+                    collected = ""
+                    async for token in self.llm.stream_chat(messages, tools=self._tool_defs):
+                        collected += token
+                        await on_token(token)
+                    response = await self.llm.chat(messages, tools=self._tool_defs)
+                    if not response.tool_calls:
+                        final_reply = response.content or collected
+                        break
+                else:
+                    response = await self.llm.chat(messages, tools=self._tool_defs)
+            except Exception as e:
+                self._save_crash("llm_chat", traceback.format_exc())
+                return f"❌ LLM error: {e}"
+
+            messages.append(Message(role="assistant", content=response.content or ""))
+
+            if not response.tool_calls:
+                final_reply = response.content or "(empty response)"
+                break
+
+            for call in response.tool_calls:
+                log.info("Tool: %s(%s)", call.name, list(call.arguments.keys()))
+                result = await self._dispatch(call)
+                log.debug("  → %.120s", result)
+                messages.append(Message(
+                    role="tool", content=result,
+                    tool_call_id=call.id, tool_name=call.name,
+                ))
+        else:
+            final_reply = "⚠️ Agent reached max steps."
+
+        create_background_task(self.memory.after_turn(user_input, final_reply))
+        return final_reply
+
+    # ── Lifecycle ────────────────────────────────────────────────────
+
+    async def boot(self):
+        """Boot LLM router, memory, heartbeat, and sub-agents."""
+        await self.llm.boot()
+        self._wire_sa_runner()
+        create_background_task(self._boot_memory(), name="memory-boot")
+        create_background_task(heartbeat_loop(),    name="heartbeat")
+        create_background_task(
+            self.sa_runner.start_all_scheduled(), name="sa-boot"
+        )
+        log.info("Soul loaded from %s", soul_mod.get_path())
+
+    async def _boot_memory(self):
+        try:
+            await self.qmd.setup_collections()
+            # embed() wird nicht beim Boot gestartet – zu CPU-intensiv auf Pi
+            # Stattdessen: stündlicher Cron-Job
+            log.info("QMD setup done – embed deferred to hourly cron")
+        except Exception as e:
+            log.error("Memory boot failed: %s", e)
+
+    def start_scheduler(self):
+        self.scheduler.start_all()
+
+    def _save_crash(self, ctx: str, tb: str):
+        CRASH_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        (CRASH_DIR / f"{ts}_{ctx}.txt").write_text(tb)
+        log.error("Crash saved: %s_%s.txt", ts, ctx)

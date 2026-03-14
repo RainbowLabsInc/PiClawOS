@@ -1,0 +1,204 @@
+#cloud-config
+# ═══════════════════════════════════════════════════════════════
+# PiClaw OS – cloud-init user-data
+#
+# HOW TO USE:
+# 1. Flash the PiClaw OS image to your SD card (e.g. via Balena Etcher)
+# 2. Mount the boot partition and copy this file as "user-data"
+# 3. Copy meta-data alongside it
+# 4. Adjust the sections marked with ← EDIT THIS
+# 5. Insert SD card and boot the Pi
+# ═══════════════════════════════════════════════════════════════
+
+# ── System ──────────────────────────────────────────────────────
+hostname: piclaw
+manage_etc_hosts: true
+timezone: Europe/Berlin      # ← EDIT THIS
+
+locale: de_DE.UTF-8          # ← EDIT THIS (e.g. en_US.UTF-8)
+
+# ── User account ────────────────────────────────────────────────
+users:
+  - name: piclaw
+    gecos: PiClaw OS User
+    groups: [sudo, gpio, dialout, i2c, spi, video, audio]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    # Set a password hash (generate with: openssl passwd -6 "yourpassword")
+    # Default: piclaw123  ← CHANGE THIS
+    passwd: "$6$rounds=4096$salt$YvQMNJMkJxCXb7XlXD.nGMjPqXZz3Ow2JL/wE4Jm5Mz3LK8YwqR1Nv0LjXP2V5Ah7KlQe9Rt1Mf4Uv2Ds3."
+
+    # SSH public key authentication ← HIGHLY RECOMMENDED
+    # Paste your public key here (from ~/.ssh/id_rsa.pub or ~/.ssh/id_ed25519.pub)
+    ssh_authorized_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... your-key-here"  # ← EDIT THIS
+
+# ── SSH hardening ────────────────────────────────────────────────
+ssh_pwauth: true              # set to false once SSH key is working
+disable_root: true
+
+# ── WiFi (optional – can also be set later via `piclaw`) ─────────
+# Uncomment and fill in to connect to WiFi on first boot:
+#
+# write_files:
+#   - path: /etc/NetworkManager/system-connections/home-wifi.nmconnection
+#     permissions: '0600'
+#     content: |
+#       [connection]
+#       id=home-wifi
+#       type=wifi
+#       autoconnect=true
+#
+#       [wifi]
+#       ssid=YOUR_WIFI_NAME      # ← EDIT THIS
+#       mode=infrastructure
+#
+#       [wifi-security]
+#       key-mgmt=wpa-psk
+#       psk=YOUR_WIFI_PASSWORD   # ← EDIT THIS
+#
+#       [ipv4]
+#       method=auto
+#
+#       [ipv6]
+#       method=auto
+
+# ── PiClaw configuration ─────────────────────────────────────────
+write_files:
+  - path: /etc/piclaw/config.toml
+    permissions: '0640'
+    owner: piclaw:piclaw
+    content: |
+      agent_name = "PiClaw"
+      log_level  = "INFO"
+
+      [llm]
+      backend     = "anthropic"
+      model       = "claude-haiku-4-5-20251001"
+      base_url    = "https://api.anthropic.com"
+      api_key     = "YOUR_ANTHROPIC_API_KEY"   # ← EDIT THIS
+      temperature = 0.7
+      max_tokens  = 4096
+      timeout     = 60
+
+      # Alternatively use OpenAI:
+      # backend  = "openai"
+      # model    = "gpt-4o-mini"
+      # base_url = "https://api.openai.com"
+      # api_key  = "sk-..."
+
+      [api]
+      host  = "0.0.0.0"
+      port  = 7842
+      https = false
+
+      [shell]
+      enabled = true
+      timeout = 30
+
+      [network]
+      managed = true
+
+      [gpio]
+      enabled = true
+
+      [updater]
+      auto_check = true
+      channel    = "stable"
+
+      # ── Messaging ─────────────────────────────────────────────
+      # Configure at least one adapter. Leave token/id empty to disable.
+
+      [telegram]
+      token   = ""          # ← EDIT: token from @BotFather
+      chat_id = ""          # ← EDIT: your chat ID from @userinfobot
+
+      [discord]
+      token         = ""    # ← EDIT: Discord bot token
+      channel_id    = 0     # ← EDIT: channel ID (right-click → Copy ID)
+      allowed_users = []    # optional: restrict to specific Discord user IDs
+
+      [threema]
+      gateway_id       = ""   # ← EDIT: e.g. *PICLAW01
+      api_secret       = ""   # ← EDIT
+      private_key_file = "/etc/piclaw/threema-private.key"
+      recipient_id     = ""   # ← EDIT: your Threema ID
+      webhook_path     = "/webhook/threema"
+
+      [whatsapp]
+      # ⚠ Requires public HTTPS URL – see piclaw/messaging/whatsapp.py for full guide
+      access_token    = ""    # ← EDIT: Meta EAA... token
+      phone_number_id = ""    # ← EDIT
+      app_secret      = ""    # ← EDIT
+      verify_token    = "piclaw-whatsapp-verify"
+      recipient       = ""    # ← EDIT: +491234567890
+
+  - path: /etc/motd
+    content: |
+      ╔══════════════════════════════════════╗
+      ║         PiClaw OS v0.2              ║
+      ║  Type 'piclaw' to talk to the agent ║
+      ║  Web UI: http://piclaw.local:7842   ║
+      ╚══════════════════════════════════════╝
+
+  - path: /etc/profile.d/piclaw.sh
+    permissions: '0644'
+    content: |
+      # PiClaw OS – show hint on SSH login
+      if [ -z "$PICLAW_SHOWN" ]; then
+        export PICLAW_SHOWN=1
+        echo ""
+        echo "  🦞 PiClaw OS  |  Web UI: http://$(hostname).local:7842"
+        echo "  Type 'piclaw' to start the AI agent."
+        echo ""
+      fi
+
+# ── First-boot setup ─────────────────────────────────────────────
+runcmd:
+  # Directories and permissions
+  - mkdir -p /etc/piclaw /var/log/piclaw /home/piclaw/.piclaw
+  - chown -R piclaw:piclaw /etc/piclaw /var/log/piclaw /home/piclaw
+  - chmod 750 /etc/piclaw
+
+  # Update and install dependencies
+  - apt-get update -qq
+  - apt-get install -y -qq python3 python3-pip python3-venv
+      avahi-daemon network-manager curl git nodejs npm sqlite3
+
+  # Install QMD (hybrid search engine)
+  - npm install -g @tobilu/qmd
+
+  # Create watchdog system user (separate from piclaw)
+  - useradd --system --no-create-home --shell /usr/sbin/nologin piclaw-watchdog
+  - mkdir -p /var/log/piclaw-watchdog /var/lib/piclaw-watchdog
+  - chown piclaw-watchdog:piclaw-watchdog /var/log/piclaw-watchdog /var/lib/piclaw-watchdog
+  # Give piclaw READ access to watchdog IPC db
+  - mkdir -p /etc/piclaw/ipc
+  - chmod 775 /etc/piclaw/ipc
+  - chown piclaw:piclaw-watchdog /etc/piclaw/ipc
+
+  # Install PiClaw
+  - pip3 install piclaw[full] --quiet --break-system-packages
+
+  # Enable and start services
+  - systemctl enable piclaw-agent piclaw-api piclaw-crawler piclaw-watchdog avahi-daemon
+  - systemctl start avahi-daemon
+  - systemctl start piclaw-api
+  - systemctl start piclaw-agent
+  - systemctl start piclaw-crawler
+  - systemctl start piclaw-watchdog
+
+  # Firewall: allow SSH and web UI
+  - ufw allow 22/tcp
+  - ufw allow 7842/tcp
+  - ufw --force enable
+
+  # Log completion
+  - echo "PiClaw first-boot complete $(date)" >> /var/log/piclaw/firstboot.log
+
+final_message: |
+  ✅ PiClaw OS setup complete!
+  Connect via SSH: ssh piclaw@piclaw.local
+  Web UI: http://piclaw.local:7842
+  Then type 'piclaw' to start the agent.

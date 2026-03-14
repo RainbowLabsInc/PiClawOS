@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Persönliche Konfiguration (nie committen!)
+*.env
+config.toml
+SOUL.md
+marketplace_seen.json
+*.db
+*.log
+
+# Modelle (zu groß für Git)
+*.gguf
+*.bin
+models/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
