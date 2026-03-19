@@ -123,6 +123,10 @@ class Agent:
         # Hardware tools (pi_info, sensors, i2c_scan, thermal_status)
         _reg(HW_TOOL_DEFS, HW_HANDLERS)
 
+        # Network Monitor tools (v0.15)
+        from piclaw.tools import network_monitor as net_mon
+        _reg(net_mon.TOOL_DEFS, net_mon.build_handlers())
+
         # HTTP tool
         from piclaw.tools import http as http_mod
         _reg(http_mod.TOOL_DEFS, http_mod.HANDLERS)
