@@ -215,11 +215,12 @@ async def _validate_llm(backend: str, api_key: str, model: str, base_url: str) -
         cfg.llm.base_url = base_url
 
         b = create_backend(cfg)
+        from piclaw.llm.base import Message
         resp = await asyncio.wait_for(
-            b.complete([{"role": "user", "content": "Reply: OK"}]),
+            b.chat([Message(role="user", content="Reply: OK")]),
             timeout=15,
         )
-        return True, str(resp)[:80]
+        return True, (resp.content or "OK")[:80]
     except asyncio.TimeoutError:
         return False, "Timeout -- API erreichbar?"
     except Exception as e:
@@ -432,29 +433,35 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
     elif provider == "2":
         _w()
         print(f"  {FG_GRAY}API-Key erstellen: {UL}platform.openai.com/api-keys{R}")
-        key = _prompt("OpenAI API-Key (sk-…)", secret=True)
+        print(f"  {FG_GRAY}Fuer NVIDIA NIM: {UL}integrate.api.nvidia.com{R} (nvapi-...){R}")
+        key = _prompt("API-Key (sk-… oder nvapi-…)", secret=True)
         if not key:
             _skip("Übersprungen")
             return
-        model = _prompt("Modell", default="gpt-4o") or "gpt-4o"
+        # Base-URL: NVIDIA NIM oder Standard OpenAI
+        default_base = "https://integrate.api.nvidia.com/v1" if key.startswith("nvapi-") else "https://api.openai.com/v1"
+        base_url = _prompt("Base URL", default=default_base) or default_base
+        default_model = "moonshotai/kimi-k2-instruct-0905" if "nvidia" in base_url else "gpt-4o"
+        model = _prompt("Modell", default=default_model) or default_model
 
         _spinner("Verbindung testen")
-        ok, msg = _test_async(_validate_llm("openai", key, model, "https://api.openai.com/v1"))
+        ok, msg = _test_async(_validate_llm("openai", key, model, base_url))
         _clear_line()
         if ok:
             _ok("Verbindung erfolgreich")
             cfg.llm.backend  = "openai"
             cfg.llm.api_key  = key
             cfg.llm.model    = model
-            cfg.llm.base_url = "https://api.openai.com/v1"
+            cfg.llm.base_url = base_url
             state.mark(f"llm -> openai/{model}")
             state.restart_needed = True
         else:
             _err(f"Test fehlgeschlagen: {msg}")
             if input("    Trotzdem speichern? [j/N]: ").strip().lower() == "j":
-                cfg.llm.backend = "openai"
-                cfg.llm.api_key = key
-                cfg.llm.model   = model
+                cfg.llm.backend  = "openai"
+                cfg.llm.api_key  = key
+                cfg.llm.model    = model
+                cfg.llm.base_url = base_url
                 state.mark(f"llm -> openai/{model} (ungetestet)")
                 state.restart_needed = True
             else:
