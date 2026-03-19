@@ -95,7 +95,13 @@ class OpenAIBackend(LLMBackend):
     def __init__(self, api_key, model, base_url, temperature, max_tokens, timeout, **_):
         self.api_key     = api_key
         self.model       = model
-        self.base_url    = base_url.rstrip("/")
+        # Normalize base_url: strip trailing slash and trailing /v1
+        # so that base_url='https://integrate.api.nvidia.com/v1' and
+        # base_url='https://api.openai.com' both work correctly
+        _url = base_url.rstrip("/")
+        if _url.endswith("/v1"):
+            _url = _url[:-3]
+        self.base_url    = _url
         self.temperature = temperature
         self.max_tokens  = max_tokens
         self.timeout     = aiohttp.ClientTimeout(total=timeout)
