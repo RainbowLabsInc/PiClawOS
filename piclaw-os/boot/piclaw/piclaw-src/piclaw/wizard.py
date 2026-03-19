@@ -213,18 +213,18 @@ async def _validate_llm(backend: str, api_key: str, model: str, base_url: str) -
         if backend == "anthropic":
             b = AnthropicBackend(
                 api_key=api_key, model=model,
-                temperature=0.7, max_tokens=64, timeout=20,
+                temperature=0.7, max_tokens=64, timeout=45,
             )
         else:
             b = OpenAIBackend(
                 api_key=api_key, model=model,
                 base_url=base_url or "https://api.openai.com/v1",
-                temperature=0.7, max_tokens=64, timeout=20,
+                temperature=0.7, max_tokens=64, timeout=45,
             )
 
         resp = await asyncio.wait_for(
             b.chat([Message(role="user", content="Reply with exactly: OK")]),
-            timeout=20,
+            timeout=45,
         )
         return True, (resp.content or "OK")[:80]
     except asyncio.TimeoutError:
