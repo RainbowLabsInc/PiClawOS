@@ -156,7 +156,7 @@ class MetricsDB:
     def _query_downsampled(self, name: str, since_ts: int, resolution: int) -> list[dict]:
         with self._conn() as con:
             rows = con.execute(
-                """SELECT (ts / {resolution}) * {resolution} AS bucket,
+                f"""SELECT (ts / {resolution}) * {resolution} AS bucket,
                            AVG(value) AS value,
                            unit
                    FROM metrics
@@ -314,7 +314,7 @@ def _read_cpu_temp() -> float | None:
             if key in temps and temps[key]:
                 return temps[key][0].current
     except Exception as _e:
-        log.debug("psutil temp sensors: %s", _e)
+        logger.debug("psutil temp sensors: %s", _e)
     return None
 
 

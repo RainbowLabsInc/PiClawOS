@@ -5,7 +5,9 @@ PiClaw OS – Core Agent
 import asyncio
 import logging
 import traceback
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Callable
 
 from piclaw.config import PiClawConfig, CRASH_DIR
 from piclaw.llm    import create_backend, Message, ToolDefinition, ToolCall
@@ -35,6 +37,16 @@ from piclaw import soul as soul_mod
 from piclaw.tools import homeassistant as ha_mod
 
 log = logging.getLogger("piclaw.agent")
+
+
+@dataclass
+class AgentTask:
+    """Represents a request to the agent, managed in a queue."""
+    user_input: str
+    history: list[Message] | None = None
+    on_token: Callable | None = None
+    future: asyncio.Future = field(default_factory=lambda: asyncio.get_running_loop().create_future())
+
 
 # Base capabilities block (appended after the soul)
 BASE_CAPABILITIES = """\
@@ -83,6 +95,10 @@ class Agent:
         self.sa_runner: SubAgentRunner | None = None  # built after notify is set
         self._telegram_send = lambda text: None       # replaced by messaging hub
         self._build_tools()
+
+        # Parallel processing queue (v0.14)
+        self._queue: asyncio.Queue[AgentTask] = asyncio.Queue()
+        self._workers: list[asyncio.Task] = []
 
     def _build_tools(self):
         """Assemble all tool definitions and handlers."""
@@ -285,15 +301,56 @@ class Agent:
         except Exception as e:
             log.debug("Routine tools late-registration: %s", e)
 
+    # ── Parallel queue workers ──────────────────────────────────────
+
+    async def _worker_loop(self):
+        """Processes tasks from the queue sequentially (per worker)."""
+        while True:
+            task = await self._queue.get()
+            try:
+                result = await self._run_internal(
+                    task.user_input, task.history, task.on_token
+                )
+                task.future.set_result(result)
+            except Exception as e:
+                log.error("Worker error: %s", e)
+                task.future.set_exception(e)
+            finally:
+                self._queue.task_done()
+
+    def _start_workers(self, count: int = 2):
+        """Starts background worker tasks."""
+        if self._workers:
+            return
+        for i in range(count):
+            t = create_background_task(
+                self._worker_loop(), name=f"agent-worker-{i}"
+            )
+            self._workers.append(t)
+        log.info("Started %d agent queue workers.", count)
+
     # ── Main agentic loop ────────────────────────────────────────────
 
     async def run(
         self,
         user_input: str,
         history: list[Message] | None = None,
-        on_token=None,  # Optional[Callable] - callable|None not supported in Python 3.13
+        on_token=None,
     ) -> str:
-        self._register_late_tools()  # no-op after first call
+        """Enqueue a request and wait for the result (Parallel Queue v0.14)."""
+        self._register_late_tools()
+        self._start_workers()  # Ensure workers are running
+
+        task = AgentTask(user_input, history, on_token)
+        await self._queue.put(task)
+        return await task.future
+
+    async def _run_internal(
+        self,
+        user_input: str,
+        history: list[Message] | None = None,
+        on_token=None,
+    ) -> str:
         import socket
         system = soul_mod.build_system_prompt(
             name=self.cfg.agent_name,
@@ -370,6 +427,7 @@ class Agent:
     async def boot(self):
         """Boot LLM router, memory, heartbeat, and sub-agents."""
         await self.llm.boot()
+        self._start_workers()
         self._wire_sa_runner()
         create_background_task(self._boot_memory(), name="memory-boot")
         create_background_task(heartbeat_loop(),    name="heartbeat")
