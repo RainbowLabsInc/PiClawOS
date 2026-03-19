@@ -506,7 +506,7 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
         ans = input(f"  {FG_BLUE}{ARROW}{R} Modell jetzt herunterladen? (~2.4 GB, 5-20 Min) [J/n]: ").strip().lower()
         if ans in ("", "j", "y"):
             print()
-            _info("Lade Phi-3 Mini herunter – bitte warten...")
+            _info("Lade Gemma 2B herunter – bitte warten...")
             import subprocess, sys
             venv_python = sys.executable
             result = subprocess.run(
@@ -514,7 +514,7 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
                 timeout=1800
             )
             if result.returncode == 0:
-                _ok("Phi-3 Mini erfolgreich heruntergeladen")
+                _ok("Gemma 2B erfolgreich heruntergeladen")
             else:
                 _warn("Download fehlgeschlagen – später manuell: piclaw model download")
         else:
@@ -522,6 +522,137 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
 
     else:
         _skip(f"Behalten: {cfg.llm.backend}")
+
+
+
+def step_llm_extra(state: WizardState, step: int, total: int) -> None:
+    """Schritt: Weitere LLM-Backends zur Registry hinzufügen."""
+    _header(step, total, "Weitere LLM-Backends -- optional", "[LLM+]")
+    from piclaw.llm.registry import LLMRegistry, BackendConfig
+
+    registry = LLMRegistry()
+
+    # Primäres Backend wurde bereits in step_llm registriert (bootstrap läuft beim boot())
+    # Hier können zusätzliche Backends manuell hinzugefügt werden
+
+    print("  Hier kannst du weitere LLM-Backends registrieren.")
+    print("  Beispiele: Nemotron (NVIDIA NIM), zweiter API-Key, lokales Modell")
+    print()
+
+    while True:
+        ans = input(f"  {FG_BLUE}{ARROW}{R} Backend hinzufügen? [j/N]: ").strip().lower()
+        if ans not in ("j", "y"):
+            break
+
+        print()
+        print("  Anbieter:")
+        print("    [1] OpenAI / NVIDIA NIM / kompatibler Anbieter")
+        print("    [2] Anthropic Claude")
+        print("    [3] Lokales Modell (GGUF)")
+        print()
+        prov_choice = input(f"  {FG_BLUE}{ARROW}{R} Wahl: ").strip()
+
+        if prov_choice == "1":
+            print(f"  {FG_GRAY}NVIDIA NIM: nvapi-... | OpenAI: sk-... | andere: entsprechender Key{R}")
+            key      = _prompt("API-Key", secret=True)
+            if not key:
+                continue
+            default_base = "https://integrate.api.nvidia.com/v1" if key.startswith("nvapi-") else "https://api.openai.com/v1"
+            base_url = _prompt("Base URL", default=default_base) or default_base
+            # Modell-Vorschlag je nach Anbieter
+            if "nvidia" in base_url:
+                default_model = "nvidia/nemotron-super-49b-v1"
+            elif "openai" in base_url:
+                default_model = "gpt-4o-mini"
+            else:
+                default_model = "gpt-4o"
+            model    = _prompt("Modell", default=default_model) or default_model
+            name     = _prompt("Name (eindeutig)", default=model.split("/")[-1][:20]) or model.split("/")[-1][:20]
+            priority = int(_prompt("Priorität (1-10, höher=bevorzugt)", default="6") or "6")
+            tags_raw = _prompt("Tags (kommagetrennt)", default="general,reasoning") or "general,reasoning"
+
+            _spinner("Verbindung testen")
+            ok, msg = _test_async(_validate_llm("openai", key, model, base_url))
+            _clear_line()
+            if ok:
+                _ok(f"Verbindung OK: {FG_GRAY}{msg[:50]}{R}")
+            else:
+                _warn(f"Test fehlgeschlagen: {msg}")
+                if input("    Trotzdem speichern? [j/N]: ").strip().lower() != "j":
+                    continue
+
+            bc = BackendConfig(
+                name=name, provider="openai", model=model,
+                api_key=key, base_url=base_url, priority=priority,
+                tags=[t.strip() for t in tags_raw.split(",")],
+                temperature=0.6 if "nvidia" in base_url else 0.7,
+                notes="Hinzugefügt via Setup-Wizard",
+            )
+            registry.add(bc)
+            _ok(f"Backend '{name}' gespeichert")
+
+        elif prov_choice == "2":
+            key   = _prompt("Anthropic API-Key (sk-ant-…)", secret=True)
+            if not key:
+                continue
+            model = _prompt("Modell", default="claude-haiku-4-5-20251001") or "claude-haiku-4-5-20251001"
+            name  = _prompt("Name", default="claude-extra") or "claude-extra"
+            priority = int(_prompt("Priorität", default="7") or "7")
+
+            _spinner("Verbindung testen")
+            ok, msg = _test_async(_validate_llm("anthropic", key, model, "https://api.anthropic.com"))
+            _clear_line()
+            if ok:
+                _ok(f"Verbindung OK")
+            else:
+                _warn(f"Test fehlgeschlagen: {msg}")
+                if input("    Trotzdem speichern? [j/N]: ").strip().lower() != "j":
+                    continue
+
+            bc = BackendConfig(
+                name=name, provider="anthropic", model=model,
+                api_key=key, base_url="https://api.anthropic.com",
+                priority=priority, tags=["general", "coding", "reasoning"],
+                notes="Hinzugefügt via Setup-Wizard",
+            )
+            registry.add(bc)
+            _ok(f"Backend '{name}' gespeichert")
+
+        elif prov_choice == "3":
+            from piclaw.config import CONFIG_DIR
+            default_path = str(CONFIG_DIR / "models" / "gemma-2b-q4.gguf")
+            model_path = _prompt("Pfad zur GGUF-Datei", default=default_path) or default_path
+            name       = _prompt("Name", default="local-gemma") or "local-gemma"
+            priority   = int(_prompt("Priorität", default="3") or "3")
+
+            from pathlib import Path
+            if not Path(model_path).exists():
+                _warn(f"Datei nicht gefunden: {model_path}")
+                _info("Später herunterladen: piclaw model download")
+            else:
+                _ok(f"Modell gefunden: {model_path}")
+
+            bc = BackendConfig(
+                name=name, provider="local", model=model_path,
+                api_key="", base_url="", priority=priority,
+                tags=["general", "fast", "offline"],
+                notes="Lokales GGUF-Modell",
+            )
+            registry.add(bc)
+            _ok(f"Lokales Backend '{name}' registriert")
+
+        else:
+            break
+
+        print()
+
+    current = registry.list_all()
+    if current:
+        print(f"  Registrierte Backends ({len(current)}):")
+        for b in current:
+            status = "✅" if b.enabled else "⏸"
+            print(f"    {status} [{b.priority}] {b.name} – {b.provider}/{b.model[:40]}")
+    print()
 
 
 def step_telegram(state: WizardState, step: int, total: int) -> None:
@@ -1229,6 +1360,7 @@ def run() -> None:
         STEPS = [
             ("Agent",            lambda s, n, t: step_agent(s, n, t)),
             ("LLM",              lambda s, n, t: step_llm(s, n, t)),
+            ("Weitere LLMs",     lambda s, n, t: step_llm_extra(s, n, t)),
             ("Telegram",         lambda s, n, t: step_telegram(s, n, t)),
             ("Discord",          lambda s, n, t: step_discord(s, n, t)),
             ("Home Assistant",   lambda s, n, t: step_homeassistant(s, n, t)),
