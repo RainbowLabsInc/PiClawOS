@@ -99,7 +99,7 @@ def _read_manifest(tar_path: Path) -> dict:
             if f:
                 return json.loads(f.read())
     except Exception as _e:
-        log.debug("manifest read: %s", _e)
+        logger.debug("manifest read: %s", _e)
     return {}
 
 
