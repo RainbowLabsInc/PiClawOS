@@ -697,6 +697,97 @@ def _edit_soul_interactive():
             print("  ⏩ Kein Inhalt – übersprungen.")
 
 
+
+def cmd_llm(args):
+    """Manage LLM backends in the registry."""
+    from piclaw.config import load
+    from piclaw.llm.registry import LLMRegistry, BackendConfig
+
+    sub = args[0] if args else "list"
+    cfg = load()
+
+    registry = LLMRegistry()
+
+    if sub == "list":
+        print(registry.summary())
+
+    elif sub == "add":
+        # Parse --key value pairs
+        kw = {}
+        i = 1
+        while i < len(args):
+            if args[i].startswith("--") and i + 1 < len(args):
+                key = args[i][2:].replace("-", "_")
+                kw[key] = args[i + 1]
+                i += 2
+            else:
+                i += 1
+        required = ["name", "provider", "model"]
+        missing  = [r for r in required if r not in kw]
+        if missing:
+            print(f"  Fehlende Parameter: {', '.join('--' + m for m in missing)}")
+            print("  Beispiel: piclaw llm add --name kimi --provider openai --model moonshotai/kimi-k2-instruct-0905 --api-key nvapi-... --base-url https://integrate.api.nvidia.com/v1 --priority 8")
+            return
+        tags = [t.strip() for t in kw.pop("tags", "general").split(",")]
+        bc = BackendConfig(
+            name        = kw.pop("name"),
+            provider    = kw.pop("provider"),
+            model       = kw.pop("model"),
+            api_key     = kw.pop("api_key", kw.pop("api-key", "")),
+            base_url    = kw.pop("base_url", kw.pop("base-url", "")),
+            priority    = int(kw.pop("priority", 5)),
+            temperature = float(kw.pop("temperature", 0.7)),
+            max_tokens  = int(kw.pop("max_tokens", 4096)),
+            timeout     = int(kw.pop("timeout", 60)),
+            tags        = tags,
+            notes       = kw.pop("notes", ""),
+        )
+        print(f"  {registry.add(bc)}")
+
+    elif sub == "remove":
+        name = args[1] if len(args) > 1 else None
+        if not name:
+            print("  Usage: piclaw llm remove <name>")
+            return
+        print(f"  {registry.remove(name)}")
+
+    elif sub == "update":
+        name = args[1] if len(args) > 1 else None
+        if not name:
+            print("  Usage: piclaw llm update <name> --key value ...")
+            return
+        kw = {}
+        i = 2
+        while i < len(args):
+            if args[i].startswith("--") and i + 1 < len(args):
+                key = args[i][2:].replace("-", "_")
+                kw[key] = args[i + 1]
+                i += 2
+            else:
+                i += 1
+        if not kw:
+            print("  Keine Änderungen angegeben.")
+            return
+        print(f"  {registry.update(name, **kw)}")
+
+    elif sub == "enable":
+        name = args[1] if len(args) > 1 else None
+        if name:
+            print(f"  {registry.update(name, enabled=True)}")
+    elif sub == "disable":
+        name = args[1] if len(args) > 1 else None
+        if name:
+            print(f"  {registry.update(name, enabled=False)}")
+
+    else:
+        print("Usage: piclaw llm [list|add|remove|update|enable|disable]")
+        print("  piclaw llm list")
+        print("  piclaw llm add --name <n> --provider openai --model <m> --api-key <k> --base-url <u> --priority 8 --tags general,coding")
+        print("  piclaw llm remove <name>")
+        print("  piclaw llm update <name> --model <new-model>")
+        print("  piclaw llm enable/disable <name>")
+
+
 def main():
     import sys
     args = sys.argv[1:]
@@ -722,6 +813,7 @@ def main():
     elif cmd == "camera":                 cmd_camera(args[1:])
     elif cmd == "routine":                cmd_routine(args[1:])
     elif cmd == "briefing":               cmd_briefing(args[1:])
+    elif cmd == "llm":                    cmd_llm(args[1:])
     elif cmd in ("help", "-h", "--help"): print(BANNER + HELP)
     else:
         print(f"Unknown command: {cmd}")
