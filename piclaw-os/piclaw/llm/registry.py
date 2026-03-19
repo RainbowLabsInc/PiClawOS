@@ -157,6 +157,8 @@ class LLMRegistry:
 
     # ── Bootstrap from global config ─────────────────────────────
 
+    _NVIDIA_NIM_URL = "integrate.api.nvidia.com"
+
     def bootstrap_from_config(self, cfg) -> bool:
         """
         Auto-populate registry from PiClawConfig on first boot.
@@ -171,6 +173,10 @@ class LLMRegistry:
         if not llm.api_key and llm.backend not in ("local", "ollama"):
             return False
 
+        # Kimi K2 via NVIDIA NIM bekommt empfohlene temperature=0.6
+        is_nim = self._NVIDIA_NIM_URL in (llm.base_url or "")
+        temp   = 0.6 if is_nim else 0.7
+
         name = f"{llm.backend}-default"
         default = BackendConfig(
             name=name,
@@ -178,12 +184,57 @@ class LLMRegistry:
             model=llm.model,
             api_key=llm.api_key,
             base_url=llm.base_url,
-            tags=["general", "reasoning", "analysis"],
-            priority=5,
+            tags=["general", "reasoning", "analysis", "coding"],
+            priority=8,
+            temperature=temp,
             notes="Auto-imported from config.toml",
         )
         self.add(default)
         log.info("Registry bootstrapped from config: %s", name)
+
+        # NVIDIA NIM: Nemotron automatisch als zweites Backend hinzufügen
+        if is_nim:
+            self._add_nemotron_backend(llm.api_key)
+
+        return True
+
+    def ensure_nemotron_backend(self, cfg) -> bool:
+        """
+        Fügt Nemotron als zweites NVIDIA-NIM-Backend hinzu falls:
+          - NVIDIA NIM als base_url konfiguriert ist
+          - Nemotron noch nicht in der Registry ist
+        Kann auch nachträglich aufgerufen werden (Registry nicht leer).
+        Returns True wenn Nemotron hinzugefügt wurde.
+        """
+        llm = cfg.llm
+        if self._NVIDIA_NIM_URL not in (llm.base_url or ""):
+            return False
+        if "nemotron-nvidia" in self._backends:
+            return False
+        return self._add_nemotron_backend(llm.api_key)
+
+    def _add_nemotron_backend(self, api_key: str) -> bool:
+        """Internes Hinzufügen des Nemotron-Backends."""
+        # nvidia/nemotron-super-49b-v1 = Nemotron 3 Super (API Endpoint, nicht Downloadable)
+        # Falls das Modell auf NIM nicht verfügbar ist, kann es über piclaw llm update geändert werden
+        nemotron = BackendConfig(
+            name="nemotron-nvidia",
+            provider="openai",
+            model="nvidia/nemotron-super-49b-v1",
+            api_key=api_key,
+            base_url="https://integrate.api.nvidia.com/v1",
+            tags=["general", "reasoning", "fast", "summarization"],
+            priority=6,
+            temperature=0.7,
+            timeout=90,
+            notes=(
+                "Nemotron Super 49B via NVIDIA NIM – "
+                "zweites Backend für allgemeine Anfragen. "
+                "Modell-ID anpassen falls nicht verfügbar: piclaw llm update nemotron-nvidia"
+            ),
+        )
+        self.add(nemotron)
+        log.info("Registry: Nemotron-Backend hinzugefügt (nvidia/nemotron-super-49b-v1)")
         return True
 
     # ── Status summary ────────────────────────────────────────────

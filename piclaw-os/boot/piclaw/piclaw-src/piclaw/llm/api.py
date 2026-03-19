@@ -89,6 +89,9 @@ class AnthropicBackend(LLMBackend):
 
 
 class OpenAIBackend(LLMBackend):
+    # NVIDIA NIM braucht explizites tool_choice und parallel_tool_calls=False
+    _NIM_HOST = "integrate.api.nvidia.com"
+
     def __init__(self, api_key, model, base_url, temperature, max_tokens, timeout, **_):
         self.api_key     = api_key
         self.model       = model
@@ -96,15 +99,31 @@ class OpenAIBackend(LLMBackend):
         self.temperature = temperature
         self.max_tokens  = max_tokens
         self.timeout     = aiohttp.ClientTimeout(total=timeout)
+        self._is_nim     = self._NIM_HOST in self.base_url
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json"}
 
+    def _build_messages(self, messages) -> list[dict]:
+        """Konvertiert Message-Objekte in OpenAI-Format inkl. tool_results."""
+        out = []
+        for m in messages:
+            if m.role == "tool":
+                # Tool-Results müssen als eigene Nachricht im OpenAI-Format übergeben werden
+                out.append({
+                    "role": "tool",
+                    "tool_call_id": m.tool_call_id or "",
+                    "content": m.content,
+                })
+            else:
+                out.append({"role": m.role, "content": m.content or ""})
+        return out
+
     async def chat(self, messages, tools=None, stream=False) -> LLMResponse:
         payload = {
             "model": self.model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": self._build_messages(messages),
             "temperature": self.temperature, "max_tokens": self.max_tokens,
         }
         if tools:
@@ -114,6 +133,12 @@ class OpenAIBackend(LLMBackend):
                     "parameters": t.parameters}}
                 for t in tools
             ]
+            # NVIDIA NIM / Kimi K2: explizites tool_choice erforderlich
+            # sonst beschreibt das Modell nur was es tun würde statt den Tool zu rufen
+            payload["tool_choice"] = "auto"
+            if self._is_nim:
+                # NIM unterstützt kein parallel_tool_calls bei manchen Modellen
+                payload["parallel_tool_calls"] = False
         async with aiohttp.ClientSession(timeout=self.timeout) as s:
             async with s.post(f"{self.base_url}/v1/chat/completions",
                               headers=self._headers(), json=payload) as r:
