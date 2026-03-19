@@ -148,13 +148,13 @@ apt-get update -qq
 PKGS=(
     python3 python3-pip python3-venv
     sqlite3 nodejs npm
-    network-manager nmcli
+    network-manager
     i2c-tools
     curl wget git
     htop
 )
 info "Installiere Pakete: ${PKGS[*]}"
-apt-get install -y -qq "${PKGS[@]}" 2>/dev/null
+apt-get install -y "${PKGS[@]}"
 
 # QMD (Hybrid Memory)
 if ! command -v qmd &>/dev/null; then
