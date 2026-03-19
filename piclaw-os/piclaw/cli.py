@@ -86,7 +86,12 @@ def cmd_chat():
         print(f"  {cfg.agent_name} ready. Type 'exit' to quit, 'help' for commands.")
         print(f"  \033[2m(Verbunden mit laufendem Daemon – sofortige Antworten)\033[0m\n")
         try:
-            async with websockets.connect(url) as ws:
+            async with websockets.connect(
+                    url,
+                    ping_interval=30,   # keepalive alle 30s
+                    ping_timeout=120,   # 2 Min warten (Nemotron/grosse Modelle)
+                    open_timeout=15,
+                ) as ws:
                 while True:
                     try:
                         text = input("\033[1;35m[you]\033[0m ").strip()
