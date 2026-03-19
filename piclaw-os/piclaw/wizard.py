@@ -205,20 +205,26 @@ def _test_async(coro) -> tuple[bool, str]:
 
 async def _validate_llm(backend: str, api_key: str, model: str, base_url: str) -> tuple[bool, str]:
     try:
-        from piclaw.config import LLMConfig, PiClawConfig
-        from piclaw.llm import create_backend
-
-        cfg = PiClawConfig()
-        cfg.llm.backend  = backend
-        cfg.llm.api_key  = api_key
-        cfg.llm.model    = model
-        cfg.llm.base_url = base_url
-
-        b = create_backend(cfg)
         from piclaw.llm.base import Message
+        from piclaw.llm.api import OpenAIBackend, AnthropicBackend
+
+        # Direkt das passende Backend instanziieren – kein MultiLLMRouter,
+        # der wuerde boot() benoetigen und haengt im Wizard-Kontext
+        if backend == "anthropic":
+            b = AnthropicBackend(
+                api_key=api_key, model=model,
+                temperature=0.7, max_tokens=64, timeout=20,
+            )
+        else:
+            b = OpenAIBackend(
+                api_key=api_key, model=model,
+                base_url=base_url or "https://api.openai.com/v1",
+                temperature=0.7, max_tokens=64, timeout=20,
+            )
+
         resp = await asyncio.wait_for(
-            b.chat([Message(role="user", content="Reply: OK")]),
-            timeout=15,
+            b.chat([Message(role="user", content="Reply with exactly: OK")]),
+            timeout=20,
         )
         return True, (resp.content or "OK")[:80]
     except asyncio.TimeoutError:
