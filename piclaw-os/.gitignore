@@ -26,3 +26,16 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Build-Artefakte
+*.zip
+piclaw-sdcard.zip
+piclaw-os-*.zip
+
+# Interne Entwicklerdokumente (nicht für Releases)
+SNAPSHOT.md
+GAPS.md
+DEV_REFERENCE.md
+
+# Interne Rebuild-Referenz (kein Release-Artefakt)
+CLAUDE_REBUILD.md
