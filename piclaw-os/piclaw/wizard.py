@@ -597,7 +597,7 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
             default_base = "https://integrate.api.nvidia.com/v1" if key.startswith("nvapi-") else "https://api.openai.com/v1"
             base_url = _prompt("Base URL", default=default_base) or default_base
             if "nvidia" in base_url:
-                default_model = "nvidia/nemotron-super-49b-v1"
+                default_model = "nvidia/llama-3.1-nemotron-nano-vl-8b-v1"
             elif "openai" in base_url:
                 default_model = "gpt-4o-mini"
             else:
