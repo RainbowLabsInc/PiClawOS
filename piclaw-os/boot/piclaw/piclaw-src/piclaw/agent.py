@@ -326,7 +326,16 @@ class Agent:
                     async for token in self.llm.stream_chat(messages, tools=self._tool_defs):
                         collected += token
                         await on_token(token)
-                    response = await self.llm.chat(messages, tools=self._tool_defs)
+                    # Only do a second chat() call if the streamed response
+                    # looks like it might contain tool calls (starts with {, [, or <)
+                    # Otherwise use the streamed content directly to avoid a
+                    # redundant API call that triggers fallback warnings.
+                    _might_have_tools = collected.strip().startswith(("{", "[", "<"))
+                    if _might_have_tools:
+                        response = await self.llm.chat(messages, tools=self._tool_defs)
+                    else:
+                        from piclaw.llm.base import LLMResponse
+                        response = LLMResponse(content=collected, tool_calls=[], finish_reason="stop")
                     if not response.tool_calls:
                         final_reply = response.content or collected
                         break
