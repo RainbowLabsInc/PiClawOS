@@ -8,12 +8,28 @@ import asyncio
 import json
 import logging
 import threading
+import os
+from contextlib import contextmanager
 from pathlib import Path
 from typing import AsyncIterator, Optional
 
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, ToolCall, LLMResponse
 
 log = logging.getLogger("piclaw.llm.local")
+
+
+@contextmanager
+def _suppress_stderr():
+    """Context manager to suppress C-level stderr (llama.cpp verbose output)."""
+    null_fd = os.open(os.devnull, os.O_RDWR)
+    save_fd = os.dup(2)
+    try:
+        os.dup2(null_fd, 2)
+        yield
+    finally:
+        os.dup2(save_fd, 2)
+        os.close(null_fd)
+        os.close(save_fd)
 
 # Default model path – can be overridden in config
 DEFAULT_MODEL_PATH = Path("/etc/piclaw/models/gemma-2b-q4.gguf")
@@ -204,15 +220,16 @@ class LocalBackend(LLMBackend):
 
         log.info("Loading local model: %s " "(n_ctx=%s, threads=%s)", self.model_path, self.n_ctx, self.n_threads)
 
-        self._llm = Llama(
-            model_path=str(self.model_path),
-            n_ctx=self.n_ctx,
-            n_threads=self.n_threads,
-            n_gpu_layers=0,       # CPU-only on Pi
-            verbose=False,
-            use_mmap=True,        # memory-map for faster load
-            use_mlock=False,      # don't lock RAM pages
-        )
+        with _suppress_stderr():
+            self._llm = Llama(
+                model_path=str(self.model_path),
+                n_ctx=self.n_ctx,
+                n_threads=self.n_threads,
+                n_gpu_layers=0,       # CPU-only on Pi
+                verbose=False,
+                use_mmap=True,        # memory-map for faster load
+                use_mlock=False,      # don't lock RAM pages
+            )
         self._loaded = True
         log.info("Local model loaded ✅")
 
@@ -256,7 +273,7 @@ class LocalBackend(LLMBackend):
             )
 
         def _infer():
-            with self._lock:
+            with self._lock, _suppress_stderr():
                 result = self._llm(
                     prompt,
                     max_tokens=self.max_tokens,
@@ -290,7 +307,7 @@ class LocalBackend(LLMBackend):
         prompt = _build_prompt(messages, self.model_path)
 
         def _stream_infer():
-            with self._lock:
+            with self._lock, _suppress_stderr():
                 for chunk in self._llm(
                     prompt,
                     max_tokens=self.max_tokens,
