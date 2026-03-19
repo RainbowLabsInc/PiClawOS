@@ -220,7 +220,7 @@ class LLMRegistry:
         nemotron = BackendConfig(
             name="nemotron-nvidia",
             provider="openai",
-            model="nvidia/nemotron-super-49b-v1",
+            model="nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
             api_key=api_key,
             base_url="https://integrate.api.nvidia.com/v1",
             tags=["general", "reasoning", "fast", "summarization"],
