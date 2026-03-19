@@ -365,9 +365,12 @@ class MultiLLMRouter(LLMBackend):
                         next_cfg, messages, tools, classification, tried
                     )
 
-            # All APIs failed → local fallback
-            log.warning("All API backends failed, using local model.")
-            return await self._local.chat(messages, tools=tools)
+            # All APIs failed → local fallback (only if not already on local)
+            if primary.provider != "local":
+                log.warning("All API backends failed, using local model.")
+                return await self._local.chat(messages, tools=tools)
+
+            raise e
 
     async def stream_chat(
         self,
@@ -390,13 +393,28 @@ class MultiLLMRouter(LLMBackend):
         instance = self._get_instance(cfg)
 
         try:
-            async for token in instance.stream_chat(messages, tools=tools):
+            # We don't wrap the iterator directly to avoid catching
+            # exceptions from the consumer (UI, CLI).
+            it = instance.stream_chat(messages, tools=tools)
+            while True:
+                try:
+                    token = await anext(it)
+                except StopAsyncIteration:
+                    break
                 yield token
         except Exception as e:
-            log.warning("Stream from '%s' failed: %s", cfg.name, e)
-            yield f"\n\n⚠️ Backend '{cfg.name}' failed, switching…\n\n"
-            async for token in self._local.stream_chat(messages):
-                yield token
+            log.warning("Stream from '%s' failed: %r", cfg.name, e)
+            # Only switch to local if the failing backend was NOT already local
+            if cfg.provider != "local" and cfg.name != "local-fallback":
+                yield f"\n\n⚠️ Backend '{cfg.name}' failed, switching to local…\n\n"
+                try:
+                    async for token in self._local.stream_chat(messages):
+                        yield token
+                except Exception as _le:
+                    log.error("Local fallback stream failed: %r", _le)
+                    yield f"\n\n❌ Local fallback failed: {str(_le)}"
+            else:
+                yield f"\n\n❌ LLM Error: {str(e)}"
 
     async def health_check(self) -> bool:
         # Für lokales Backend: Datei vorhanden? (Modell muss nicht geladen sein)
