@@ -17,19 +17,24 @@ from piclaw.llm.base import LLMBackend, Message, ToolDefinition, ToolCall, LLMRe
 
 log = logging.getLogger("piclaw.llm.local")
 
+# Global lock to prevent race conditions when multiple threads
+# manipulate file descriptor 2 (stderr).
+_stderr_lock = threading.Lock()
+
 
 @contextmanager
 def _suppress_stderr():
     """Context manager to suppress C-level stderr (llama.cpp verbose output)."""
-    null_fd = os.open(os.devnull, os.O_RDWR)
-    save_fd = os.dup(2)
-    try:
-        os.dup2(null_fd, 2)
-        yield
-    finally:
-        os.dup2(save_fd, 2)
-        os.close(null_fd)
-        os.close(save_fd)
+    with _stderr_lock:
+        null_fd = os.open(os.devnull, os.O_RDWR)
+        save_fd = os.dup(2)
+        try:
+            os.dup2(null_fd, 2)
+            yield
+        finally:
+            os.dup2(save_fd, 2)
+            os.close(null_fd)
+            os.close(save_fd)
 
 # Default model path – can be overridden in config
 DEFAULT_MODEL_PATH = Path("/etc/piclaw/models/gemma-2b-q4.gguf")
