@@ -46,7 +46,14 @@ Aktueller Stand: Grundsystem läuft, lokales LLM (Gemma 2B) antwortet, Telegram 
 - [ ] Fail2ban-Integration + Status-Abfrage
 - [ ] Abuse-Report Generator
 
-### v0.18 – LLM-Verbesserungen
+### v0.18 – Tandem Browser (Autonomes Browsing)
+- [ ] **Tandem** als autonomes Browser-Tool einbinden: https://github.com/hydro13/tandem-browser
+- [ ] Neues Tool `browser_open(url)`, `browser_click(selector)`, `browser_read()`, `browser_screenshot()`
+- [ ] Agent kann damit selbstständig Webseiten aufrufen, ausfüllen und auslesen
+- [ ] Einsatzbeispiele: Preisvergleiche, Login-Flows, Formulare, Web-Scraping ohne API
+- [ ] Integration in bestehenden Tool-Dispatcher (`agent.py._build_tools()`)
+
+### v0.19 – LLM-Verbesserungen
 - [ ] Ollama-Integration testen (llama3.2:3b als bessere lokale Option)
 - [ ] Thermisches Routing verfeinern
 - [ ] Antwortzeit-Optimierung (n_threads auf Pi 5 optimieren)
