@@ -51,6 +51,13 @@ BASE_CAPABILITIES = """\
 - Sub-Agenten erstellen, starten und überwachen
 - LLM-Backends verwalten und konfigurieren
 
+## Tool-Anweisungen (WICHTIG)
+
+Wenn du Tools zur Verfügung hast, MUSST du diese aktiv nutzen:
+- Rufe Tools direkt auf – beschreibe NICHT nur, was du tun würdest.
+- Beispiel: Wenn der Nutzer nach Inseraten fragt → marketplace_search sofort aufrufen.
+- Wenn ein Tool verfügbar ist, das die Frage beantwortet: Tool aufrufen, nicht erklären.
+
 ## Memory-Anweisungen
 
 - Vor Antworten zu vergangenen Arbeiten oder Entscheidungen: memory_search nutzen.

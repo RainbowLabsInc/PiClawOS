@@ -118,22 +118,32 @@ class QMDBackend:
 
         log.info("Setting up QMD collections…")
 
+        # SOUL.md aus dem Memory-Index ausschliessen:
+        # Die Soul-Datei enthaelt die Agenten-Persoenlichkeit, keine Fakten.
+        # Wenn sie indiziert wird, injiziert QMD sie als "Erinnerung" und
+        # verwirrt das Modell bei unverwandten Anfragen (z.B. Marktplatz-Suche).
+        # Loesung: memory-Collection nur auf MEMORY.md + memory/ beschraenken,
+        # SOUL.md liegt im MEMORY_ROOT aber wird nicht mehr erfasst.
+        SOUL_FILENAME = "SOUL.md"
+
         # Register collections
-        await self._qmd(["collection", "add", str(MEMORY_ROOT),
-                          "--name", "memory", "--mask", "*.md"])
+        # memory-Collection: nur daily-Logs und MEMORY.md, NICHT SOUL.md
         await self._qmd(["collection", "add", str(DAILY_DIR),
-                          "--name", "daily", "--mask", "*.md"])
+                          "--name", "memory", "--mask", "*.md"])
+        # MEMORY.md explizit als einzelne Datei hinzufuegen
+        if (MEMORY_MAIN).exists():
+            await self._qmd(["collection", "add", str(MEMORY_MAIN),
+                              "--name", "memory"])
         await self._qmd(["collection", "add", str(SESSIONS_DIR),
                           "--name", "sessions", "--mask", "*.jsonl"])
         await self._qmd(["collection", "add", str(WORKSPACE_DIR),
                           "--name", "workspace", "--mask", "**/*.md"])
 
         # Add context descriptions (helps QMD understand what's what)
-        await self._qmd(["context", "add", str(MEMORY_ROOT),
-                          "PiClaw agent memory: facts, decisions, preferences, "
-                          "hardware config, installed skills, scheduled tasks"])
         await self._qmd(["context", "add", str(DAILY_DIR),
-                          "Daily activity logs and notes per date"])
+                          "PiClaw agent memory: facts, decisions, preferences, "
+                          "hardware config, installed skills, scheduled tasks, "
+                          "daily activity logs (SOUL.md is excluded)"])
         await self._qmd(["context", "add", str(SESSIONS_DIR),
                           "Conversation session history in JSONL format"])
         await self._qmd(["context", "add", str(WORKSPACE_DIR),
@@ -225,7 +235,12 @@ class QMDBackend:
         """Simple grep across markdown files as fallback."""
         results = []
         terms   = query.lower().split()
-        files   = [MEMORY_MAIN] + list(DAILY_DIR.glob("*.md"))
+        # SOUL.md explizit ausschliessen – sie gehoert nicht ins Memory-Recall
+        _soul_name = "SOUL.md"
+        files   = (
+            ([MEMORY_MAIN] if MEMORY_MAIN.exists() else []) +
+            [f for f in DAILY_DIR.glob("*.md") if f.name != _soul_name]
+        )
 
         for f in files:
             if not f.exists():

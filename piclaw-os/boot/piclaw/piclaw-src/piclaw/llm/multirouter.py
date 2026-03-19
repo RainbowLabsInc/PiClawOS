@@ -117,6 +117,9 @@ class MultiLLMRouter(LLMBackend):
 
         # Bootstrap registry from global config if empty
         self.registry.bootstrap_from_config(self.global_cfg)
+        # Nemotron als zweites NIM-Backend sicherstellen (auch bei nicht-leerer Registry)
+        if self.global_cfg:
+            self.registry.ensure_nemotron_backend(self.global_cfg)
 
         # Build health trackers
         for b in self.registry.list_enabled():
