@@ -525,6 +525,45 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
 
 
 
+# Mapping: Zweck-Label → Tags die der Router verwendet
+_PURPOSE_TAGS = {
+    "1":  (["coding", "debugging", "analysis"],          "Coding & Debugging"),
+    "2":  (["general", "chat", "reasoning"],             "Chat & Allgemein"),
+    "3":  (["creative", "writing"],                      "Kreatives Schreiben"),
+    "4":  (["summarization", "translation", "research"], "Zusammenfassung & Übersetzung"),
+    "5":  (["math", "science", "analysis"],              "Mathematik & Wissenschaft"),
+    "6":  (["fast", "general"],                          "Schnelle Antworten"),
+    "7":  (["offline", "general", "fast"],               "Offline / Lokal"),
+    "8":  (["general", "reasoning", "coding",
+             "creative", "summarization"],               "Alles (General Purpose)"),
+}
+
+
+def _ask_purpose() -> list[str]:
+    """Fragt nach dem Verwendungszweck und gibt Tags zurück."""
+    print()
+    print("  Wofür soll dieses Backend bevorzugt eingesetzt werden?")
+    print("  (Mehrfachauswahl mit Komma, z.B. 1,3)")
+    print()
+    for k, (_, label) in _PURPOSE_TAGS.items():
+        print(f"    [{k}] {label}")
+    print()
+    raw = input(f"  {FG_BLUE}{ARROW}{R} Zweck [Enter = 8 (Alles)]: ").strip() or "8"
+    tags: list[str] = []
+    for choice in raw.split(","):
+        choice = choice.strip()
+        if choice in _PURPOSE_TAGS:
+            tags.extend(_PURPOSE_TAGS[choice][0])
+    # Deduplizieren, Reihenfolge behalten
+    seen: set[str] = set()
+    result = []
+    for t in tags:
+        if t not in seen:
+            seen.add(t)
+            result.append(t)
+    return result or _PURPOSE_TAGS["8"][0]
+
+
 def step_llm_extra(state: WizardState, step: int, total: int) -> None:
     """Schritt: Weitere LLM-Backends zur Registry hinzufügen."""
     _header(step, total, "Weitere LLM-Backends -- optional", "[LLM+]")
@@ -532,11 +571,9 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
 
     registry = LLMRegistry()
 
-    # Primäres Backend wurde bereits in step_llm registriert (bootstrap läuft beim boot())
-    # Hier können zusätzliche Backends manuell hinzugefügt werden
-
     print("  Hier kannst du weitere LLM-Backends registrieren.")
-    print("  Beispiele: Nemotron (NVIDIA NIM), zweiter API-Key, lokales Modell")
+    print("  Für jeden Backend legst du fest wofür er zuständig ist.")
+    print("  Der Router wählt dann automatisch das passende Modell.")
     print()
 
     while True:
@@ -554,12 +591,11 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
 
         if prov_choice == "1":
             print(f"  {FG_GRAY}NVIDIA NIM: nvapi-... | OpenAI: sk-... | andere: entsprechender Key{R}")
-            key      = _prompt("API-Key", secret=True)
+            key = _prompt("API-Key", secret=True)
             if not key:
                 continue
             default_base = "https://integrate.api.nvidia.com/v1" if key.startswith("nvapi-") else "https://api.openai.com/v1"
             base_url = _prompt("Base URL", default=default_base) or default_base
-            # Modell-Vorschlag je nach Anbieter
             if "nvidia" in base_url:
                 default_model = "nvidia/nemotron-super-49b-v1"
             elif "openai" in base_url:
@@ -569,7 +605,7 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
             model    = _prompt("Modell", default=default_model) or default_model
             name     = _prompt("Name (eindeutig)", default=model.split("/")[-1][:20]) or model.split("/")[-1][:20]
             priority = int(_prompt("Priorität (1-10, höher=bevorzugt)", default="6") or "6")
-            tags_raw = _prompt("Tags (kommagetrennt)", default="general,reasoning") or "general,reasoning"
+            tags     = _ask_purpose()
 
             _spinner("Verbindung testen")
             ok, msg = _test_async(_validate_llm("openai", key, model, base_url))
@@ -581,29 +617,31 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
                 if input("    Trotzdem speichern? [j/N]: ").strip().lower() != "j":
                     continue
 
+            purpose_labels = [_PURPOSE_TAGS[c.strip()][1] for c in (input.__module__ and "") or [] if c.strip() in _PURPOSE_TAGS]
             bc = BackendConfig(
                 name=name, provider="openai", model=model,
                 api_key=key, base_url=base_url, priority=priority,
-                tags=[t.strip() for t in tags_raw.split(",")],
+                tags=tags,
                 temperature=0.6 if "nvidia" in base_url else 0.7,
-                notes="Hinzugefügt via Setup-Wizard",
+                notes=f"Zweck: {', '.join(tags)} – via Setup-Wizard",
             )
             registry.add(bc)
-            _ok(f"Backend '{name}' gespeichert")
+            _ok(f"Backend '{name}' gespeichert  {FG_GRAY}Tags: {', '.join(tags)}{R}")
 
         elif prov_choice == "2":
             key   = _prompt("Anthropic API-Key (sk-ant-…)", secret=True)
             if not key:
                 continue
-            model = _prompt("Modell", default="claude-haiku-4-5-20251001") or "claude-haiku-4-5-20251001"
+            model = _prompt("Modell", default="claude-sonnet-4-20250514") or "claude-sonnet-4-20250514"
             name  = _prompt("Name", default="claude-extra") or "claude-extra"
             priority = int(_prompt("Priorität", default="7") or "7")
+            tags  = _ask_purpose()
 
             _spinner("Verbindung testen")
             ok, msg = _test_async(_validate_llm("anthropic", key, model, "https://api.anthropic.com"))
             _clear_line()
             if ok:
-                _ok(f"Verbindung OK")
+                _ok("Verbindung OK")
             else:
                 _warn(f"Test fehlgeschlagen: {msg}")
                 if input("    Trotzdem speichern? [j/N]: ").strip().lower() != "j":
@@ -612,11 +650,11 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
             bc = BackendConfig(
                 name=name, provider="anthropic", model=model,
                 api_key=key, base_url="https://api.anthropic.com",
-                priority=priority, tags=["general", "coding", "reasoning"],
-                notes="Hinzugefügt via Setup-Wizard",
+                priority=priority, tags=tags,
+                notes=f"Zweck: {', '.join(tags)} – via Setup-Wizard",
             )
             registry.add(bc)
-            _ok(f"Backend '{name}' gespeichert")
+            _ok(f"Backend '{name}' gespeichert  {FG_GRAY}Tags: {', '.join(tags)}{R}")
 
         elif prov_choice == "3":
             from piclaw.config import CONFIG_DIR
@@ -624,6 +662,7 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
             model_path = _prompt("Pfad zur GGUF-Datei", default=default_path) or default_path
             name       = _prompt("Name", default="local-gemma") or "local-gemma"
             priority   = int(_prompt("Priorität", default="3") or "3")
+            tags       = _ask_purpose()
 
             from pathlib import Path
             if not Path(model_path).exists():
@@ -635,11 +674,11 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
             bc = BackendConfig(
                 name=name, provider="local", model=model_path,
                 api_key="", base_url="", priority=priority,
-                tags=["general", "fast", "offline"],
-                notes="Lokales GGUF-Modell",
+                tags=tags,
+                notes=f"Lokales GGUF – Zweck: {', '.join(tags)}",
             )
             registry.add(bc)
-            _ok(f"Lokales Backend '{name}' registriert")
+            _ok(f"Lokales Backend '{name}' registriert  {FG_GRAY}Tags: {', '.join(tags)}{R}")
 
         else:
             break
