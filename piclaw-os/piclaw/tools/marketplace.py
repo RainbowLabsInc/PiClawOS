@@ -67,6 +67,43 @@ def _make_id(platform: str, listing_id: str) -> str:
     return f"{platform}:{listing_id}"
 
 
+def _clean_query(query: str) -> str:
+    """Bereinigt den Suchbegriff von Rauschen (PLZ, Radius, Plattformen, Füllwörter)."""
+    import re
+    # Chat-Präfixe entfernen
+    q = re.sub(r"\[.*?\]", " ", query)
+
+    # PLZ (5 Ziffern)
+    q = re.sub(r"\b\d{5}\b", " ", q)
+
+    # Radius (z.B. "20km", "20 km")
+    q = re.sub(r"\b\d+\s*km\b", " ", q, flags=re.IGNORECASE)
+
+    # Plattformnamen
+    for plat in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay"]:
+        q = q.replace(plat, " ").replace(plat.capitalize(), " ")
+
+    # .de Suffix und "auf"
+    q = q.replace(".de", " ").replace(" auf ", " ")
+
+    # Deutsche Stoppwörter/Rauschen für Marktplatz-Suche
+    noise = ["suche", "finde", "such", "find", "schau", "schaue", "durchsuche",
+             "zeig", "liste", "was kostet", "preis für", "gibt es", "schnäppchen",
+             "angebot", "umkreis", "radius", "einen", "eine", "ein", "mir",
+             "dem", "der", "die", "das", "bitte", "im", "in", "um", "von", "bis",
+             "nähe", "für", "unter", "euro", "rosengarten"]
+
+    for word in noise:
+        q = re.sub(r"(?i)\b" + re.escape(word) + r"\b", " ", q)
+
+    # Sonderzeichen am Ende von Wörtern entfernen (z.B. Fragezeichen)
+    q = re.sub(r"[?!\.]", " ", q)
+
+    # Mehrfache Leerzeichen bereinigen
+    q = " ".join(q.split()).strip(" ,.-")
+    return q
+
+
 # ── Preis-Parser ───────────────────────────────────────────────────────────────
 
 def _parse_price(text: str) -> Optional[float]:
@@ -299,7 +336,7 @@ async def marketplace_search(
     max_price: Optional[float] = None,
     location: Optional[str] = None,
     max_results: int = 10,
-    notify_all: bool = False,
+    notify_all: bool = True,
     radius_km: Optional[int] = None,
 ) -> dict:
     """
@@ -318,6 +355,9 @@ async def marketplace_search(
     """
     if platforms is None:
         platforms = ["kleinanzeigen", "ebay", "web"]
+
+    # Intern bereinigen um Rauschen in der eigentlichen Suche zu vermeiden
+    query = _clean_query(query)
 
     seen = _load_seen() if not notify_all else set()
     all_results = []
@@ -345,7 +385,10 @@ async def marketplace_search(
             new_results.append(item)
             new_seen.add(uid)
 
-    _save_seen(new_seen)
+    # Gesehene nur speichern wenn wir NICHT im notify_all Modus sind.
+    # Das verhindert, dass eine manuelle Suche spätere Hintergrund-Suchen "stummschaltet".
+    if not notify_all:
+        _save_seen(new_seen)
 
     log.info("Marketplace '%s': %d gesamt, %d neu", query, len(all_results), len(new_results))
     return {
