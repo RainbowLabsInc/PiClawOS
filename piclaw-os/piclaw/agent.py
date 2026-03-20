@@ -438,7 +438,8 @@ class Agent:
                      "einen", "eine", "ein", "mir", "dem", "der", "die", "das",
                      "rosengarten", "hamburg", "berlin", "münchen", "köln",
                      "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig",
-                     "schnäppchen", "angebot", "angebote", "nach", "einem", "einer", "nähe"]
+                     "schnäppchen", "angebot", "angebote", "nach", "einem", "einer", "nähe",
+                     "nähe von", "in der", "nach einem"]
         for w in stopwords:
             query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
         # .de Suffix entfernen
@@ -624,6 +625,7 @@ class Agent:
 
     async def boot(self):
         """Boot LLM router, memory, heartbeat, and sub-agents."""
+        log.info("PiClaw Agent v0.14.x booting (Marketplace Search Assistant active)...")
         await self.llm.boot()
         self._start_workers()
         self._wire_sa_runner()
