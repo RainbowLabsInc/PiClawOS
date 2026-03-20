@@ -202,11 +202,12 @@ class Agent:
             import re as _re
             # Clean query: remove PLZ, km-radius, platform names
             query = kw.get("query", "")
-            query = _re.sub(r"\b\d{5}\b", " ", query)   # PLZ entfernen
-            query = _re.sub(r"\b\d+\s*km\b", " ", query, flags=_re.IGNORECASE)
-            query = _re.sub(r"(?i)\b(kleinanzeigen\.de|kleinanzeigen|ebay\.de|ebay)\b", " ", query)
-            query = _re.sub(r"\.de\b", " ", query)
-            query = _re.sub(r"\s+", " ", query).strip(" ,.-")
+            query = _re.sub(r"[0-9]{5}", " ", query)
+            query = _re.sub(r"[0-9]+\s*km", " ", query, flags=_re.IGNORECASE)
+            for _plat in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay"]:
+                query = query.replace(_plat, " ").replace(_plat.capitalize(), " ")
+            query = query.replace(".de", " ")
+            query = " ".join(query.split()).strip(" ,.-")
             if not query:
                 query = kw.get("query", "")
             result = await marketplace_search(
