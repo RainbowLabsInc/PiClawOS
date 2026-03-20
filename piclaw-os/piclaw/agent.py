@@ -26,7 +26,7 @@ from piclaw.memory.tools  import build_handlers as build_memory_handlers
 from piclaw.agents        import heartbeat_loop
 from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS
 from piclaw.agents.orchestration import build_handlers as build_agent_handlers
-from piclaw.agents.sa_registry   import SubAgentRegistry
+from piclaw.agents.sa_registry   import SubAgentRegistry, SubAgentDef, INSTALLER_MISSION_TEMPLATE
 from piclaw.agents.runner        import SubAgentRunner
 from piclaw.agents.sa_tools      import TOOL_DEFS as SA_TOOL_DEFS
 from piclaw.agents.sa_tools      import build_handlers as build_sa_handlers
@@ -127,9 +127,17 @@ class Agent:
         from piclaw.tools import network_monitor as net_mon
         _reg(net_mon.TOOL_DEFS, net_mon.build_handlers())
 
+        # Tandem Browser tools (v0.18)
+        from piclaw.tools import tandem as tandem_mod
+        _reg(tandem_mod.TOOL_DEFS, tandem_mod.build_handlers())
+
         # HTTP tool
         from piclaw.tools import http as http_mod
         _reg(http_mod.TOOL_DEFS, http_mod.HANDLERS)
+
+        # Installer tools
+        from piclaw.tools import installer as installer_mod
+        _reg(installer_mod.TOOL_DEFS, installer_mod.build_handlers())
 
         # Home Assistant tools (nur wenn konfiguriert)
         self._ha_client = ha_mod.get_client()
@@ -345,9 +353,37 @@ class Agent:
         self._register_late_tools()
         self._start_workers()  # Ensure workers are running
 
+        # Detect @installer prefix
+        if user_input.strip().startswith("@installer"):
+            request = user_input.strip()[10:].strip()
+            return await self._delegate_to_installer(request)
+
         task = AgentTask(user_input, history, on_token)
         await self._queue.put(task)
         return await task.future
+
+    async def _delegate_to_installer(self, request: str) -> str:
+        """Spawn a privileged InstallerAgent sub-agent."""
+        agent_def = SubAgentDef(
+            name="InstallerAgent",
+            description=f"Installation: {request}",
+            mission=INSTALLER_MISSION_TEMPLATE,
+            tools=["shell", "installer_confirm"],
+            schedule="once",
+            privileged=True,
+            trusted=True,
+            notify=True,
+            created_by="mainagent",
+        )
+        agent_id = self.sa_registry.add(agent_def)
+        if self.sa_runner:
+            await self.sa_runner.start_agent(agent_id)
+            return (
+                f"✅ Installer-Subagent wurde gestartet (ID: {agent_id}).\n"
+                f"Anfrage: {request}\n"
+                "Der Agent wird einen Plan erstellen und dich um Bestätigung bitten."
+            )
+        return "❌ Sub-agent runner not ready."
 
     async def _run_internal(
         self,
