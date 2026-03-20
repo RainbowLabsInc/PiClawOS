@@ -231,7 +231,7 @@ class LLMRegistry:
         nemotron = BackendConfig(
             name="nemotron-nvidia",
             provider="openai",
-            model="nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+            model="nvidia/llama-3.1-nemotron-70b-instruct",
             api_key=api_key,
             base_url="https://integrate.api.nvidia.com/v1",
             tags=["general", "reasoning", "fast", "summarization"],
@@ -239,7 +239,7 @@ class LLMRegistry:
             temperature=0.7,
             timeout=90,
             notes=(
-                "Nemotron Super 49B via NVIDIA NIM – "
+                "Nemotron 70B via NVIDIA NIM – "
                 "zweites Backend für allgemeine Anfragen. "
                 "Modell-ID anpassen falls nicht verfügbar: piclaw llm update nemotron-nvidia"
             ),

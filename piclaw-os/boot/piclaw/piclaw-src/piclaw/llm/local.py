@@ -219,8 +219,8 @@ class LocalBackend(LLMBackend):
 
         if not self.model_path.exists():
             raise FileNotFoundError(
-                f"Local model not found: {self.model_path}\n"
-                "Download with: piclaw model download"
+                f"Lokales KI-Modell nicht gefunden unter: {self.model_path}\n"
+                "Bitte lade das Standard-Modell herunter mit: piclaw model download"
             )
 
         log.info("Loading local model: %s " "(n_ctx=%s, threads=%s)", self.model_path, self.n_ctx, self.n_threads)
