@@ -134,12 +134,23 @@ class LLMRegistry:
         """
         Return enabled backends sorted by tag overlap (descending),
         then priority (descending).
+
+        If tags are empty or no overlap is found (with min_overlap=1),
+        it falls back to all enabled backends sorted by priority.
         """
+        all_enabled = self.list_enabled()
+        if not tags:
+            return all_enabled
+
         results = []
-        for b in self.list_enabled():
+        for b in all_enabled:
             overlap = b.tag_overlap(tags)
             if overlap >= min_overlap:
                 results.append((overlap, b.priority, b))
+
+        if not results and min_overlap == 1:
+            return all_enabled
+
         results.sort(key=lambda x: (x[0], x[1]), reverse=True)
         return [b for _, _, b in results]
 
@@ -220,7 +231,7 @@ class LLMRegistry:
         nemotron = BackendConfig(
             name="nemotron-nvidia",
             provider="openai",
-            model="nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+            model="nvidia/llama-3.1-nemotron-70b-instruct",
             api_key=api_key,
             base_url="https://integrate.api.nvidia.com/v1",
             tags=["general", "reasoning", "fast", "summarization"],
@@ -228,7 +239,7 @@ class LLMRegistry:
             temperature=0.7,
             timeout=90,
             notes=(
-                "Nemotron Super 49B via NVIDIA NIM – "
+                "Nemotron 70B via NVIDIA NIM – "
                 "zweites Backend für allgemeine Anfragen. "
                 "Modell-ID anpassen falls nicht verfügbar: piclaw llm update nemotron-nvidia"
             ),

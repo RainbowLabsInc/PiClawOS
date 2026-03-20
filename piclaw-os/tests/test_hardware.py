@@ -282,11 +282,14 @@ class TestI2CScanFallback:
 
     def test_scan_no_hardware(self):
         """Without smbus2 or i2cdetect, returns error result."""
-        with patch("builtins.__import__", side_effect=ImportError):
-            from piclaw.hardware.i2c_scan import _scan_sync
-            result = _scan_sync(1)
-        # Should not raise, should return an I2CScanResult
+        # Instead of patching __import__ which is dangerous, we patch the functions that use them
+        import piclaw.hardware.i2c_scan as i2c_mod
+        with patch.object(i2c_mod, "_scan_smbus2", side_effect=ImportError):
+            with patch.object(i2c_mod, "_scan_i2cdetect", side_effect=Exception("no tools")):
+                result = i2c_mod._scan_sync(1)
+        # Should not raise, should return an I2CScanResult with error
         assert result.bus == 1
+        assert "No I2C scanning method" in result.error
 
     def test_format_report_empty(self):
         from piclaw.hardware.i2c_scan import format_scan_report, I2CScanResult

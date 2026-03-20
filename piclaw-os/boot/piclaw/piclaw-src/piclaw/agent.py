@@ -179,8 +179,7 @@ class Agent:
         _marketplace_tool = _TD(
             name="marketplace_search",
             description=(
-                "Sucht auf Marktplätzen (Kleinanzeigen.de, eBay.de, Web) nach neuen Inseraten. "
-                "Meldet nur Inserate die seit der letzten Suche neu hinzugekommen sind. "
+                "Sucht auf Marktplätzen (Kleinanzeigen.de, eBay.de, Web) nach Inseraten. "
                 "Beispiel: 'Suche nach Raspberry Pi 5 unter 100€ in Hamburg auf Kleinanzeigen'"
             ),
             parameters={
@@ -193,31 +192,22 @@ class Agent:
                     "location":  {"type": "string",  "description": "Ort oder PLZ (für Kleinanzeigen)"},
                     "max_results": {"type": "integer", "description": "Max. Ergebnisse pro Plattform (default: 10)"},
                     "radius_km": {"type": "integer", "description": "Suchradius in km um den angegebenen Ort (z.B. 20, 50, 100)"},
+                    "notify_all": {"type": "boolean", "description": "True = alle Funde zeigen, False = nur neue Funde (default: True)"},
                 },
                 "required": ["query"],
             },
         )
 
         async def _marketplace_handler(**kw):
-            import re as _re
-            # Clean query: remove PLZ, km-radius, platform names
-            query = kw.get("query", "")
-            query = _re.sub(r"[0-9]{5}", " ", query)
-            query = _re.sub(r"[0-9]+\s*km", " ", query, flags=_re.IGNORECASE)
-            for _plat in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay"]:
-                query = query.replace(_plat, " ").replace(_plat.capitalize(), " ")
-            query = query.replace(".de", " ")
-            query = " ".join(query.split()).strip(" ,.-")
-            if not query:
-                query = kw.get("query", "")
+            # Query cleaning now happens internally in marketplace_search()
             result = await marketplace_search(
-                query=query,
+                query=kw.get("query", ""),
                 platforms=kw.get("platforms", ["kleinanzeigen"]),
                 max_price=kw.get("max_price"),
                 location=kw.get("location"),
                 radius_km=kw.get("radius_km"),
                 max_results=int(kw.get("max_results", 10)),
-                notify_all=True,
+                notify_all=kw.get("notify_all", True),
             )
             return format_results(result)
 
@@ -283,7 +273,7 @@ class Agent:
             # answer questions like "Was hat TempMonitor gestern gemeldet?"
             handler = self._handlers.get("memory_log")
             if handler:
-                result = handler(entry=entry)
+                result = handler(content=entry)
                 if asyncio.iscoroutine(result):
                     await result
 
@@ -380,6 +370,8 @@ class Agent:
         # Detect @installer prefix
         if user_input.strip().startswith("@installer"):
             request = user_input.strip()[10:].strip()
+            from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+            INSTALLER_LOCK_FILE.write_text(request, encoding="utf-8")
             return await self._delegate_to_installer(request)
 
         task = AgentTask(user_input, history, on_token)
@@ -389,11 +381,16 @@ class Agent:
     def _detect_marketplace_intent(self, text: str) -> dict | None:
         """Detect marketplace search intent and extract parameters directly."""
         import re
-        t = text.lower()
+        # Vorab-Bereinigung von Chat-Präfixen wie "[you]"
+        text_clean = re.sub(r"\[.*?\]", " ", text)
+        t = text_clean.lower()
+
         search_kw = ["suche", "finde", "such", "find", "schau", "schaue",
-                     "durchsuche", "zeig", "liste", "search", "look for"]
+                     "durchsuche", "zeig", "liste", "search", "look for",
+                     "was kostet", "preis für", "gibt es"]
         market_kw = ["kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
-                     "marktplatz", "gebraucht", "preis", "euro"]
+                     "marktplatz", "gebraucht", "preis", "euro", "schnäppchen",
+                     "angebot", "nähe", "umkreis", "plz", "ort"]
         if not any(k in t for k in search_kw):
             return None
         if not any(k in t for k in market_kw):
@@ -411,7 +408,7 @@ class Agent:
             platforms = ["kleinanzeigen", "ebay"]
 
         # PLZ (5 Ziffern)
-        plz_match = re.search(r"\b(\d{5})\b", text)
+        plz_match = re.search(r"\b(\d{5})\b", text_clean)
         location = plz_match.group(1) if plz_match else None
 
         # Radius
@@ -425,11 +422,11 @@ class Agent:
             max_price = float(next(g for g in price_match.groups() if g))
 
         # Query bereinigen
-        query = text
+        query = text_clean
         # Plattform-Phrasen entfernen
         for phrase in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay",
-                       "zeige mir", "zeig mir"]:
-            query = re.sub(re.escape(phrase), " ", query, flags=re.IGNORECASE)
+                       "zeige mir", "zeig mir", "was kostet", "preis für", "gibt es", "auf"]:
+            query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
         # PLZ entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
@@ -440,7 +437,8 @@ class Agent:
                      "finde", "such", "durchsuche", "liste", "umkreis", "radius",
                      "einen", "eine", "ein", "mir", "dem", "der", "die", "das",
                      "rosengarten", "hamburg", "berlin", "münchen", "köln",
-                     "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig"]
+                     "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig",
+                     "schnäppchen", "angebot", "angebote", "nach", "einem", "einer", "nähe"]
         for w in stopwords:
             query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
         # .de Suffix entfernen
@@ -461,6 +459,11 @@ class Agent:
 
     async def _delegate_to_installer(self, request: str) -> str:
         """Spawn a privileged InstallerAgent sub-agent."""
+        from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+        try:
+            INSTALLER_LOCK_FILE.write_text(request, encoding="utf-8")
+        except Exception as e:
+            log.warning("Could not create installer lock: %s", e)
         agent_def = SubAgentDef(
             name="InstallerAgent",
             description=f"Installation: {request}",
@@ -479,6 +482,28 @@ class Agent:
                 f"✅ Installer-Subagent wurde gestartet (ID: {agent_id}).\n"
                 f"Anfrage: {request}\n"
                 "Der Agent wird einen Plan erstellen und dich um Bestätigung bitten."
+            )
+        return "❌ Sub-agent runner not ready."
+
+    async def _delegate_to_search_assistant(self, request: str) -> str:
+        """Spawn a SearchAssistant sub-agent."""
+        from piclaw.agents.sa_registry import SEARCH_ASSISTANT_MISSION_TEMPLATE
+        agent_def = SubAgentDef(
+            name="SearchAssistant",
+            description=f"Marketplace Search: {request}",
+            mission=SEARCH_ASSISTANT_MISSION_TEMPLATE,
+            tools=["marketplace_search"],
+            schedule="once",
+            notify=True,
+            created_by="mainagent",
+        )
+        agent_id = self.sa_registry.add(agent_def)
+        if self.sa_runner:
+            await self.sa_runner.start_agent(agent_id)
+            return (
+                f"✅ SearchAssistant-Subagent gestartet (ID: {agent_id}).\n"
+                f"Anfrage: {request}\n"
+                "Er wird nun nach Inseraten suchen und sich bei dir melden."
             )
         return "❌ Sub-agent runner not ready."
 
@@ -532,37 +557,9 @@ class Agent:
 
         if mp_kwargs:
             log.info("Marketplace intent detected: %s", mp_kwargs)
-            # Direct file write for debugging (bypasses uvicorn logging override)
-            try:
-                with open("/tmp/piclaw_marketplace_debug.txt", "a") as _dbgf:
-                    import time
-                    _dbgf.write(f"{time.strftime('%H:%M:%S')} SHORTCUT CALLED: {mp_kwargs}\n")
-            except Exception: pass
-            try:
-                from piclaw.tools.marketplace import marketplace_search, format_results
-                import traceback as _tb
-                log.info("Calling marketplace_search with query=%r location=%r radius=%r",
-                         mp_kwargs.get("query"), mp_kwargs.get("location"), mp_kwargs.get("radius_km"))
-                result = await marketplace_search(
-                    query=mp_kwargs.get("query", ""),
-                    platforms=mp_kwargs.get("platforms", ["kleinanzeigen"]),
-                    location=mp_kwargs.get("location"),
-                    max_price=mp_kwargs.get("max_price"),
-                    radius_km=mp_kwargs.get("radius_km"),
-                    notify_all=True,
-                    max_results=10,
-                )
-                log.info("Marketplace result: %d total, %d new", result.get("total_found", 0), result.get("new_count", 0))
-                formatted = format_results(result)
-                create_background_task(self.memory.after_turn(user_input, formatted))
-                return formatted
-            except Exception as e:
-                import traceback as _tb
-                log.error("Marketplace shortcut FAILED: %s\n%s", e, _tb.format_exc())
-                try:
-                    with open("/tmp/piclaw_marketplace_debug.txt", "a") as _dbgf:
-                        _dbgf.write(f"SHORTCUT FAILED: {e}\n{_tb.format_exc()}\n")
-                except Exception: pass
+            # Direct delegation to SearchAssistant (it will call the tool)
+            # to avoid double-searching and inconsistent query cleaning.
+            return await self._delegate_to_search_assistant(user_input)
 
         # Memory-Recall: kurzer Timeout damit Agent immer antwortet
         try:
