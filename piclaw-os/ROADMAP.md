@@ -51,7 +51,7 @@ Aktueller Stand: Grundsystem läuft, lokales LLM (Gemma 2B) antwortet, Telegram 
 - [ ] Abuse-Report Generator
 
 ### v0.18 – Tandem Browser (Autonomes Browsing)
-- [ ] **Tandem** als autonomes Browser-Tool einbinden: https://github.com/hydro13/tandem-browser
+- [~] **IN ARBEIT** – Integration läuft: https://github.com/hydro13/tandem-browser
 - [ ] Neues Tool `browser_open(url)`, `browser_click(selector)`, `browser_read()`, `browser_screenshot()`
 - [ ] Agent kann damit selbstständig Webseiten aufrufen, ausfüllen und auslesen
 - [ ] Einsatzbeispiele: Preisvergleiche, Login-Flows, Formulare, Web-Scraping ohne API
