@@ -372,70 +372,75 @@ class Agent:
         return await task.future
 
     def _detect_marketplace_intent(self, text: str) -> dict | None:
-        """Detect marketplace search intent and extract parameters directly.
-        Returns kwargs for marketplace_search or None if not a marketplace request."""
+        """Detect marketplace search intent and extract parameters directly."""
         import re
         t = text.lower()
-        # Keywords that indicate a marketplace search
-        market_kw = ["kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
-                     "verkaufen", "suche", "finde", "marktplatz", "gebraucht",
-                     "neu ", "preis", "euro", "€"]
         search_kw = ["suche", "finde", "such", "find", "schau", "schaue",
                      "durchsuche", "zeig", "liste", "search", "look for"]
+        market_kw = ["kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
+                     "marktplatz", "gebraucht", "preis", "euro"]
         if not any(k in t for k in search_kw):
             return None
-        if not any(k in t for k in market_kw + ["kleinanzeigen", "ebay", "markt"]):
+        if not any(k in t for k in market_kw):
             return None
-        # Extract platform — be specific if user named one
+
+        # Platform
         platforms = []
-        if any(k in t for k in ["kleinanzeigen", "kleinanzeigen.de", "ebay kleinanzeigen"]):
+        if any(k in t for k in ["kleinanzeigen", "kleinanzeigen.de"]):
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
         if "web" in t or "internet" in t:
             platforms.append("web")
-        # Default: kleinanzeigen only (most common use case, no web noise)
         if not platforms:
             platforms = ["kleinanzeigen", "ebay"]
-        # Extract PLZ (5 digits)
-        plz = re.search(r'(\d{5})', text)
-        location = plz.group(1) if plz else None
-        # Extract radius in km
-        radius = re.search(r'(\d+)\s*km', t)
-        radius_km = int(radius.group(1)) if radius else None
 
-        # Extract max_price
-        price = re.search(r'unter\s+(\d+)\s*€|max\s+(\d+)\s*€|bis\s+(\d+)\s*€', t)
+        # PLZ (5 Ziffern)
+        plz_match = re.search(r"\b(\d{5})\b", text)
+        location = plz_match.group(1) if plz_match else None
+
+        # Radius
+        radius_match = re.search(r"(\d+)\s*km", t)
+        radius_km = int(radius_match.group(1)) if radius_match else None
+
+        # Preis
+        price_match = re.search(r"unter\s+(\d+)\s*|max\s+(\d+)\s*|bis\s+(\d+)\s*", t)
         max_price = None
-        if price:
-            max_price = float(next(g for g in price.groups() if g))
-        # Extract query — remove location/price/platform words
+        if price_match:
+            max_price = float(next(g for g in price_match.groups() if g))
+
+        # Query bereinigen
         query = text
-        for stop in ["auf kleinanzeigen", "auf ebay", "auf marktplatz", "im umkreis",
-                     "in umkreis", f"um {plz.group(1)}" if plz else "",
-                     "rosengarten", "hamburg", "berlin", "münchen"]:
-            if stop: query = re.sub(re.escape(stop), "", query, flags=re.IGNORECASE)
-        # Clean up query - remove all location/radius/platform noise
-        # Remove platform/location/action phrases first (order matters)
+        # Plattform-Phrasen entfernen
         for phrase in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay",
                        "zeige mir", "zeig mir"]:
-            query = re.sub(re.escape(phrase), ' ', query, flags=re.IGNORECASE)
-        # Remove standalone words
-        for noise in ["auf", "im", "in", "um", "von", "bis", "bitte", "suche",
-                      "finde", "such", "durchsuche", "liste", "umkreis", "radius",
-                      "km", "einen", "eine", "ein", "mir", "dem", "der", "die"]:
-            query = re.sub(r'(?i)(?<![\w])' + re.escape(noise) + r'(?![\w])', ' ', query)
-        # Remove .de standalone
-        query = re.sub(r'\.de\b', '', query, flags=re.IGNORECASE)
-        # Remove PLZ and city name leftovers
-        if plz:
-            query = query.replace(plz.group(1), "")
-        # Remove anything that looks like NNNkm or radius numbers
-        query = re.sub(r'\b\d+\s*km\b', '', query, flags=re.IGNORECASE)
-        query = re.sub(r'\s+', ' ', query).strip(" ,.-")
+            query = re.sub(re.escape(phrase), " ", query, flags=re.IGNORECASE)
+        # PLZ entfernen
+        if plz_match:
+            query = query.replace(plz_match.group(1), " ")
+        # Radius-Angaben entfernen (z.B. "20km", "20 km")
+        query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
+        # Stoppwörter entfernen
+        stopwords = ["auf", "im", "in", "um", "von", "bis", "bitte", "suche",
+                     "finde", "such", "durchsuche", "liste", "umkreis", "radius",
+                     "einen", "eine", "ein", "mir", "dem", "der", "die", "das"]
+        for w in stopwords:
+            query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
+        # .de Suffix entfernen
+        query = re.sub(r"\.de\b", " ", query, flags=re.IGNORECASE)
+        # Mehrfache Leerzeichen
+        query = re.sub(r"\s+", " ", query).strip(" ,.-")
+
         if len(query) < 3:
             return None
-        return {"query": query, "platforms": platforms, "location": location, "max_price": max_price, "radius_km": radius_km}
+        return {
+            "query": query,
+            "platforms": platforms,
+            "location": location,
+            "max_price": max_price,
+            "radius_km": radius_km,
+        }
+
 
     async def _delegate_to_installer(self, request: str) -> str:
         """Spawn a privileged InstallerAgent sub-agent."""
