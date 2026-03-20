@@ -86,7 +86,18 @@ class SubAgentRunner:
             name=f"subagent-{agent.id}-{agent.name}",
         )
         self._tasks[agent.id] = task
-        task.add_done_callback(lambda t: self._on_done(agent.id, t))
+
+        # Cleanup callback for installer locks
+        def _cleanup(t):
+            self._on_done(agent.id, t)
+            if agent.name == "InstallerAgent":
+                # Important for tests: import inside the closure to pick up monkeypatched version
+                from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+                if INSTALLER_LOCK_FILE.exists():
+                    INSTALLER_LOCK_FILE.unlink()
+                    log.info("Installer lock file removed.")
+
+        task.add_done_callback(_cleanup)
         log.info("Sub-agent '%s' started (schedule=%s)", agent.name, agent.schedule)
         return f"Sub-agent '{agent.name}' started."
 

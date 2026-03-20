@@ -134,12 +134,23 @@ class LLMRegistry:
         """
         Return enabled backends sorted by tag overlap (descending),
         then priority (descending).
+
+        If tags are empty or no overlap is found (with min_overlap=1),
+        it falls back to all enabled backends sorted by priority.
         """
+        all_enabled = self.list_enabled()
+        if not tags:
+            return all_enabled
+
         results = []
-        for b in self.list_enabled():
+        for b in all_enabled:
             overlap = b.tag_overlap(tags)
             if overlap >= min_overlap:
                 results.append((overlap, b.priority, b))
+
+        if not results and min_overlap == 1:
+            return all_enabled
+
         results.sort(key=lambda x: (x[0], x[1]), reverse=True)
         return [b for _, _, b in results]
 

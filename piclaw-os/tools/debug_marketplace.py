@@ -56,7 +56,7 @@ try:
     checks = {
         "notify_all": "notify_all im Handler vorhanden",
         "radius_km": "radius_km im Handler vorhanden",
-        "replace": "Query-Bereinigung im Handler vorhanden",
+        "marketplace_search": "Marketplace-Tool registriert",
     }
     for code, label in checks.items():
         if code in src:
