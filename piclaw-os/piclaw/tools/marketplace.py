@@ -341,7 +341,7 @@ async def marketplace_search(
     new_seen = set(seen)
     for item in all_results:
         uid = _make_id(item["platform"], item["id"])
-        if uid not in seen:
+        if uid not in new_seen:
             new_results.append(item)
             new_seen.add(uid)
 
@@ -403,14 +403,25 @@ def format_results_telegram(results: dict) -> str:
     if not new:
         return f"🔍 Keine neuen Inserate für *{results.get('query', '')}*."
 
-    lines = [f"🛒 *{len(new)} neue Inserate* für _{results.get('query', '')}_\n"]
-    for item in new[:10]:
-        emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐"}.get(item["platform"], "🔗")
-        price = f" · {item['price_text']}" if item.get("price_text") else ""
-        loc   = f" · {item['location']}" if item.get("location") else ""
-        # Escape markdown special chars in title
-        title = item["title"][:60].replace("[", "(").replace("]", ")")
-        lines.append(f"{emoji} [{title}]({item['url']}){price}{loc}")
+    lines = [
+        f"🛒 *{len(new)} neue Inserate* für _{results['query']}_\n"
+    ]
+    if results.get("max_price"):
+        lines[0] += f"(max. {results['max_price']:.0f} €)"
+
+    for item in new[:10]:  # Max 10 pro Nachricht
+        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐"}.get(
+            item["platform"], "🔗"
+        )
+        # Markdown-Titel bereinigen (Klammern eskapen)
+        safe_title = item['title'].replace("[", "\\[").replace("]", "\\]")[:60]
+
+        price_str = f" · {item['price_text']}" if item.get("price_text") else ""
+        loc_str   = f" · {item['location']}" if item.get("location") else ""
+        lines.append(
+            f"{platform_emoji} [{safe_title}]({item['url']})"
+            f"{price_str}{loc_str}"
+        )
 
     if len(new) > 10:
         lines.append(f"\n_... und {len(new) - 10} weitere_")
