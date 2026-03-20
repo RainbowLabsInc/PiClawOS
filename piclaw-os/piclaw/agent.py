@@ -370,6 +370,8 @@ class Agent:
         # Detect @installer prefix
         if user_input.strip().startswith("@installer"):
             request = user_input.strip()[10:].strip()
+            from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+            INSTALLER_LOCK_FILE.write_text(request, encoding="utf-8")
             return await self._delegate_to_installer(request)
 
         task = AgentTask(user_input, history, on_token)
@@ -457,6 +459,11 @@ class Agent:
 
     async def _delegate_to_installer(self, request: str) -> str:
         """Spawn a privileged InstallerAgent sub-agent."""
+        from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+        try:
+            INSTALLER_LOCK_FILE.write_text(request, encoding="utf-8")
+        except Exception as e:
+            log.warning("Could not create installer lock: %s", e)
         agent_def = SubAgentDef(
             name="InstallerAgent",
             description=f"Installation: {request}",

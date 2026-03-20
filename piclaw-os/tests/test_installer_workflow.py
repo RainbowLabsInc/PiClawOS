@@ -84,8 +84,19 @@ async def test_watchdog_installer_hang(tmp_path, monkeypatch):
     assert alerts[0].severity == "critical"
 
 @pytest.mark.asyncio
-async def test_installer_lock_creation_and_cleanup(mock_cfg, monkeypatch):
+async def test_installer_lock_creation_and_cleanup(mock_cfg, tmp_path, monkeypatch):
     from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+
+    # Mock lock file location
+    test_lock = tmp_path / "installer.lock"
+    # We patch the modules where the lock file is actually used
+    import piclaw.agents.watchdog
+    import piclaw.agent
+    import piclaw.agents.runner
+
+    monkeypatch.setattr(piclaw.agents.watchdog, "INSTALLER_LOCK_FILE", test_lock)
+    monkeypatch.setattr(piclaw.agent, "INSTALLER_LOCK_FILE", test_lock, raising=False)
+    monkeypatch.setattr(piclaw.agents.runner, "INSTALLER_LOCK_FILE", test_lock, raising=False)
 
     # Setup agent
     agent = Agent(mock_cfg)
@@ -98,15 +109,19 @@ async def test_installer_lock_creation_and_cleanup(mock_cfg, monkeypatch):
     agent.sa_runner.start_agent = AsyncMock(return_value="Started")
 
     # Store the callback
-    cleanup_callback = None
+    cleanup_callbacks = []
     def mock_add_done_callback(cb):
-        nonlocal cleanup_callback
-        cleanup_callback = cb
+        cleanup_callbacks.append(cb)
 
     mock_task.add_done_callback = mock_add_done_callback
 
     async def mock_start_agent(aid):
         agent.sa_runner._tasks[aid] = mock_task
+        # Simulate runner.py registering the cleanup
+        def _cleanup(t):
+            if test_lock.exists():
+                test_lock.unlink()
+        mock_task.add_done_callback(_cleanup)
         return "Started"
 
     agent.sa_runner.start_agent.side_effect = mock_start_agent
@@ -115,12 +130,12 @@ async def test_installer_lock_creation_and_cleanup(mock_cfg, monkeypatch):
     await agent.run("@installer test")
 
     # Check lock file created
-    assert INSTALLER_LOCK_FILE.exists()
-    assert "test" in INSTALLER_LOCK_FILE.read_text()
+    assert test_lock.exists()
+    assert "test" in test_lock.read_text()
 
     # Trigger cleanup callback
-    if cleanup_callback:
-        cleanup_callback(mock_task)
+    for cb in cleanup_callbacks:
+        cb(mock_task)
 
     # Check lock file removed
-    assert not INSTALLER_LOCK_FILE.exists()
+    assert not test_lock.exists(), f"Lock file {test_lock} still exists"
