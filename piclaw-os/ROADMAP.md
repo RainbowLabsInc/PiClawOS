@@ -27,7 +27,15 @@ Aktueller Stand: Grundsystem läuft, lokales LLM (Gemma 2B) antwortet, Telegram 
 - [x] Proaktive Routinen für Netzwerk-Checks
 - [x] Neue Geräte im LAN → Telegram-Alert
 
-### v0.16 – Notfall-Shutdown
+### v0.16 – AgentMail – E-Mail Inbox für Dameon
+- [ ] **AgentMail** Integration: https://www.agentmail.to
+- [ ] Dameon bekommt eigene E-Mail-Adresse (z.B. dameon@agentmail.to)
+- [ ] Tools: `email_send()`, `email_list()`, `email_read()`, `email_reply()`
+- [ ] Einrichtbar im Installer (Wizard-Schritt: API-Key + Inbox-Name)
+- [ ] Proaktiv: eingehende E-Mails → Benachrichtigung via Telegram
+- [ ] Einsatz: Bestellbestätigungen empfangen, Formulare ausfüllen, Alerts weiterleiten
+
+### v0.17 – Notfall-Shutdown
 - [ ] Schaltbare Steckdose am Modem (Shelly Plug S oder TP-Link Tapo P110)
 - [ ] HA-Integration bereits vorhanden (ha_turn_off)
 - [ ] Neues Tool `emergency_network_off()` mit Telegram-Bestätigung
