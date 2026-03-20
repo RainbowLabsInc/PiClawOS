@@ -29,6 +29,14 @@ Aktueller Stand: Kimi K2 + Nemotron via NVIDIA NIM, Queue-System, Netzwerk-Monit
 
 ## 🚀 Geplante Features
 
+### v0.15a – Installer-Tool (Dameon installiert Software autonom)
+- [ ] Neues Tool `install_package(source, name)` mit Whitelist vertrauenswürdiger Quellen
+- [ ] Unterstützte Quellen: GitHub-Repos (Whitelist), pip, apt
+- [ ] Jeder Schritt wird geloggt und dem User angezeigt
+- [ ] Immer Bestätigung vom User bevor ausgeführt wird
+- [ ] Watchdog überwacht den Installationsprozess
+- [ ] Beispiel: "Installiere Tandem aus github.com/hydro13/tandem-browser"
+
 ### v0.16 – AgentMail – E-Mail Inbox für Dameon
 - [ ] **AgentMail** Integration: https://www.agentmail.to
 - [ ] Dameon bekommt eigene E-Mail-Adresse (z.B. dameon@agentmail.to)
