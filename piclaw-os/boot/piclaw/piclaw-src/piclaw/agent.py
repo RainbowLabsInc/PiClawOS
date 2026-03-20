@@ -400,6 +400,10 @@ class Agent:
         # Extract PLZ (5 digits)
         plz = re.search(r'(\d{5})', text)
         location = plz.group(1) if plz else None
+        # Extract radius in km
+        radius = re.search(r'(\d+)\s*km', t)
+        radius_km = int(radius.group(1)) if radius else None
+
         # Extract max_price
         price = re.search(r'unter\s+(\d+)\s*€|max\s+(\d+)\s*€|bis\s+(\d+)\s*€', t)
         max_price = None
@@ -411,12 +415,19 @@ class Agent:
                      "in umkreis", f"um {plz.group(1)}" if plz else "",
                      "rosengarten", "hamburg", "berlin", "münchen"]:
             if stop: query = re.sub(re.escape(stop), "", query, flags=re.IGNORECASE)
-        # Clean up query
-        query = re.sub(r'(?i)(bitte\s+)?(suche|finde|such|durchsuche|zeig mir|liste)\s+', "", query).strip()
-        query = re.sub(r'\s+', ' ', query).strip(" ,.")
+        # Clean up query - remove all location/radius/platform noise
+        for noise in ["kleinanzeigen.de", "kleinanzeigen", "ebay.de", "ebay",
+                      "auf", "im", "in", "um", "von", "bis", "bitte",
+                      "suche", "finde", "such", "durchsuche", "zeige mir", "zeig mir", "liste",
+                      "umkreis", "radius", "km", "einen", "eine", "ein", "mir"]:
+            query = re.sub(r'(?i)\b' + re.escape(noise) + r'\b', ' ', query)
+        # Remove PLZ leftovers
+        if plz:
+            query = query.replace(plz.group(1), "")
+        query = re.sub(r'\s+', ' ', query).strip(" ,.-")
         if len(query) < 3:
             return None
-        return {"query": query, "platforms": platforms, "location": location, "max_price": max_price}
+        return {"query": query, "platforms": platforms, "location": location, "max_price": max_price, "radius_km": radius_km}
 
     async def _delegate_to_installer(self, request: str) -> str:
         """Spawn a privileged InstallerAgent sub-agent."""
@@ -466,7 +477,7 @@ class Agent:
             log.info("Marketplace intent detected, calling tool directly: %s", mp_kwargs)
             try:
                 from piclaw.tools.marketplace import marketplace_search, format_results
-                result = await marketplace_search(**mp_kwargs)
+                result = await marketplace_search(**mp_kwargs, notify_all=True)
                 formatted = format_results(result)
                 # Let the LLM wrap the results in a natural response
                 summary_prompt = (
