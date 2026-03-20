@@ -192,18 +192,31 @@ class Agent:
                     "max_price": {"type": "number",  "description": "Maximaler Preis in Euro"},
                     "location":  {"type": "string",  "description": "Ort oder PLZ (für Kleinanzeigen)"},
                     "max_results": {"type": "integer", "description": "Max. Ergebnisse pro Plattform (default: 10)"},
+                    "radius_km": {"type": "integer", "description": "Suchradius in km um den angegebenen Ort (z.B. 20, 50, 100)"},
                 },
                 "required": ["query"],
             },
         )
 
         async def _marketplace_handler(**kw):
+            import re as _re
+            # Clean query: remove PLZ, km-radius, platform names
+            query = kw.get("query", "")
+            query = _re.sub(r"\b\d{5}\b", " ", query)   # PLZ entfernen
+            query = _re.sub(r"\b\d+\s*km\b", " ", query, flags=_re.IGNORECASE)
+            query = _re.sub(r"(?i)\b(kleinanzeigen\.de|kleinanzeigen|ebay\.de|ebay)\b", " ", query)
+            query = _re.sub(r"\.de\b", " ", query)
+            query = _re.sub(r"\s+", " ", query).strip(" ,.-")
+            if not query:
+                query = kw.get("query", "")
             result = await marketplace_search(
-                query=kw.get("query", ""),
-                platforms=kw.get("platforms", ["kleinanzeigen", "ebay", "web"]),
+                query=query,
+                platforms=kw.get("platforms", ["kleinanzeigen"]),
                 max_price=kw.get("max_price"),
                 location=kw.get("location"),
+                radius_km=kw.get("radius_km"),
                 max_results=int(kw.get("max_results", 10)),
+                notify_all=True,
             )
             return format_results(result)
 
