@@ -90,10 +90,11 @@ def test_db_stats(db):
 
 
 def test_db_query_range(db):
+    # Alle Punkte mit resolution=0 abfragen, um alle Rohwerte zu bekommen
     for i in range(5):
         db.write(MetricPoint("cpu_percent", float(i * 10)))
         db.write(MetricPoint("ram_percent", float(i * 5)))
-    result = db.query_range(["cpu_percent", "ram_percent"], since_s=60)
+    result = db.query_range(["cpu_percent", "ram_percent"], since_s=60, resolution=0)
     assert "cpu_percent" in result
     assert "ram_percent" in result
     assert len(result["cpu_percent"]) == 5

@@ -78,7 +78,7 @@ class ThermalStatus:
             "temp_c":        self.temp_c,
             "state":         self.state.value,
             "local_ok":      self.local_ok,
-            "cloud_pre":    self.cloud_pref,
+            "cloud_pref":    self.cloud_pref,
             "message":       self.message,
             "throttle":      self.throttle_active,
             "under_voltage": self.under_voltage,
