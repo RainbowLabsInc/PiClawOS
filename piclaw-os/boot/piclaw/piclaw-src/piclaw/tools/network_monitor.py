@@ -54,6 +54,17 @@ TOOL_DEFS = [
         name="check_new_devices",
         description="Scans the network and returns only devices not seen before.",
         parameters={"type": "object", "properties": {}}
+    ),
+    ToolDefinition(
+        name="ping_host",
+        description="Pings a host to check if it is online.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "host": {"type": "string", "description": "Hostname or IP address to ping."}
+            },
+            "required": ["host"]
+        }
     )
 ]
 
@@ -171,4 +182,5 @@ def build_handlers():
         "network_scan": lambda range="": scan_devices(range),
         "port_scan": lambda ip, fast=True: port_scan(ip, fast),
         "check_new_devices": lambda: check_new_devices(),
+        "ping_host": lambda host: ping_host(host),
     }

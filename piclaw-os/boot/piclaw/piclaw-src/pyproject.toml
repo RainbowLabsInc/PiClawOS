@@ -22,6 +22,8 @@ dependencies = [
     "threema.gateway[e2e]>=8.0",
     # MQTT adapter (optional - v0.10)
     "aiomqtt>=2.0; extra == 'mqtt'",
+    # Email for AI Agents
+    "agentmail>=0.4.0",
     # Camera (optional - v0.10, installed separately)
     # libcamera-apps via apt, fswebcam via apt
     # smbus2 already in hardware deps
