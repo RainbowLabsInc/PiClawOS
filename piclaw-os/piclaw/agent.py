@@ -386,11 +386,17 @@ class Agent:
             return None
         if not any(k in t for k in market_kw + ["kleinanzeigen", "ebay", "markt"]):
             return None
-        # Extract platform
+        # Extract platform — be specific if user named one
         platforms = []
-        if "kleinanzeigen" in t: platforms.append("kleinanzeigen")
-        if "ebay" in t: platforms.append("ebay")
-        if not platforms: platforms = ["kleinanzeigen", "ebay", "web"]
+        if any(k in t for k in ["kleinanzeigen", "kleinanzeigen.de", "ebay kleinanzeigen"]):
+            platforms.append("kleinanzeigen")
+        if "ebay" in t and "kleinanzeigen" not in t:
+            platforms.append("ebay")
+        if "web" in t or "internet" in t:
+            platforms.append("web")
+        # Default: kleinanzeigen only (most common use case, no web noise)
+        if not platforms:
+            platforms = ["kleinanzeigen", "ebay"]
         # Extract PLZ (5 digits)
         plz = re.search(r'(\d{5})', text)
         location = plz.group(1) if plz else None

@@ -352,33 +352,59 @@ async def marketplace_search(
     }
 
 
-def format_results(results: dict) -> str:
-    """Formatiert Ergebnisse als lesbare Telegram-Nachricht."""
+def format_results(results: dict, mode: str = "text") -> str:
+    """Formatiert Ergebnisse. mode='text' für Terminal, 'telegram' für Telegram-Markdown."""
+    new = results.get("new", [])
+    query = results.get("query", "")
+    location = results.get("location", "")
+    max_price = results.get("max_price")
+
+    if not new:
+        return f"Keine neuen Inserate gefunden für '{query}'."
+
+    loc_str = f" in {location}" if location else ""
+    price_str = f" (max. {max_price:.0f} €)" if max_price else ""
+    header = f"🛒 {len(new)} Inserate für '{query}'{loc_str}{price_str}\n"
+    header += "─" * 50 + "\n"
+
+    lines = [header]
+    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web"}
+    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐"}
+
+    for i, item in enumerate(new[:10], 1):
+        emoji = platform_emoji.get(item["platform"], "🔗")
+        plat  = platform_label.get(item["platform"], item["platform"])
+        price = f"  💶 {item['price_text']}" if item.get("price_text") else ""
+        loc   = f"  📍 {item['location']}" if item.get("location") else ""
+        url   = item.get("url", "")
+
+        lines.append(f"{i}. {emoji} [{plat}] {item['title'][:70]}")
+        if price: lines.append(f"   {price.strip()}")
+        if loc:   lines.append(f"   {loc.strip()}")
+        if url:   lines.append(f"   🔗 {url}")
+        lines.append("")
+
+    if len(new) > 10:
+        lines.append(f"... und {len(new) - 10} weitere Inserate.")
+
+    return "\n".join(lines)
+
+
+def format_results_telegram(results: dict) -> str:
+    """Formatiert Ergebnisse als Telegram-Markdown-Nachricht."""
     new = results.get("new", [])
     if not new:
-        return (
-            f"🔍 Suche nach *{results['query']}*\n"
-            f"Keine neuen Inserate gefunden."
-        )
+        return f"🔍 Keine neuen Inserate für *{results.get('query', '')}*."
 
-    lines = [
-        f"🛒 *{len(new)} neue Inserate* für _{results['query']}_\n"
-    ]
-    if results.get("max_price"):
-        lines[0] += f"(max. {results['max_price']:.0f} €)"
-
-    for item in new[:10]:  # Max 10 pro Nachricht
-        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐"}.get(
-            item["platform"], "🔗"
-        )
-        price_str = f" · {item['price_text']}" if item.get("price_text") else ""
-        loc_str   = f" · {item['location']}" if item.get("location") else ""
-        lines.append(
-            f"{platform_emoji} [{item['title'][:60]}]({item['url']})"
-            f"{price_str}{loc_str}"
-        )
+    lines = [f"🛒 *{len(new)} neue Inserate* für _{results.get('query', '')}_\n"]
+    for item in new[:10]:
+        emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐"}.get(item["platform"], "🔗")
+        price = f" · {item['price_text']}" if item.get("price_text") else ""
+        loc   = f" · {item['location']}" if item.get("location") else ""
+        # Escape markdown special chars in title
+        title = item["title"][:60].replace("[", "\[").replace("]", "\]")
+        lines.append(f"{emoji} [{title}]({item['url']}){price}{loc}")
 
     if len(new) > 10:
         lines.append(f"\n_... und {len(new) - 10} weitere_")
-
     return "\n".join(lines)
