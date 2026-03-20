@@ -273,7 +273,7 @@ class Agent:
             # answer questions like "Was hat TempMonitor gestern gemeldet?"
             handler = self._handlers.get("memory_log")
             if handler:
-                result = handler(entry=entry)
+                result = handler(content=entry)
                 if asyncio.iscoroutine(result):
                     await result
 
@@ -387,10 +387,10 @@ class Agent:
 
         search_kw = ["suche", "finde", "such", "find", "schau", "schaue",
                      "durchsuche", "zeig", "liste", "search", "look for",
-                     "was kostet", "preis für", "gibt es"]
+                     "was kostet", "preis für", "gibt es", "nach", "inserate"]
         market_kw = ["kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
                      "marktplatz", "gebraucht", "preis", "euro", "schnäppchen",
-                     "angebot"]
+                     "angebot", "angeboten", "anzeigen"]
         if not any(k in t for k in search_kw):
             return None
         if not any(k in t for k in market_kw):

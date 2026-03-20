@@ -91,7 +91,8 @@ def _clean_query(query: str) -> str:
              "zeig", "liste", "was kostet", "preis für", "gibt es", "schnäppchen",
              "angebot", "umkreis", "radius", "einen", "eine", "ein", "mir",
              "dem", "der", "die", "das", "bitte", "im", "in", "um", "von", "bis",
-             "nähe", "für", "unter", "euro", "rosengarten"]
+             "nähe", "für", "unter", "euro", "rosengarten", "hamburg", "berlin",
+             "nach", "mit", "den", "auf", "bitte", "mal"]
 
     for word in noise:
         q = re.sub(r"(?i)\b" + re.escape(word) + r"\b", " ", q)
