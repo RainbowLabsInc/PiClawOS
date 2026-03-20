@@ -423,7 +423,9 @@ class Agent:
         # Stoppwörter entfernen
         stopwords = ["auf", "im", "in", "um", "von", "bis", "bitte", "suche",
                      "finde", "such", "durchsuche", "liste", "umkreis", "radius",
-                     "einen", "eine", "ein", "mir", "dem", "der", "die", "das"]
+                     "einen", "eine", "ein", "mir", "dem", "der", "die", "das",
+                     "rosengarten", "hamburg", "berlin", "münchen", "köln",
+                     "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig"]
         for w in stopwords:
             query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
         # .de Suffix entfernen

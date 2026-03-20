@@ -409,7 +409,7 @@ def format_results_telegram(results: dict) -> str:
         price = f" · {item['price_text']}" if item.get("price_text") else ""
         loc   = f" · {item['location']}" if item.get("location") else ""
         # Escape markdown special chars in title
-        title = item["title"][:60].replace("[", "\[").replace("]", "\]")
+        title = item["title"][:60].replace("[", "(").replace("]", ")")
         lines.append(f"{emoji} [{title}]({item['url']}){price}{loc}")
 
     if len(new) > 10:
