@@ -387,10 +387,10 @@ class Agent:
 
         search_kw = ["suche", "finde", "such", "find", "schau", "schaue",
                      "durchsuche", "zeig", "liste", "search", "look for",
-                     "was kostet", "preis für", "gibt es", "nach", "inserate"]
+                     "was kostet", "preis für", "gibt es"]
         market_kw = ["kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
                      "marktplatz", "gebraucht", "preis", "euro", "schnäppchen",
-                     "angebot", "angeboten", "anzeigen"]
+                     "angebot"]
         if not any(k in t for k in search_kw):
             return None
         if not any(k in t for k in market_kw):
