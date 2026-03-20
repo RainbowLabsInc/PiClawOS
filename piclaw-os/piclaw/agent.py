@@ -485,13 +485,20 @@ class Agent:
             )
         return "❌ Sub-agent runner not ready."
 
-    async def _delegate_to_search_assistant(self, request: str) -> str:
+    async def _delegate_to_search_assistant(self, request: str, mp_kwargs: dict | None = None) -> str:
         """Spawn a SearchAssistant sub-agent."""
         from piclaw.agents.sa_registry import SEARCH_ASSISTANT_MISSION_TEMPLATE
+        mission_prompt = SEARCH_ASSISTANT_MISSION_TEMPLATE
+        if mp_kwargs:
+            mission_prompt += "\n\nHINWEIS ZUR SUCHANFRAGE:\n"
+            mission_prompt += "Die Absicht des Nutzers wurde bereits vorverarbeitet. Bitte nutze diese Parameter für dein Tool:\n"
+            for k, v in mp_kwargs.items():
+                mission_prompt += f"- {k}: {v}\n"
+
         agent_def = SubAgentDef(
             name="SearchAssistant",
             description=f"Marketplace Search: {request}",
-            mission=SEARCH_ASSISTANT_MISSION_TEMPLATE,
+            mission=mission_prompt,
             tools=["marketplace_search"],
             schedule="once",
             notify=True,
@@ -559,7 +566,7 @@ class Agent:
             log.info("Marketplace intent detected: %s", mp_kwargs)
             # Direct delegation to SearchAssistant (it will call the tool)
             # to avoid double-searching and inconsistent query cleaning.
-            return await self._delegate_to_search_assistant(user_input)
+            return await self._delegate_to_search_assistant(user_input, mp_kwargs)
 
         # Memory-Recall: kurzer Timeout damit Agent immer antwortet
         try:
