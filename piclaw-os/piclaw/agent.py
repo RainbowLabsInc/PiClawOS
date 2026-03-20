@@ -518,6 +518,12 @@ class Agent:
 
         if mp_kwargs:
             log.info("Marketplace intent detected: %s", mp_kwargs)
+            # Direct file write for debugging (bypasses uvicorn logging override)
+            try:
+                with open("/tmp/piclaw_marketplace_debug.txt", "a") as _dbgf:
+                    import time
+                    _dbgf.write(f"{time.strftime('%H:%M:%S')} SHORTCUT CALLED: {mp_kwargs}\n")
+            except Exception: pass
             try:
                 from piclaw.tools.marketplace import marketplace_search, format_results
                 import traceback as _tb
@@ -539,6 +545,10 @@ class Agent:
             except Exception as e:
                 import traceback as _tb
                 log.error("Marketplace shortcut FAILED: %s\n%s", e, _tb.format_exc())
+                try:
+                    with open("/tmp/piclaw_marketplace_debug.txt", "a") as _dbgf:
+                        _dbgf.write(f"SHORTCUT FAILED: {e}\n{_tb.format_exc()}\n")
+                except Exception: pass
 
         # Memory-Recall: kurzer Timeout damit Agent immer antwortet
         try:
