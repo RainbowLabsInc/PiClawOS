@@ -1,0 +1,17 @@
+[Unit]
+Description=PiClaw Tandem Browser API
+After=network.target
+
+[Service]
+Type=simple
+User=piclaw
+Group=piclaw
+WorkingDirectory=/home/piclaw/tandem-browser
+# Since Electron needs a display, we use Xvfb if available, or assume a display exists.
+# For headless API-only mode, some Electron apps support specific flags.
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

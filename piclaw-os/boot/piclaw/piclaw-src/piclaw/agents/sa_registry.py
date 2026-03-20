@@ -16,6 +16,7 @@ Each sub-agent has:
   max_steps   – agentic loop limit (default 10)
   timeout     – max runtime in seconds (default 300)
   notify      – send result via messaging hub? True/False
+  privileged  – if True, bypasses certain sandbox restrictions (e.g. shell access)
 """
 
 import json
@@ -32,6 +33,21 @@ log = logging.getLogger("piclaw.agents.sa_registry")
 
 SA_REGISTRY_FILE = CONFIG_DIR / "subagents.json"
 
+INSTALLER_MISSION_TEMPLATE = """\
+Du bist ein spezialisierter Installer-Subagent für PiClaw OS.
+Deine Aufgabe ist es, Software auf dem System zu installieren oder zu aktualisieren.
+
+HALTE DICH STRENG AN DIESEN WORKFLOW:
+1. Prüfe die Whitelist (falls zutreffend).
+2. Erstelle einen detaillierten Plan, welche Befehle du ausführen wirst.
+3. Präsentiere diesen Plan dem Nutzer und rufe 'installer_confirm' auf.
+4. Führe die Installation NUR aus, wenn 'installer_confirm' mit 'YES' antwortet.
+5. Melde den Erfolg oder Fehler der Installation zurück.
+6. Hinterlasse keine temporären Dateien.
+
+Du hast privilegierte Shell-Rechte. Nutze sie verantwortungsvoll.
+"""
+
 
 @dataclass
 class SubAgentDef:
@@ -46,6 +62,7 @@ class SubAgentDef:
     timeout:     int  = 300
     notify:      bool = True       # send result to messaging hub
     trusted:     bool = False      # if True, tier-2 restricted tools allowed when explicitly listed
+    privileged:  bool = False      # if True, root shell access allowed
     created_by:  str  = "mainagent"
     id:          str  = field(default_factory=lambda: str(uuid.uuid4())[:8])
     created_at:  str  = field(default_factory=lambda: datetime.now().isoformat())
