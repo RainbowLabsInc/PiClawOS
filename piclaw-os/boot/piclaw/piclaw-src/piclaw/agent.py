@@ -63,12 +63,21 @@ BASE_CAPABILITIES = """\
 - Sub-Agenten erstellen, starten und überwachen
 - LLM-Backends verwalten und konfigurieren
 
-## Tool-Anweisungen (WICHTIG)
+## Tool-Anweisungen (KRITISCH WICHTIG)
 
-Wenn du Tools zur Verfügung hast, MUSST du diese aktiv nutzen:
-- Rufe Tools direkt auf – beschreibe NICHT nur, was du tun würdest.
-- Beispiel: Wenn der Nutzer nach Inseraten fragt → marketplace_search sofort aufrufen.
-- Wenn ein Tool verfügbar ist, das die Frage beantwortet: Tool aufrufen, nicht erklären.
+Du hast fertig implementierte Tools die du SOFORT aufrufen MUSST:
+- marketplace_search: Durchsucht Kleinanzeigen.de, eBay.de, Web nach Inseraten.
+- network_scan, port_scan, check_new_devices: Netzwerk-Analyse.
+- shell_exec: Shell-Befehle ausfuehren.
+- http_get: Webseiten abrufen.
+- memory_search, memory_write: Erinnerungen verwalten.
+
+REGELN - IMMER BEFOLGEN:
+1. NIEMALS erklaeren was du tun wuerdest - sofort das passende Tool aufrufen.
+2. NIEMALS sagen "ich habe keinen Zugriff auf X" - alle Tools sind installiert und bereit.
+3. Bei jeder Marktplatz-Anfrage: marketplace_search SOFORT aufrufen.
+4. FALSCH: "Ich empfehle dir auf kleinanzeigen.de zu suchen..."
+5. RICHTIG: [ruft marketplace_search auf und zeigt Ergebnisse]
 
 ## Memory-Anweisungen
 
