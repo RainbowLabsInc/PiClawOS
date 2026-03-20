@@ -407,15 +407,34 @@ class MultiLLMRouter(LLMBackend):
             # Only show warning and fall back if we got NO tokens yet
             # (if tokens came through, the response was already delivered to the user)
             if tokens_yielded == 0 and cfg.provider != "local" and cfg.name != "local-fallback":
-                yield f"\n\n⚠️ Backend '{cfg.name}' failed, switching to local…\n\n"
+                log.warning("Switching to local fallback after stream failure")
+                # Try next API backend first before going local
+                candidates = self.registry.list_enabled()
+                next_api = next(
+                    (b for b in candidates
+                     if b.name != cfg.name and b.provider != "local"
+                     and not self._health.get(b.name, BackendHealth(b.name)).is_degraded),
+                    None
+                )
+                if next_api:
+                    log.info("Trying next API backend: %s", next_api.name)
+                    try:
+                        instance2 = self._get_instance(next_api)
+                        async for token in instance2.stream_chat(messages, tools=tools):
+                            yield token
+                        return
+                    except Exception as _e2:
+                        log.warning("Next API backend also failed: %r", _e2)
+                # All APIs failed → local fallback with notice
+                yield "\n\n⚠️ Cloud-APIs nicht erreichbar – lokales Modell übernimmt…\n\n"
                 try:
                     async for token in self._local.stream_chat(messages):
                         yield token
                 except Exception as _le:
                     log.error("Local fallback stream failed: %r", _le)
-                    yield f"\n\n❌ Local fallback failed: {str(_le)}"
+                    yield f"\n\n❌ Lokales Modell nicht verfügbar: {str(_le)}\nBitte herunterladen: piclaw model download"
             elif tokens_yielded == 0:
-                yield f"\n\n❌ LLM Error: {str(e)}"
+                yield f"\n\n❌ LLM Fehler: {str(e)}"
             # If tokens_yielded > 0: response already delivered, suppress the error silently
 
     async def health_check(self) -> bool:
