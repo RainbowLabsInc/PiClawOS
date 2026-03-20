@@ -179,8 +179,7 @@ class Agent:
         _marketplace_tool = _TD(
             name="marketplace_search",
             description=(
-                "Sucht auf Marktplätzen (Kleinanzeigen.de, eBay.de, Web) nach neuen Inseraten. "
-                "Meldet nur Inserate die seit der letzten Suche neu hinzugekommen sind. "
+                "Sucht auf Marktplätzen (Kleinanzeigen.de, eBay.de, Web) nach Inseraten. "
                 "Beispiel: 'Suche nach Raspberry Pi 5 unter 100€ in Hamburg auf Kleinanzeigen'"
             ),
             parameters={
@@ -193,6 +192,7 @@ class Agent:
                     "location":  {"type": "string",  "description": "Ort oder PLZ (für Kleinanzeigen)"},
                     "max_results": {"type": "integer", "description": "Max. Ergebnisse pro Plattform (default: 10)"},
                     "radius_km": {"type": "integer", "description": "Suchradius in km um den angegebenen Ort (z.B. 20, 50, 100)"},
+                    "notify_all": {"type": "boolean", "description": "True = alle Funde zeigen, False = nur neue Funde (default: True)"},
                 },
                 "required": ["query"],
             },
@@ -202,11 +202,17 @@ class Agent:
             import re as _re
             # Clean query: remove PLZ, km-radius, platform names
             query = kw.get("query", "")
-            query = _re.sub(r"[0-9]{5}", " ", query)
-            query = _re.sub(r"[0-9]+\s*km", " ", query, flags=_re.IGNORECASE)
+            query = _re.sub(r"\[.*?\]", " ", query) # Remove Chat-Prefixes
+            query = _re.sub(r"\b\d{5}\b", " ", query)
+            query = _re.sub(r"\b\d+\s*km\b", " ", query, flags=_re.IGNORECASE)
             for _plat in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay"]:
                 query = query.replace(_plat, " ").replace(_plat.capitalize(), " ")
             query = query.replace(".de", " ")
+            # Stoppwörter auch hier entfernen
+            _sw = ["suche", "finde", "such", "find", "schau", "schaue", "durchsuche", "zeig", "liste",
+                   "was kostet", "preis für", "gibt es", "schnäppchen", "angebot", "umkreis", "radius"]
+            for w in _sw:
+                query = _re.sub(r"(?i)\b" + _re.escape(w) + r"\b", " ", query)
             query = " ".join(query.split()).strip(" ,.-")
             if not query:
                 query = kw.get("query", "")
@@ -217,7 +223,7 @@ class Agent:
                 location=kw.get("location"),
                 radius_km=kw.get("radius_km"),
                 max_results=int(kw.get("max_results", 10)),
-                notify_all=True,
+                notify_all=kw.get("notify_all", True),
             )
             return format_results(result)
 
@@ -389,11 +395,16 @@ class Agent:
     def _detect_marketplace_intent(self, text: str) -> dict | None:
         """Detect marketplace search intent and extract parameters directly."""
         import re
-        t = text.lower()
+        # Vorab-Bereinigung von Chat-Präfixen wie "[you]"
+        text_clean = re.sub(r"\[.*?\]", " ", text)
+        t = text_clean.lower()
+
         search_kw = ["suche", "finde", "such", "find", "schau", "schaue",
-                     "durchsuche", "zeig", "liste", "search", "look for"]
+                     "durchsuche", "zeig", "liste", "search", "look for",
+                     "was kostet", "preis für", "gibt es"]
         market_kw = ["kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
-                     "marktplatz", "gebraucht", "preis", "euro"]
+                     "marktplatz", "gebraucht", "preis", "euro", "schnäppchen",
+                     "angebot"]
         if not any(k in t for k in search_kw):
             return None
         if not any(k in t for k in market_kw):
@@ -411,7 +422,7 @@ class Agent:
             platforms = ["kleinanzeigen", "ebay"]
 
         # PLZ (5 Ziffern)
-        plz_match = re.search(r"\b(\d{5})\b", text)
+        plz_match = re.search(r"\b(\d{5})\b", text_clean)
         location = plz_match.group(1) if plz_match else None
 
         # Radius
@@ -425,10 +436,10 @@ class Agent:
             max_price = float(next(g for g in price_match.groups() if g))
 
         # Query bereinigen
-        query = text
+        query = text_clean
         # Plattform-Phrasen entfernen
         for phrase in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay",
-                       "zeige mir", "zeig mir"]:
+                       "zeige mir", "zeig mir", "was kostet", "preis für", "gibt es"]:
             query = re.sub(re.escape(phrase), " ", query, flags=re.IGNORECASE)
         # PLZ entfernen
         if plz_match:
@@ -440,7 +451,8 @@ class Agent:
                      "finde", "such", "durchsuche", "liste", "umkreis", "radius",
                      "einen", "eine", "ein", "mir", "dem", "der", "die", "das",
                      "rosengarten", "hamburg", "berlin", "münchen", "köln",
-                     "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig"]
+                     "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig",
+                     "schnäppchen", "angebot", "angebote"]
         for w in stopwords:
             query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
         # .de Suffix entfernen
@@ -479,6 +491,28 @@ class Agent:
                 f"✅ Installer-Subagent wurde gestartet (ID: {agent_id}).\n"
                 f"Anfrage: {request}\n"
                 "Der Agent wird einen Plan erstellen und dich um Bestätigung bitten."
+            )
+        return "❌ Sub-agent runner not ready."
+
+    async def _delegate_to_search_assistant(self, request: str) -> str:
+        """Spawn a SearchAssistant sub-agent."""
+        from piclaw.agents.sa_registry import SEARCH_ASSISTANT_MISSION_TEMPLATE
+        agent_def = SubAgentDef(
+            name="SearchAssistant",
+            description=f"Marketplace Search: {request}",
+            mission=SEARCH_ASSISTANT_MISSION_TEMPLATE,
+            tools=["marketplace_search"],
+            schedule="once",
+            notify=True,
+            created_by="mainagent",
+        )
+        agent_id = self.sa_registry.add(agent_def)
+        if self.sa_runner:
+            await self.sa_runner.start_agent(agent_id)
+            return (
+                f"✅ SearchAssistant-Subagent gestartet (ID: {agent_id}).\n"
+                f"Anfrage: {request}\n"
+                "Er wird nun nach Inseraten suchen und sich bei dir melden."
             )
         return "❌ Sub-agent runner not ready."
 
@@ -553,9 +587,9 @@ class Agent:
                     max_results=10,
                 )
                 log.info("Marketplace result: %d total, %d new", result.get("total_found", 0), result.get("new_count", 0))
-                formatted = format_results(result)
-                create_background_task(self.memory.after_turn(user_input, formatted))
-                return formatted
+                # Instead of direct return, delegate to SearchAssistant sub-agent
+                # for better interaction (asking for location, formatting, etc)
+                return await self._delegate_to_search_assistant(user_input)
             except Exception as e:
                 import traceback as _tb
                 log.error("Marketplace shortcut FAILED: %s\n%s", e, _tb.format_exc())

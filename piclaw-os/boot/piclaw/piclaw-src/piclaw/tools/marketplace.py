@@ -384,8 +384,10 @@ def format_results(results: dict, mode: str = "text") -> str:
         price = f"  💶 {item['price_text']}" if item.get("price_text") else ""
         loc   = f"  📍 {item['location']}" if item.get("location") else ""
         url   = item.get("url", "")
+        # Markdown-Titel bereinigen (Klammern eskapen)
+        safe_title = item['title'].replace("[", "\\[").replace("]", "\\]")[:70]
 
-        lines.append(f"{i}. {emoji} [{plat}] {item['title'][:70]}")
+        lines.append(f"{i}. {emoji} [{plat}] {safe_title}")
         if price: lines.append(f"   {price.strip()}")
         if loc:   lines.append(f"   {loc.strip()}")
         if url:   lines.append(f"   🔗 {url}")
