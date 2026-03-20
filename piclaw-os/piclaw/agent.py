@@ -472,7 +472,34 @@ class Agent:
 
         # Marketplace intent shortcut — call tool directly without relying on LLM tool-calling
         # This bypasses the Kimi K2 tool-calling reliability issue
+        # Check history for previous marketplace context (for follow-ups like "erhöhe den Radius")
+        _prev_mp_context = None
+        if history:
+            for m in reversed(history[-6:]):
+                if m.role == "user":
+                    prev_kw = self._detect_marketplace_intent(m.content)
+                    if prev_kw:
+                        _prev_mp_context = prev_kw
+                        break
+
         mp_kwargs = self._detect_marketplace_intent(user_input)
+
+        # Follow-up detection: "erhöhe", "vergrößer", "erweitere", "nochmal", "zeig mehr"
+        if not mp_kwargs and _prev_mp_context:
+            followup_kw = ["erhöh", "vergrößer", "erweiter", "nochmal", "mehr", "radius",
+                           "breiter", "größer", "weiter", "nochmal", "wiederhol"]
+            if any(k in user_input.lower() for k in followup_kw):
+                mp_kwargs = dict(_prev_mp_context)
+                # Update radius if mentioned
+                import re
+                new_radius = re.search(r'(\d+)\s*km', user_input)
+                if new_radius:
+                    mp_kwargs["radius_km"] = int(new_radius.group(1))
+                # Update max_price if mentioned
+                new_price = re.search(r'unter\s+(\d+)\s*€|max\s+(\d+)\s*€|bis\s+(\d+)\s*€', user_input.lower())
+                if new_price:
+                    mp_kwargs["max_price"] = float(next(g for g in new_price.groups() if g))
+
         if mp_kwargs:
             log.info("Marketplace intent detected, calling tool directly: %s", mp_kwargs)
             try:
