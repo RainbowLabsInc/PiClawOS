@@ -132,6 +132,7 @@ class SubAgentRunner:
                 "last_run":    a.last_run,
                 "last_status": a.last_status,
                 "trusted":     a.trusted,
+                "privileged":  a.privileged,
             })
         return {"sub_agents": result}
 
@@ -287,7 +288,7 @@ class SubAgentRunner:
 
         return final_reply
 
-    def _filter_tools(self, agent: "SubAgentDe") -> list[ToolDefinition]:
+    def _filter_tools(self, agent: SubAgentDef) -> list[ToolDefinition]:
         """
         Return the tool subset this sub-agent is allowed to use.
         Applies sandbox restrictions (tier-1 always blocked, tier-2 by default).
@@ -297,6 +298,7 @@ class SubAgentRunner:
             all_tool_defs   = self.tool_defs,
             agent_allowlist = agent.tools,
             trusted         = agent.trusted,
+            privileged      = agent.privileged,
         )
 
     async def _dispatch(self, call: ToolCall) -> str:

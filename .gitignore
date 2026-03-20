@@ -1,0 +1,12 @@
+# Systemordner des Build-Containers – nie committen
+.cache/
+.config/
+.local/
+.npm/
+.npm-global/
+.npmrc
+.wget-hsts
+
+# Build-Artefakte
+*.zip
+DEV_REFERENCE.md
