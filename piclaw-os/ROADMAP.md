@@ -1,93 +1,89 @@
-# PiClaw OS – Roadmap
+# PiClaw OS — Roadmap
 
-## Status: v0.15 (März 2026)
-Aktueller Stand: Kimi K2 + Nemotron via NVIDIA NIM, Queue-System, Netzwerk-Monitor, Multi-LLM Registry.
+## Status: v0.15 (March 2026)
+Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network monitor, multi-LLM registry, installer sub-agent and Tandem browser merged.
 
 ---
 
-## ✅ Abgeschlossen
+## Completed
 
-### v0.14 – Stabilität & Parallelität
-- [x] Queue-System: Agent verarbeitet Telegram + CLI parallel (asyncio.Queue)
-- [x] llama.cpp stdout unterdrücken
-- [x] Router-Fallback-Bug behoben (kein ⚠️ mehr nach erfolgreicher Antwort)
+### v0.14 — Stability & Parallelism
+- [x] Queue system: agent processes Telegram + CLI requests in parallel (asyncio.Queue)
+- [x] llama.cpp verbose output suppressed
+- [x] Router fallback warning fixed (no spurious `⚠️` after successful responses)
 
-### v0.15 – Netzwerk-Monitoring
-- [x] `tools/network_monitor.py`: network_scan, port_scan, check_new_devices
-- [x] Proaktive Routinen für Netzwerk-Checks
-- [x] Neue Geräte im LAN → Telegram-Alert
+### v0.15 — Network Monitoring
+- [x] `tools/network_monitor.py`: `network_scan`, `port_scan`, `check_new_devices` via nmap
+- [x] Proactive routines for network checks
+- [x] New devices on LAN → Telegram alert
 
-### Multi-LLM / Sonstiges
+### v0.15a — Installer Sub-Agent
+- [x] `tools/installer.py` — autonomous installation with trusted source whitelist
+- [x] `@installer` prefix routes requests to a dedicated InstallerAgent sub-agent
+- [x] User confirmation required before any installation step
+- [x] Full audit log via Watchdog
+
+### Multi-LLM & General
 - [x] Kimi K2 + Nemotron via NVIDIA NIM
-- [x] Tool-Calling Fix für NVIDIA NIM
-- [x] SOUL.md aus QMD Memory-Index ausgeschlossen
-- [x] Multi-LLM Wizard mit Zweck-Auswahl
-- [x] `piclaw llm` CLI-Kommando
-- [x] Repo-Struktur bereinigt
+- [x] Tool-calling fix for NVIDIA NIM (explicit `tool_choice: auto`)
+- [x] SOUL.md excluded from QMD memory index
+- [x] Multi-LLM wizard with purpose-based backend selection
+- [x] `piclaw llm` CLI command for registry management
+- [x] LLM fallback order: API 1 → API 2 → local model with notice
 
 ---
 
-## 🚀 Geplante Features
+## Planned
 
-### v0.15a – Installer-Tool (Dameon installiert Software autonom)
-- [ ] Neues Tool `install_package(source, name)` mit Whitelist vertrauenswürdiger Quellen
-- [ ] Unterstützte Quellen: GitHub-Repos (Whitelist), pip, apt
-- [ ] Jeder Schritt wird geloggt und dem User angezeigt
-- [ ] Immer Bestätigung vom User bevor ausgeführt wird
-- [ ] Watchdog überwacht den Installationsprozess
-- [ ] Beispiel: "Installiere Tandem aus github.com/hydro13/tandem-browser"
-
-### v0.16 – AgentMail – E-Mail Inbox für Dameon
-- [ ] **AgentMail** Integration: https://www.agentmail.to
-- [ ] Dameon bekommt eigene E-Mail-Adresse (z.B. dameon@agentmail.to)
+### v0.16 — AgentMail (Email Inbox for Dameon)
+- [ ] AgentMail integration: https://www.agentmail.to
+- [ ] Dameon gets its own email address (e.g. dameon@agentmail.to)
 - [ ] Tools: `email_send()`, `email_list()`, `email_read()`, `email_reply()`
-- [ ] Einrichtbar im Installer (Wizard-Schritt: API-Key + Inbox-Name)
-- [ ] Proaktiv: eingehende E-Mails → Benachrichtigung via Telegram
-- [ ] Einsatz: Bestellbestätigungen empfangen, Formulare ausfüllen, Alerts weiterleiten
+- [ ] Configurable via installer wizard (API key + inbox name)
+- [ ] Incoming emails → proactive Telegram notification
+- [ ] Use cases: order confirmations, form submissions, alert forwarding
 
-### v0.17 – Notfall-Shutdown
-- [ ] Schaltbare Steckdose am Modem (Shelly Plug S oder TP-Link Tapo P110)
-- [ ] HA-Integration bereits vorhanden (ha_turn_off)
-- [ ] Neues Tool `emergency_network_off()` mit Telegram-Bestätigung
-- [ ] Flow: Angriff erkannt → "Netzwerk trennen? [Ja/Nein]" → Steckdose aus
+### v0.17 — Emergency Shutdown
+- [ ] Switchable smart plug on modem (Shelly Plug S or TP-Link Tapo P110)
+- [ ] HA integration already in place (`ha_turn_off`)
+- [ ] New tool `emergency_network_off()` with Telegram confirmation
+- [ ] Flow: threat detected → "Disconnect network? [Yes/No]" → smart plug off
 
-### v0.18 – Security Tools
-- [ ] `tools/network_security.py`:
-  - `nmap_scan()` – Netzwerk-Scanner
-  - `whois_lookup()` – Domain/IP-Info
-  - `check_open_ports()` – eigene offene Ports
-- [ ] Automatisches IP-Blocking via nftables
-- [ ] Fail2ban-Integration + Status-Abfrage
-- [ ] Abuse-Report Generator
+### v0.18 — Security Tools
+- [ ] `tools/network_security.py`: `nmap_scan()`, `whois_lookup()`, `check_open_ports()`
+- [ ] Automatic IP blocking via nftables
+- [ ] fail2ban integration + status query
+- [ ] Abuse report generator
 
-### v0.19 – Tandem Browser + Scrapling (Autonomes Browsing & Scraping)
-- [~] **Tandem IN ARBEIT** – Browser Automation: https://github.com/hydro13/tandem-browser
+### v0.19 — Tandem Browser + Scrapling (Autonomous Browsing & Scraping)
+- [~] **Tandem IN PROGRESS** — browser automation: https://github.com/hydro13/tandem-browser
 - [ ] Tools: `browser_open(url)`, `browser_click(selector)`, `browser_read()`, `browser_screenshot()`
-- [ ] Agent kann selbstständig Webseiten aufrufen, ausfüllen und auslesen
-- [ ] **Scrapling** – Adaptives Web Scraping: https://github.com/D4Vinci/Scrapling
-  - Cloudflare Bypass out of the box (StealthyFetcher)
-  - Adaptives Element-Tracking – findet Elemente auch nach Website-Redesign
-  - MCP-Server eingebaut (direkte Claude-Integration möglich)
+- [ ] Agent can autonomously navigate websites, fill forms, and extract content
+- [ ] **Scrapling** — adaptive web scraping framework: https://github.com/D4Vinci/Scrapling
+  - Cloudflare bypass out of the box (StealthyFetcher)
+  - Adaptive element tracking — finds elements even after site redesigns
+  - Built-in MCP server (direct Claude integration possible)
   - Tools: `scrape_url()`, `scrape_css()`, `stealth_fetch()`
-- [ ] Scrapling als Dependency in install.sh (`pip install "scrapling[fetchers]"`)
+- [ ] Add `scrapling[fetchers]` to `install.sh` dependencies
 
-### v0.20 – Self-Improving Memory (ClawHub Skill)
-- [ ] Dameon lernt aus expliziten Korrekturen ("nein, das war falsch")
-- [ ] Tiered Memory: HOT (≤100 Zeilen, immer geladen) / WARM / COLD
-- [ ] Pattern Promotion: nach 3x gleicher Korrektur → feste Regel in HOT
-- [ ] Self-Reflection: nach komplexen Aufgaben selbst evaluieren und Lesson loggen
-- [ ] Conflict Resolution: spezifischeres Pattern gewinnt (Projekt > Domäne > Global)
-- [ ] Inspiration: https://clawhub.ai (Self-Improving Memory Skill)
+### v0.20 — Self-Improving Memory (ClawHub Skill)
+- [ ] Dameon learns from explicit corrections ("no, that was wrong")
+- [ ] Tiered memory: HOT (≤100 lines, always loaded) / WARM / COLD
+- [ ] Pattern promotion: after 3 identical corrections → permanent rule in HOT
+- [ ] Self-reflection: evaluate own work after complex tasks and log lessons
+- [ ] Conflict resolution: more specific pattern wins (project > domain > global)
+- [ ] Inspired by: https://clawhub.ai (Self-Improving Memory skill)
 
-### v0.21 – LLM-Verbesserungen
-- [ ] Ollama-Integration (llama3.2:3b als bessere lokale Option)
-- [ ] Thermisches Routing verfeinern
-- [ ] n_threads auf Pi 5 optimieren
+### v0.21 — LLM Improvements
+- [ ] Ollama integration (llama3.2:3b as a better local option)
+- [ ] Refined thermal routing
+- [ ] Optimise `n_threads` for Pi 5
 
 ---
 
-## 📋 Technische Schulden
-| # | Problem | Priorität |
-|---|---------|-----------|
-| T1 | llama.cpp verbose Output (teilweise behoben) | Mittel |
-| T2 | Installer-Tool damit Dameon Software autonom installieren kann | Hoch |
+## Technical Debt
+
+| # | Issue | Priority |
+|---|-------|----------|
+| T1 | llama.cpp verbose output (partially fixed) | Medium |
+| T2 | Installer tool: allow Dameon to pass custom post-install steps | Low |
