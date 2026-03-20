@@ -77,6 +77,9 @@ WATCHED_SERVICES = [
 # Heartbeat file written by mainagent every ~30s
 HEARTBEAT_FILE = CONFIG_DIR / "ipc" / "agent.heartbeat"
 
+# Installer lock file
+INSTALLER_LOCK_FILE = Path("/tmp/piclaw_installer.lock")
+
 
 class Watchdog:
     def __init__(self):
@@ -119,12 +122,12 @@ class Watchdog:
         try:
             con = sqlite3.connect(str(WATCHDOG_DB))
             for tbl in ("alerts", "reports", "integrity_log"):
-                con.execute("""
+                con.execute(f"""
                     CREATE TRIGGER IF NOT EXISTS no_update_{tbl}
                     BEFORE UPDATE ON {tbl}
                     BEGIN SELECT RAISE(ABORT, 'Updates not allowed on {tbl}'); END
                 """)
-                con.execute("""
+                con.execute(f"""
                     CREATE TRIGGER IF NOT EXISTS no_delete_{tbl}
                     BEFORE DELETE ON {tbl}
                     BEGIN SELECT RAISE(ABORT, 'Deletes not allowed on {tbl}'); END
@@ -333,6 +336,24 @@ class Watchdog:
             log.error("Executable scan: %s", e)
         return alerts
 
+    def _check_installer_hang(self) -> list[WatchdogAlert]:
+        """Detect if an installer process is hung (lock file older than 15 min)."""
+        alerts = []
+        try:
+            if INSTALLER_LOCK_FILE.exists():
+                age = time.time() - INSTALLER_LOCK_FILE.stat().st_mtime
+                if age > 900: # 15 minutes
+                    alerts.append(WatchdogAlert(
+                        severity=AlertSeverity.CRITICAL,
+                        category="service",
+                        message="Installer Hang Detected",
+                        detail=f"Installer lock file is {int(age/60)} minutes old.",
+                        hostname=self._hostname,
+                    ))
+        except Exception as e:
+            log.error("Installer lock check error: %s", e)
+        return alerts
+
     # ── Full check cycle ──────────────────────────────────────────
 
     async def run_checks(self) -> list[WatchdogAlert]:
@@ -343,6 +364,7 @@ class Watchdog:
         all_alerts += await self._check_services()
         all_alerts += self._check_agent_heartbeat()
         all_alerts += self._check_new_executables()
+        all_alerts += self._check_installer_hang()
 
         for alert in all_alerts:
             write_alert(alert)

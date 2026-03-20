@@ -100,6 +100,24 @@ class WebCrawler:
     async def _fetch(self, session: aiohttp.ClientSession,
                      url: str) -> tuple[str, str, list[str]]:
         """Fetch a URL, return (text, final_url, links)."""
+        # (v0.18) Try Tandem Browser first if it looks like a complex site or fallback
+        try:
+            from piclaw.tools import tandem
+            if tandem.TOKEN_FILE.exists():
+                log.debug("Tandem Browser detected – using for enhanced crawling: %s", url)
+                # Note: This is a simplified integration. For production, we'd
+                # manage tab IDs more strictly.
+                await tandem.browser_open(url, focus=False)
+                await asyncio.sleep(3) # Wait for JS to render
+                snap_raw = await tandem.browser_snapshot(compact=True)
+                # We return the snapshot as text. Tandem doesn't return links in compact snap yet
+                # in a way we can easily use here without more parsing logic.
+                if not snap_raw.startswith("[ERROR]"):
+                    return f"[TANDEM SNAPSHOT]\n{snap_raw}", url, []
+        except Exception as _te:
+            log.debug("Tandem fetch attempt failed: %s", _te)
+
+        # Standard aiohttp fallback
         try:
             async with session.get(
                 url,

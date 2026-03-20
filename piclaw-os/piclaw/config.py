@@ -126,6 +126,11 @@ class WhatsAppConfig:
 
 
 @dataclass
+class AgentMailConfig:
+    api_key: str = ""
+
+
+@dataclass
 class PiClawConfig:
     agent_name: str            = "PiClaw"
     log_level:  str            = "INFO"
@@ -140,6 +145,7 @@ class PiClawConfig:
     discord:    DiscordConfig  = field(default_factory=DiscordConfig)
     threema:    ThreemaConfig  = field(default_factory=ThreemaConfig)
     whatsapp:   WhatsAppConfig = field(default_factory=WhatsAppConfig)
+    agentmail:  AgentMailConfig = field(default_factory=AgentMailConfig)
 
 
 def ensure_dirs():
@@ -172,6 +178,7 @@ def load() -> PiClawConfig:
     cfg.discord     = _load_section(DiscordConfig,   raw, "discord")
     cfg.threema     = _load_section(ThreemaConfig,   raw, "threema")
     cfg.whatsapp    = _load_section(WhatsAppConfig,  raw, "whatsapp")
+    cfg.agentmail   = _load_section(AgentMailConfig, raw, "agentmail")
     cfg.agent_name  = raw.get("agent_name", cfg.agent_name)
     cfg.log_level   = raw.get("log_level",  cfg.log_level)
     return cfg
@@ -193,6 +200,7 @@ def save(cfg: PiClawConfig):
         "discord":   asdict(cfg.discord),
         "threema":   asdict(cfg.threema),
         "whatsapp":  asdict(cfg.whatsapp),
+        "agentmail": asdict(cfg.agentmail),
     }
     with open(CONFIG_FILE, "wb") as f:
         tomli_w.dump(data, f)
