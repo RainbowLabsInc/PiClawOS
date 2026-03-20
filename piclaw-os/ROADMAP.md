@@ -79,6 +79,14 @@ Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network
 - [ ] Refined thermal routing
 - [ ] Optimise `n_threads` for Pi 5
 
+### v0.22 — Token Efficiency (for premium models)
+- [ ] **Tool routing** — classifier detects if request needs tools; skip tool definitions if not (saves ~3000 tokens per simple message)
+- [ ] **Lazy memory injection** — only inject QMD context when request references past events or decisions
+- [ ] **System prompt caching** — SOUL.md + BASE_CAPABILITIES sent once per session, not every turn
+- [ ] **History trimming** — keep last 5-8 messages + rolling summary instead of 20 raw messages
+- [ ] **Per-backend token budgets** — configurable max_tokens per backend to control cost
+- [ ] Goal: reduce token usage by ~60% for simple conversational messages
+
 ---
 
 ## Technical Debt
