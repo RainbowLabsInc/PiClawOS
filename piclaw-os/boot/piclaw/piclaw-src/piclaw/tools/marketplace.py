@@ -174,18 +174,18 @@ async def _search_kleinanzeigen(
         if not title_match:
             title_match = re.search(r'<a[^>]*class="[^"]*ellipsis[^"]*"[^>]*>(.*?)</a>',
                                     content, re.DOTALL)
-        title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else ""
+        title = " ".join(re.sub(r'<[^>]+>', ' ', title_match.group(1)).split()).strip() if title_match else ""
 
         # Preis
         price_match = re.search(r'<p[^>]*class="[^"]*aditem-main--middle--price[^"]*"[^>]*>(.*?)</p>',
                                  content, re.DOTALL)
-        price_text = re.sub(r'<[^>]+>', '', price_match.group(1)).strip() if price_match else ""
+        price_text = " ".join(re.sub(r'<[^>]+>', ' ', price_match.group(1)).split()).strip() if price_match else ""
         price = _parse_price(price_text)
 
         # Ort
         loc_match = re.search(r'<span[^>]*class="[^"]*aditem-main--top--left[^"]*"[^>]*>(.*?)</span>',
                                content, re.DOTALL)
-        location_text = re.sub(r'<[^>]+>', '', loc_match.group(1)).strip() if loc_match else ""
+        location_text = " ".join(re.sub(r'<[^>]+>', ' ', loc_match.group(1)).split()).strip() if loc_match else ""
 
         if not title:
             continue
@@ -252,14 +252,14 @@ async def _search_ebay(
         if not title_match:
             title_match = re.search(r'class="[^"]*s-item__title[^"]*"[^>]*>(.*?)</[^>]+>',
                                     content, re.DOTALL)
-        title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else ""
+        title = " ".join(re.sub(r'<[^>]+>', ' ', title_match.group(1)).split()).strip() if title_match else ""
         if not title or "Shop on eBay" in title:
             continue
 
         # Preis
         price_match = re.search(r'class="[^"]*s-item__price[^"]*"[^>]*>(.*?)</span>',
                                  content, re.DOTALL)
-        price_text = re.sub(r'<[^>]+>', '', price_match.group(1)).strip() if price_match else ""
+        price_text = " ".join(re.sub(r'<[^>]+>', ' ', price_match.group(1)).split()).strip() if price_match else ""
         price = _parse_price(price_text)
 
         # Link
