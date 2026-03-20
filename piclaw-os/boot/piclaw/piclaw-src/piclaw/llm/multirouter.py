@@ -392,20 +392,21 @@ class MultiLLMRouter(LLMBackend):
         messages = self._inject_routing_note(messages, cfg, classification)
         instance = self._get_instance(cfg)
 
+        tokens_yielded = 0
         try:
-            # We don't wrap the iterator directly to avoid catching
-            # exceptions from the consumer (UI, CLI).
             it = instance.stream_chat(messages, tools=tools)
             while True:
                 try:
                     token = await anext(it)
                 except StopAsyncIteration:
                     break
+                tokens_yielded += 1
                 yield token
         except Exception as e:
-            log.warning("Stream from '%s' failed: %r", cfg.name, e)
-            # Only switch to local if the failing backend was NOT already local
-            if cfg.provider != "local" and cfg.name != "local-fallback":
+            log.warning("Stream from '%s' failed after %d tokens: %r", cfg.name, tokens_yielded, e)
+            # Only show warning and fall back if we got NO tokens yet
+            # (if tokens came through, the response was already delivered to the user)
+            if tokens_yielded == 0 and cfg.provider != "local" and cfg.name != "local-fallback":
                 yield f"\n\n⚠️ Backend '{cfg.name}' failed, switching to local…\n\n"
                 try:
                     async for token in self._local.stream_chat(messages):
@@ -413,8 +414,9 @@ class MultiLLMRouter(LLMBackend):
                 except Exception as _le:
                     log.error("Local fallback stream failed: %r", _le)
                     yield f"\n\n❌ Local fallback failed: {str(_le)}"
-            else:
+            elif tokens_yielded == 0:
                 yield f"\n\n❌ LLM Error: {str(e)}"
+            # If tokens_yielded > 0: response already delivered, suppress the error silently
 
     async def health_check(self) -> bool:
         # Für lokales Backend: Datei vorhanden? (Modell muss nicht geladen sein)
