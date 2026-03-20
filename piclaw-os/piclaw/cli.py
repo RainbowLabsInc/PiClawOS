@@ -309,8 +309,10 @@ def cmd_model(args):
     if sub == "list":
         print(list_models())
     elif sub == "download":
-        mid = args[1] if len(args) > 1 else "phi3-mini-q4"
-        asyncio.run(download_model(mid))
+        mid = args[1] if len(args) > 1 else "gemma2b-q4"
+        result = asyncio.run(download_model(mid))
+        if result:
+            print(f"  {result}")
     elif sub == "remove":
         mid = args[1] if len(args) > 1 else ""
         print(remove_model(mid))
