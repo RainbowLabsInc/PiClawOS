@@ -89,18 +89,24 @@ async def _search_kleinanzeigen(
     max_price: Optional[float] = None,
     location: Optional[str] = None,
     max_results: int = 10,
+    radius_km: Optional[int] = None,
 ) -> list[dict]:
     """Sucht auf Kleinanzeigen.de (ehemals eBay Kleinanzeigen)."""
     results = []
 
-    # URL aufbauen
+    # URL aufbauen mit Radius-Unterstützung
     q = quote_plus(query)
     url = f"https://www.kleinanzeigen.de/s-{q}/k0"
+    params = []
     if location:
         loc = quote_plus(location)
         url = f"https://www.kleinanzeigen.de/s-{loc}/{q}/k0"
     if max_price:
-        url += f"?maxPrice={int(max_price)}"
+        params.append(f"maxPrice={int(max_price)}")
+    if radius_km:
+        params.append(f"radius={int(radius_km)}")
+    if params:
+        url += "?" + "&".join(params)
 
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
@@ -294,6 +300,7 @@ async def marketplace_search(
     location: Optional[str] = None,
     max_results: int = 10,
     notify_all: bool = False,
+    radius_km: Optional[int] = None,
 ) -> dict:
     """
     Durchsucht Marktplätze nach neuen Inseraten.
@@ -318,7 +325,7 @@ async def marketplace_search(
     async with aiohttp.ClientSession(headers=HEADERS) as session:
         tasks = []
         if "kleinanzeigen" in platforms:
-            tasks.append(_search_kleinanzeigen(session, query, max_price, location, max_results))
+            tasks.append(_search_kleinanzeigen(session, query, max_price, location, max_results, radius_km))
         if "ebay" in platforms:
             tasks.append(_search_ebay(session, query, max_price, max_results))
         if "web" in platforms:
