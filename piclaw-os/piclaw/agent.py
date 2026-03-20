@@ -5,7 +5,9 @@ PiClaw OS – Core Agent
 import asyncio
 import logging
 import traceback
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Callable
 
 from piclaw.config import PiClawConfig, CRASH_DIR
 from piclaw.llm    import create_backend, Message, ToolDefinition, ToolCall
@@ -16,6 +18,7 @@ from piclaw.tools  import network  as network_mod
 from piclaw.tools  import gpio     as gpio_mod
 from piclaw.tools  import services as services_mod
 from piclaw.tools  import updater  as updater_mod
+from piclaw.tools  import agentmail as agentmail_mod
 from piclaw.tools.scheduler import Scheduler
 
 from piclaw.memory        import QMDBackend, MemoryMiddleware
@@ -24,7 +27,7 @@ from piclaw.memory.tools  import build_handlers as build_memory_handlers
 from piclaw.agents        import heartbeat_loop
 from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS
 from piclaw.agents.orchestration import build_handlers as build_agent_handlers
-from piclaw.agents.sa_registry   import SubAgentRegistry
+from piclaw.agents.sa_registry   import SubAgentRegistry, SubAgentDef, INSTALLER_MISSION_TEMPLATE
 from piclaw.agents.runner        import SubAgentRunner
 from piclaw.agents.sa_tools      import TOOL_DEFS as SA_TOOL_DEFS
 from piclaw.agents.sa_tools      import build_handlers as build_sa_handlers
@@ -35,6 +38,16 @@ from piclaw import soul as soul_mod
 from piclaw.tools import homeassistant as ha_mod
 
 log = logging.getLogger("piclaw.agent")
+
+
+@dataclass
+class AgentTask:
+    """Represents a request to the agent, managed in a queue."""
+    user_input: str
+    history: list[Message] | None = None
+    on_token: Callable | None = None
+    future: asyncio.Future = field(default_factory=lambda: asyncio.get_running_loop().create_future())
+
 
 # Base capabilities block (appended after the soul)
 BASE_CAPABILITIES = """\
@@ -84,6 +97,10 @@ class Agent:
         self._telegram_send = lambda text: None       # replaced by messaging hub
         self._build_tools()
 
+        # Parallel processing queue (v0.14)
+        self._queue: asyncio.Queue[AgentTask] = asyncio.Queue()
+        self._workers: list[asyncio.Task] = []
+
     def _build_tools(self):
         """Assemble all tool definitions and handlers."""
         self._tool_defs:  list[ToolDefinition] = []
@@ -107,9 +124,24 @@ class Agent:
         # Hardware tools (pi_info, sensors, i2c_scan, thermal_status)
         _reg(HW_TOOL_DEFS, HW_HANDLERS)
 
+        # Network Monitor tools (v0.15)
+        from piclaw.tools import network_monitor as net_mon
+        _reg(net_mon.TOOL_DEFS, net_mon.build_handlers())
+
+        # Tandem Browser tools (v0.18)
+        from piclaw.tools import tandem as tandem_mod
+        _reg(tandem_mod.TOOL_DEFS, tandem_mod.build_handlers())
+
         # HTTP tool
         from piclaw.tools import http as http_mod
         _reg(http_mod.TOOL_DEFS, http_mod.HANDLERS)
+
+        # Installer tools
+        from piclaw.tools import installer as installer_mod
+        _reg(installer_mod.TOOL_DEFS, installer_mod.build_handlers())
+
+        # AgentMail tools
+        _reg(agentmail_mod.TOOL_DEFS, agentmail_mod.build_handlers(self.cfg.agentmail))
 
         # Home Assistant tools (nur wenn konfiguriert)
         self._ha_client = ha_mod.get_client()
@@ -285,15 +317,106 @@ class Agent:
         except Exception as e:
             log.debug("Routine tools late-registration: %s", e)
 
+    # ── Parallel queue workers ──────────────────────────────────────
+
+    async def _worker_loop(self):
+        """Processes tasks from the queue sequentially (per worker). Per worker = sequentially."""
+        while True:
+            task = await self._queue.get()
+            try:
+                result = await self._run_internal(
+                    task.user_input, task.history, task.on_token
+                )
+                task.future.set_result(result)
+            except Exception as e:
+                log.error("Worker error: %s", e)
+                task.future.set_exception(e)
+            finally:
+                self._queue.task_done()
+
+    def _start_workers(self, count: int = 2):
+        """Starts background worker tasks."""
+        if self._workers:
+            return
+        for i in range(count):
+            t = create_background_task(
+                self._worker_loop(), name=f"agent-worker-{i}"
+            )
+            self._workers.append(t)
+        log.info("Started %d agent queue workers.", count)
+
     # ── Main agentic loop ────────────────────────────────────────────
 
     async def run(
         self,
         user_input: str,
         history: list[Message] | None = None,
-        on_token=None,  # Optional[Callable] - callable|None not supported in Python 3.13
+        on_token=None,
     ) -> str:
-        self._register_late_tools()  # no-op after first call
+        """Enqueue a request and wait for the result (Parallel Queue v0.14)."""
+        self._register_late_tools()
+        self._start_workers()  # Ensure workers are running
+
+        # Detect @installer prefix
+        if user_input.strip().startswith("@installer"):
+            request = user_input.strip()[10:].strip()
+            return await self._delegate_to_installer(request)
+
+        task = AgentTask(user_input, history, on_token)
+        await self._queue.put(task)
+        return await task.future
+
+    async def _delegate_to_installer(self, request: str) -> str:
+        """Spawn a privileged InstallerAgent sub-agent."""
+        from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+
+        agent_def = SubAgentDef(
+            name="InstallerAgent",
+            description=f"Installation: {request}",
+            mission=INSTALLER_MISSION_TEMPLATE,
+            tools=["shell", "installer_confirm"],
+            schedule="once",
+            privileged=True,
+            trusted=True,
+            notify=True,
+            created_by="mainagent",
+        )
+        agent_id = self.sa_registry.add(agent_def)
+
+        if self.sa_runner:
+            # Create lock file for watchdog
+            try:
+                INSTALLER_LOCK_FILE.write_text(f"Agent: {agent_id}\nStarted: {datetime.now().isoformat()}\nTask: {request}")
+            except Exception as e:
+                log.warning("Could not create installer lock file: %s", e)
+
+            # Define a callback to cleanup the lock file
+            def _cleanup_lock(task):
+                if INSTALLER_LOCK_FILE.exists():
+                    try:
+                        INSTALLER_LOCK_FILE.unlink()
+                        log.info("Installer lock file removed.")
+                    except Exception as e:
+                        log.error("Failed to remove installer lock: %s", e)
+
+            # Start agent and attach cleanup
+            start_msg = await self.sa_runner.start_agent(agent_id)
+            if agent_id in self.sa_runner._tasks:
+                self.sa_runner._tasks[agent_id].add_done_callback(_cleanup_lock)
+
+            return (
+                f"✅ Installer-Subagent wurde gestartet (ID: {agent_id}).\n"
+                f"Anfrage: {request}\n"
+                "Der Agent wird einen Plan erstellen und dich um Bestätigung bitten."
+            )
+        return "❌ Sub-agent runner not ready."
+
+    async def _run_internal(
+        self,
+        user_input: str,
+        history: list[Message] | None = None,
+        on_token=None,
+    ) -> str:
         import socket
         system = soul_mod.build_system_prompt(
             name=self.cfg.agent_name,
@@ -370,6 +493,7 @@ class Agent:
     async def boot(self):
         """Boot LLM router, memory, heartbeat, and sub-agents."""
         await self.llm.boot()
+        self._start_workers()
         self._wire_sa_runner()
         create_background_task(self._boot_memory(), name="memory-boot")
         create_background_task(heartbeat_loop(),    name="heartbeat")
