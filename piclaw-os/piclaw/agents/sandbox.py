@@ -33,7 +33,7 @@ log = logging.getLogger("piclaw.agents.sandbox")
 # These can cause irreversible harm or compromise security.
 BLOCKED_ALWAYS: frozenset[str] = frozenset({
     # Filesystem wipe / recursive deletion
-    "shell_exec",        # raw shell access – use specific tools instead
+    "shell",             # raw shell access – use specific tools instead (unless privileged)
     "rm_recursive",
 
     # System integrity
@@ -71,12 +71,14 @@ def filter_tools_for_subagent(
     all_tool_defs:   list,           # list[ToolDefinition]
     agent_allowlist: list[str],      # agent.tools ([] = all non-blocked)
     trusted:         bool = False,   # agent.trusted flag
+    privileged:      bool = False,   # bypasses shell block
 ) -> list:
     """
     Return the subset of tool_defs a sub-agent is allowed to use.
 
     Rules:
       1. BLOCKED_ALWAYS are always removed (no exception).
+         EXCEPTION: If 'privileged' is True, 'shell' is allowed.
       2. If agent has an explicit allowlist (non-empty tools=[...]):
            - Only listed tools are allowed (intersect with all_tool_defs)
            - BLOCKED_ALWAYS are still removed from the result
@@ -102,8 +104,11 @@ def filter_tools_for_subagent(
     for td in candidates:
         name_lower = td.name.lower()
 
-        # Tier 1: always blocked
+        # Tier 1: always blocked (with privileged exception)
         if name_lower in BLOCKED_ALWAYS:
+            if privileged and name_lower == "shell":
+                filtered.append(td)
+                continue
             blocked_log.append(f"{td.name} (tier-1: always blocked)")
             continue
 
@@ -131,7 +136,7 @@ def explain_restrictions(tool_name: str, trusted: bool = False) -> str:
     if name_lower in BLOCKED_ALWAYS:
         return (
             f"'{tool_name}' is blocked for all sub-agents (Tier 1 – irreversible system risk). "
-            "Only the main agent can use this tool."
+            "Only the main agent or a privileged sub-agent can use this tool."
         )
     if name_lower in BLOCKED_BY_DEFAULT:
         if trusted:

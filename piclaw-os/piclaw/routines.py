@@ -116,6 +116,25 @@ DEFAULT_ROUTINES: list[dict] = [
         "last_run": "",
         "run_count": 0,
     },
+    {
+        "id":      "network_check",
+        "name":    "Netzwerk-Überwachung",
+        "enabled": False,
+        "cron":    "*/15 * * * *", # alle 15 Minuten
+        "action":  "agent_prompt",
+        "params":  {
+            "prompt": (
+                "Prüfe das Netzwerk auf neue Geräte (check_new_devices). "
+                "Falls neue Geräte gefunden wurden, liste sie auf und melde sie. "
+                "Falls keine neuen Geräte da sind, schweige."
+            ),
+            "silent_on_ok": True,
+        },
+        "channel": "all",
+        "conditions": {},
+        "last_run": "",
+        "run_count": 0,
+    },
 ]
 
 
