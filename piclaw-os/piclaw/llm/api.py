@@ -139,12 +139,13 @@ class OpenAIBackend(LLMBackend):
                     "parameters": t.parameters}}
                 for t in tools
             ]
-            # NVIDIA NIM / Kimi K2: explizites tool_choice erforderlich
-            # sonst beschreibt das Modell nur was es tun würde statt den Tool zu rufen
-            payload["tool_choice"] = "auto"
+            # NVIDIA NIM / Kimi K2: tool_choice=required erzwingt Tool-Aufruf
+            # "auto" reicht nicht -- Kimi K2 beschreibt Tools statt sie aufzurufen
             if self._is_nim:
-                # NIM unterstützt kein parallel_tool_calls bei manchen Modellen
+                payload["tool_choice"] = "required"
                 payload["parallel_tool_calls"] = False
+            else:
+                payload["tool_choice"] = "auto"
         async with aiohttp.ClientSession(timeout=self.timeout) as s:
             async with s.post(f"{self.base_url}/v1/chat/completions",
                               headers=self._headers(), json=payload) as r:
