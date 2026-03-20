@@ -416,14 +416,22 @@ class Agent:
                      "rosengarten", "hamburg", "berlin", "münchen"]:
             if stop: query = re.sub(re.escape(stop), "", query, flags=re.IGNORECASE)
         # Clean up query - remove all location/radius/platform noise
-        for noise in ["kleinanzeigen.de", "kleinanzeigen", "ebay.de", "ebay",
-                      "auf", "im", "in", "um", "von", "bis", "bitte",
-                      "suche", "finde", "such", "durchsuche", "zeige mir", "zeig mir", "liste",
-                      "umkreis", "radius", "km", "einen", "eine", "ein", "mir"]:
-            query = re.sub(r'(?i)\b' + re.escape(noise) + r'\b', ' ', query)
-        # Remove PLZ leftovers
+        # Remove platform/location/action phrases first (order matters)
+        for phrase in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay",
+                       "zeige mir", "zeig mir"]:
+            query = re.sub(re.escape(phrase), ' ', query, flags=re.IGNORECASE)
+        # Remove standalone words
+        for noise in ["auf", "im", "in", "um", "von", "bis", "bitte", "suche",
+                      "finde", "such", "durchsuche", "liste", "umkreis", "radius",
+                      "km", "einen", "eine", "ein", "mir", "dem", "der", "die"]:
+            query = re.sub(r'(?i)(?<![\w])' + re.escape(noise) + r'(?![\w])', ' ', query)
+        # Remove .de standalone
+        query = re.sub(r'\.de\b', '', query, flags=re.IGNORECASE)
+        # Remove PLZ and city name leftovers
         if plz:
             query = query.replace(plz.group(1), "")
+        # Remove anything that looks like NNNkm or radius numbers
+        query = re.sub(r'\b\d+\s*km\b', '', query, flags=re.IGNORECASE)
         query = re.sub(r'\s+', ' ', query).strip(" ,.-")
         if len(query) < 3:
             return None
