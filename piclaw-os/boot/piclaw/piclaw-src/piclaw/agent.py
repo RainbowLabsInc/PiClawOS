@@ -517,21 +517,28 @@ class Agent:
                     mp_kwargs["max_price"] = float(next(g for g in new_price.groups() if g))
 
         if mp_kwargs:
-            log.info("Marketplace intent detected, calling tool directly: %s", mp_kwargs)
+            log.info("Marketplace intent detected: %s", mp_kwargs)
             try:
                 from piclaw.tools.marketplace import marketplace_search, format_results
-                result = await marketplace_search(**mp_kwargs, notify_all=True)
-                formatted = format_results(result)
-                # Let the LLM wrap the results in a natural response
-                summary_prompt = (
-                    user_input + "\n\n[Suchergebnisse von marketplace_search]:\n"
-                    + formatted + "\n\nBitte fasse diese Ergebnisse für den Nutzer zusammen."
+                import traceback as _tb
+                log.info("Calling marketplace_search with query=%r location=%r radius=%r",
+                         mp_kwargs.get("query"), mp_kwargs.get("location"), mp_kwargs.get("radius_km"))
+                result = await marketplace_search(
+                    query=mp_kwargs.get("query", ""),
+                    platforms=mp_kwargs.get("platforms", ["kleinanzeigen"]),
+                    location=mp_kwargs.get("location"),
+                    max_price=mp_kwargs.get("max_price"),
+                    radius_km=mp_kwargs.get("radius_km"),
+                    notify_all=True,
+                    max_results=10,
                 )
-                messages.append(Message(role="user", content=summary_prompt))
+                log.info("Marketplace result: %d total, %d new", result.get("total_found", 0), result.get("new_count", 0))
+                formatted = format_results(result)
                 create_background_task(self.memory.after_turn(user_input, formatted))
                 return formatted
             except Exception as e:
-                log.warning("Marketplace shortcut failed: %s — falling back to LLM", e)
+                import traceback as _tb
+                log.error("Marketplace shortcut FAILED: %s\n%s", e, _tb.format_exc())
 
         # Memory-Recall: kurzer Timeout damit Agent immer antwortet
         try:
