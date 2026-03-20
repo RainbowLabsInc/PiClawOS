@@ -73,11 +73,11 @@ def _clean_query(query: str) -> str:
     # Chat-Präfixe entfernen
     q = re.sub(r"\[.*?\]", " ", query)
 
-    # PLZ (5 Ziffern)
-    q = re.sub(r"\b\d{5}\b", " ", q)
+    # PLZ (5 Ziffern) - Aggressiver
+    q = re.sub(r"(?<!\d)\d{5}(?!\d)", " ", q)
 
     # Radius (z.B. "20km", "20 km")
-    q = re.sub(r"\b\d+\s*km\b", " ", q, flags=re.IGNORECASE)
+    q = re.sub(r"\d+\s*km", " ", q, flags=re.IGNORECASE)
 
     # Plattformnamen und Domains
     for term in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay", ".de"]:
@@ -91,13 +91,15 @@ def _clean_query(query: str) -> str:
              "nähe", "für", "unter", "euro", "rosengarten", "hamburg", "berlin",
              "nach", "mit", "den", "auf", "mal", "einem", "einer", "münchen",
              "frankfurt", "düsseldorf", "köln", "hannover", "leipzig", "bremen",
-             "kaufen", "verkaufen", "preis", "günstig", "billig", "suche", "verkaufe"]
+             "kaufen", "verkaufen", "preis", "günstig", "billig", "suche", "verkaufe",
+             "bitte", "gerade", "aktuell", "inserate", "anzeigen"]
+
+    # Längere Phrasen zuerst
+    noise.sort(key=len, reverse=True)
 
     for word in noise:
-        q = re.sub(r"(?i)\b" + re.escape(word) + r"\b", " ", q)
-
-    # "Nähe" auch am Wortende entfernen falls Punkt/Fragezeichen folgt
-    q = re.sub(r"(?i)nähe", " ", q)
+        pattern = r"(?i)(?:^|(?<=\W))" + re.escape(word) + r"(?:(?=\W)|$)"
+        q = re.sub(pattern, " ", q)
 
     # Alle Sonderzeichen entfernen
     q = re.sub(r"[?!.,;:\-_/]", " ", q)
@@ -359,8 +361,18 @@ async def marketplace_search(
     if platforms is None:
         platforms = ["kleinanzeigen", "ebay", "web"]
 
+    # Falls PLZ im Query ist aber nicht als Parameter, extrahieren wir sie
+    if not location:
+        plz_match = re.search(r"(?<!\d)(\d{5})(?!\d)", query)
+        if plz_match:
+            location = plz_match.group(1)
+            log.info("PLZ %s aus Query extrahiert", location)
+
     # Intern bereinigen um Rauschen in der eigentlichen Suche zu vermeiden
     query = _clean_query(query)
+
+    if not query or len(query) < 2:
+        return {"new": [], "total_found": 0, "query": query or "(leer)", "location": location}
 
     seen = _load_seen() if not notify_all else set()
     all_results = []
