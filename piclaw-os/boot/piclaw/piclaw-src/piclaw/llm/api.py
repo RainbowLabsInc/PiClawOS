@@ -52,7 +52,9 @@ class AnthropicBackend(LLMBackend):
         async with aiohttp.ClientSession(timeout=self.timeout) as s:
             async with s.post(f"{self.base_url}/v1/messages",
                               headers=self._headers(), json=payload) as r:
-                r.raise_for_status()
+                if r.status >= 400:
+                    body = await r.text()
+                    raise RuntimeError(f"Anthropic API error {r.status}: {body}")
                 data = await r.json()
         content, tool_calls = "", []
         for block in data.get("content", []):
@@ -149,7 +151,9 @@ class OpenAIBackend(LLMBackend):
         async with aiohttp.ClientSession(timeout=self.timeout) as s:
             async with s.post(f"{self.base_url}/v1/chat/completions",
                               headers=self._headers(), json=payload) as r:
-                r.raise_for_status()
+                if r.status >= 400:
+                    body = await r.text()
+                    raise RuntimeError(f"OpenAI/NIM API error {r.status}: {body}")
                 data = await r.json()
         choices = data.get("choices") or []
         if not choices:
