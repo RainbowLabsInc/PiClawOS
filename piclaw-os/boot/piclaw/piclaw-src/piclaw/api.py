@@ -29,6 +29,27 @@ from contextlib import asynccontextmanager
 
 from piclaw.config   import load as load_cfg, save as save_cfg, PiClawConfig
 from piclaw.agent    import Agent
+
+# ── Logging setup for API process ─────────────────────────────────────────────
+def _setup_api_logging() -> None:
+    """Ensure piclaw.* loggers write to api.log in the API process."""
+    import sys
+    _LOG_DIR = Path("/var/log/piclaw")
+    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _log_file = _LOG_DIR / "api.log"
+    _fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                              datefmt="%Y-%m-%d %H:%M:%S")
+    root = logging.getLogger()
+    if not any(isinstance(h, logging.FileHandler) and
+               getattr(h, "baseFilename", "").endswith("api.log")
+               for h in root.handlers):
+        fh = logging.FileHandler(str(_log_file))
+        fh.setFormatter(_fmt)
+        fh.setLevel(logging.INFO)
+        root.addHandler(fh)
+    root.setLevel(logging.INFO)
+
+_setup_api_logging()
 from piclaw.llm.base import Message
 from piclaw.messaging import build_hub, IncomingMessage
 from piclaw.auth     import require_auth, require_auth_ws, set_token, get_token, generate_token
