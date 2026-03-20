@@ -246,7 +246,11 @@ class MetricsCollector:
             except Exception as e:
                 logger.warning("MetricsCollector Fehler: %s", e)
 
-            await asyncio.sleep(self.interval_s)
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self.interval_s)
+                break
+            except asyncio.TimeoutError:
+                pass
 
     def stop(self) -> None:
         self._stop.set()

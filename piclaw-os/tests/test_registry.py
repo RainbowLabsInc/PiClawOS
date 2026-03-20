@@ -237,7 +237,7 @@ class TestLLMRegistry:
             from piclaw.llm.registry import LLMRegistry
             reg = LLMRegistry()
             reg.add(self._make_backend("to-remove"))
-            assert reg.remove("to-remove") is True
+            assert "removed" in reg.remove("to-remove")
             assert reg.get("to-remove") is None
 
     def test_list_enabled(self, tmp_path):
