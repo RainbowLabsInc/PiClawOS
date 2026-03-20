@@ -86,6 +86,7 @@ Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network
 - [ ] **History trimming** — keep last 5-8 messages + rolling summary instead of 20 raw messages
 - [ ] **Per-backend token budgets** — configurable max_tokens per backend to control cost
 - [ ] Goal: reduce token usage by ~60% for simple conversational messages
+- [ ] **Single model instance** — local model (Gemma 2B) currently loaded in both piclaw-api and piclaw-agent (~4.4 GB total); load only in agent, API delegates via internal call — saves ~2 GB RAM permanently
 
 ---
 
