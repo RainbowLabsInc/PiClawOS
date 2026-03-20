@@ -334,7 +334,7 @@ async def marketplace_search(
     new_seen = set(seen)
     for item in all_results:
         uid = _make_id(item["platform"], item["id"])
-        if uid not in seen:
+        if uid not in new_seen:
             new_results.append(item)
             new_seen.add(uid)
 
@@ -371,10 +371,13 @@ def format_results(results: dict) -> str:
         platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐"}.get(
             item["platform"], "🔗"
         )
+        # Markdown-Titel bereinigen (Klammern eskapen)
+        safe_title = item['title'].replace("[", "\\[").replace("]", "\\]")[:60]
+
         price_str = f" · {item['price_text']}" if item.get("price_text") else ""
         loc_str   = f" · {item['location']}" if item.get("location") else ""
         lines.append(
-            f"{platform_emoji} [{item['title'][:60]}]({item['url']})"
+            f"{platform_emoji} [{safe_title}]({item['url']})"
             f"{price_str}{loc_str}"
         )
 
