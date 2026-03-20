@@ -199,25 +199,9 @@ class Agent:
         )
 
         async def _marketplace_handler(**kw):
-            import re as _re
-            # Clean query: remove PLZ, km-radius, platform names
-            query = kw.get("query", "")
-            query = _re.sub(r"\[.*?\]", " ", query) # Remove Chat-Prefixes
-            query = _re.sub(r"\b\d{5}\b", " ", query)
-            query = _re.sub(r"\b\d+\s*km\b", " ", query, flags=_re.IGNORECASE)
-            for _plat in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay"]:
-                query = query.replace(_plat, " ").replace(_plat.capitalize(), " ")
-            query = query.replace(".de", " ")
-            # Stoppwörter auch hier entfernen
-            _sw = ["suche", "finde", "such", "find", "schau", "schaue", "durchsuche", "zeig", "liste",
-                   "was kostet", "preis für", "gibt es", "schnäppchen", "angebot", "umkreis", "radius"]
-            for w in _sw:
-                query = _re.sub(r"(?i)\b" + _re.escape(w) + r"\b", " ", query)
-            query = " ".join(query.split()).strip(" ,.-")
-            if not query:
-                query = kw.get("query", "")
+            # Query cleaning now happens internally in marketplace_search()
             result = await marketplace_search(
-                query=query,
+                query=kw.get("query", ""),
                 platforms=kw.get("platforms", ["kleinanzeigen"]),
                 max_price=kw.get("max_price"),
                 location=kw.get("location"),
@@ -439,8 +423,8 @@ class Agent:
         query = text_clean
         # Plattform-Phrasen entfernen
         for phrase in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay",
-                       "zeige mir", "zeig mir", "was kostet", "preis für", "gibt es"]:
-            query = re.sub(re.escape(phrase), " ", query, flags=re.IGNORECASE)
+                       "zeige mir", "zeig mir", "was kostet", "preis für", "gibt es", "auf"]:
+            query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
         # PLZ entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
@@ -566,37 +550,9 @@ class Agent:
 
         if mp_kwargs:
             log.info("Marketplace intent detected: %s", mp_kwargs)
-            # Direct file write for debugging (bypasses uvicorn logging override)
-            try:
-                with open("/tmp/piclaw_marketplace_debug.txt", "a") as _dbgf:
-                    import time
-                    _dbgf.write(f"{time.strftime('%H:%M:%S')} SHORTCUT CALLED: {mp_kwargs}\n")
-            except Exception: pass
-            try:
-                from piclaw.tools.marketplace import marketplace_search, format_results
-                import traceback as _tb
-                log.info("Calling marketplace_search with query=%r location=%r radius=%r",
-                         mp_kwargs.get("query"), mp_kwargs.get("location"), mp_kwargs.get("radius_km"))
-                result = await marketplace_search(
-                    query=mp_kwargs.get("query", ""),
-                    platforms=mp_kwargs.get("platforms", ["kleinanzeigen"]),
-                    location=mp_kwargs.get("location"),
-                    max_price=mp_kwargs.get("max_price"),
-                    radius_km=mp_kwargs.get("radius_km"),
-                    notify_all=True,
-                    max_results=10,
-                )
-                log.info("Marketplace result: %d total, %d new", result.get("total_found", 0), result.get("new_count", 0))
-                # Instead of direct return, delegate to SearchAssistant sub-agent
-                # for better interaction (asking for location, formatting, etc)
-                return await self._delegate_to_search_assistant(user_input)
-            except Exception as e:
-                import traceback as _tb
-                log.error("Marketplace shortcut FAILED: %s\n%s", e, _tb.format_exc())
-                try:
-                    with open("/tmp/piclaw_marketplace_debug.txt", "a") as _dbgf:
-                        _dbgf.write(f"SHORTCUT FAILED: {e}\n{_tb.format_exc()}\n")
-                except Exception: pass
+            # Direct delegation to SearchAssistant (it will call the tool)
+            # to avoid double-searching and inconsistent query cleaning.
+            return await self._delegate_to_search_assistant(user_input)
 
         # Memory-Recall: kurzer Timeout damit Agent immer antwortet
         try:
