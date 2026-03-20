@@ -79,12 +79,9 @@ def _clean_query(query: str) -> str:
     # Radius (z.B. "20km", "20 km")
     q = re.sub(r"\b\d+\s*km\b", " ", q, flags=re.IGNORECASE)
 
-    # Plattformnamen
-    for plat in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay"]:
-        q = q.replace(plat, " ").replace(plat.capitalize(), " ")
-
-    # .de Suffix und "auf"
-    q = q.replace(".de", " ").replace(" auf ", " ")
+    # Plattformnamen und Domains
+    for term in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay", ".de"]:
+        q = re.sub(re.escape(term), " ", q, flags=re.IGNORECASE)
 
     # Deutsche Stoppwörter/Rauschen für Marktplatz-Suche
     noise = ["suche", "finde", "such", "find", "schau", "schaue", "durchsuche",
@@ -92,16 +89,19 @@ def _clean_query(query: str) -> str:
              "angebot", "umkreis", "radius", "einen", "eine", "ein", "mir",
              "dem", "der", "die", "das", "bitte", "im", "in", "um", "von", "bis",
              "nähe", "für", "unter", "euro", "rosengarten", "hamburg", "berlin",
-             "nach", "mit", "den", "auf", "bitte", "mal"]
+             "nach", "mit", "den", "auf", "mal", "einem", "einer"]
 
     for word in noise:
         q = re.sub(r"(?i)\b" + re.escape(word) + r"\b", " ", q)
 
-    # Sonderzeichen am Ende von Wörtern entfernen (z.B. Fragezeichen)
-    q = re.sub(r"[?!\.]", " ", q)
+    # "Nähe" auch am Wortende entfernen falls Punkt/Fragezeichen folgt
+    q = re.sub(r"(?i)nähe", " ", q)
+
+    # Alle Sonderzeichen entfernen
+    q = re.sub(r"[?!.,;:\-_/]", " ", q)
 
     # Mehrfache Leerzeichen bereinigen
-    q = " ".join(q.split()).strip(" ,.-")
+    q = " ".join(q.split()).strip()
     return q
 
 
