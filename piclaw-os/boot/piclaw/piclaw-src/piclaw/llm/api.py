@@ -187,7 +187,7 @@ class OpenAIBackend(LLMBackend):
                     try:
                         token = json.loads(line)["choices"][0].get("delta", {}).get("content", "")
                         if token: yield token
-                    except (json.JSONDecodeError, KeyError): continue
+                    except (json.JSONDecodeError, KeyError, IndexError): continue
 
     async def health_check(self) -> bool:
         try:
