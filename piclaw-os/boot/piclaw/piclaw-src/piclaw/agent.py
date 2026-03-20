@@ -390,7 +390,7 @@ class Agent:
                      "was kostet", "preis für", "gibt es"]
         market_kw = ["kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
                      "marktplatz", "gebraucht", "preis", "euro", "schnäppchen",
-                     "angebot"]
+                     "angebot", "nähe", "umkreis", "plz", "ort"]
         if not any(k in t for k in search_kw):
             return None
         if not any(k in t for k in market_kw):
@@ -438,7 +438,7 @@ class Agent:
                      "einen", "eine", "ein", "mir", "dem", "der", "die", "das",
                      "rosengarten", "hamburg", "berlin", "münchen", "köln",
                      "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig",
-                     "schnäppchen", "angebot", "angebote"]
+                     "schnäppchen", "angebot", "angebote", "nach", "einem", "einer", "nähe"]
         for w in stopwords:
             query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
         # .de Suffix entfernen
