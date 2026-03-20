@@ -72,6 +72,8 @@ async def _agent_message_handler(msg: IncomingMessage) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _cfg, _agent, _hub
+    # Re-apply logging after uvicorn overwrites root handlers at startup
+    _setup_api_logging()
     _cfg = load_cfg()
 
     # ── Token: generate once, persist in config ────────────────────
