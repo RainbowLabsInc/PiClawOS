@@ -1,31 +1,33 @@
 # PiClaw OS – Roadmap
 
 ## Status: v0.15 (März 2026)
-Aktueller Stand: Grundsystem läuft, lokales LLM (Gemma 2B) antwortet, Telegram funktioniert.
+Aktueller Stand: Kimi K2 + Nemotron via NVIDIA NIM, Queue-System, Netzwerk-Monitor, Multi-LLM Registry.
 
 ---
 
-## 🔧 Offene Bugs / technische Schulden
+## ✅ Abgeschlossen
 
-| # | Problem | Priorität |
-|---|---------|-----------|
-| T1 | llama.cpp gibt verbose Output ins Terminal (llama_context, llama_kv_cache) | Mittel |
-| T2 | Agent verarbeitet Anfragen sequenziell (CLI + Telegram blockieren sich gegenseitig) | Hoch |
-| T3 | CLI nutzt noch keinen WebSocket-API-Chat auf aktuellem Pi (nur im neuen Build) | Hoch |
+### v0.14 – Stabilität & Parallelität
+- [x] Queue-System: Agent verarbeitet Telegram + CLI parallel (asyncio.Queue)
+- [x] llama.cpp stdout unterdrücken
+- [x] Router-Fallback-Bug behoben (kein ⚠️ mehr nach erfolgreicher Antwort)
+
+### v0.15 – Netzwerk-Monitoring
+- [x] `tools/network_monitor.py`: network_scan, port_scan, check_new_devices
+- [x] Proaktive Routinen für Netzwerk-Checks
+- [x] Neue Geräte im LAN → Telegram-Alert
+
+### Multi-LLM / Sonstiges
+- [x] Kimi K2 + Nemotron via NVIDIA NIM
+- [x] Tool-Calling Fix für NVIDIA NIM
+- [x] SOUL.md aus QMD Memory-Index ausgeschlossen
+- [x] Multi-LLM Wizard mit Zweck-Auswahl
+- [x] `piclaw llm` CLI-Kommando
+- [x] Repo-Struktur bereinigt
 
 ---
 
 ## 🚀 Geplante Features
-
-### ~~v0.14~~ ✅ – Stabilität & Parallelität
-- [x] **Queue-System**: Agent verarbeitet Telegram + CLI parallel (asyncio.Queue)
-- [x] **llama.cpp stdout unterdrücken**: stderr nach /dev/null im LocalBackend
-- [x] **Router-Fallback-Bug**: kein ⚠️ mehr nach erfolgreicher Antwort
-
-### ~~v0.15~~ ✅ – Netzwerk-Monitoring
-- [x] `tools/network_monitor.py`: network_scan, port_scan, check_new_devices
-- [x] Proaktive Routinen für Netzwerk-Checks
-- [x] Neue Geräte im LAN → Telegram-Alert
 
 ### v0.16 – AgentMail – E-Mail Inbox für Dameon
 - [ ] **AgentMail** Integration: https://www.agentmail.to
@@ -41,7 +43,7 @@ Aktueller Stand: Grundsystem läuft, lokales LLM (Gemma 2B) antwortet, Telegram 
 - [ ] Neues Tool `emergency_network_off()` mit Telegram-Bestätigung
 - [ ] Flow: Angriff erkannt → "Netzwerk trennen? [Ja/Nein]" → Steckdose aus
 
-### v0.17 – Security Tools
+### v0.18 – Security Tools
 - [ ] `tools/network_security.py`:
   - `nmap_scan()` – Netzwerk-Scanner
   - `whois_lookup()` – Domain/IP-Info
@@ -50,35 +52,34 @@ Aktueller Stand: Grundsystem läuft, lokales LLM (Gemma 2B) antwortet, Telegram 
 - [ ] Fail2ban-Integration + Status-Abfrage
 - [ ] Abuse-Report Generator
 
-### v0.18 – Tandem Browser + Scrapling (Autonomes Browsing & Scraping)
+### v0.19 – Tandem Browser + Scrapling (Autonomes Browsing & Scraping)
 - [~] **Tandem IN ARBEIT** – Browser Automation: https://github.com/hydro13/tandem-browser
-- [ ] Neues Tool `browser_open(url)`, `browser_click(selector)`, `browser_read()`, `browser_screenshot()`
-- [ ] Agent kann damit selbstständig Webseiten aufrufen, ausfüllen und auslesen
-- [ ] **Scrapling** – Adaptives Web Scraping Framework: https://github.com/D4Vinci/Scrapling
+- [ ] Tools: `browser_open(url)`, `browser_click(selector)`, `browser_read()`, `browser_screenshot()`
+- [ ] Agent kann selbstständig Webseiten aufrufen, ausfüllen und auslesen
+- [ ] **Scrapling** – Adaptives Web Scraping: https://github.com/D4Vinci/Scrapling
   - Cloudflare Bypass out of the box (StealthyFetcher)
   - Adaptives Element-Tracking – findet Elemente auch nach Website-Redesign
-  - MCP-Server eingebaut (direkte Integration möglich)
+  - MCP-Server eingebaut (direkte Claude-Integration möglich)
   - Tools: `scrape_url()`, `scrape_css()`, `stealth_fetch()`
 - [ ] Scrapling als Dependency in install.sh (`pip install "scrapling[fetchers]"`)
-- [ ] Einsatz: Preisvergleiche, Formulare, Cloudflare-geschützte Seiten
 
-### v0.19 – LLM-Verbesserungen
-- [ ] Ollama-Integration testen (llama3.2:3b als bessere lokale Option)
+### v0.20 – Self-Improving Memory (ClawHub Skill)
+- [ ] Dameon lernt aus expliziten Korrekturen ("nein, das war falsch")
+- [ ] Tiered Memory: HOT (≤100 Zeilen, immer geladen) / WARM / COLD
+- [ ] Pattern Promotion: nach 3x gleicher Korrektur → feste Regel in HOT
+- [ ] Self-Reflection: nach komplexen Aufgaben selbst evaluieren und Lesson loggen
+- [ ] Conflict Resolution: spezifischeres Pattern gewinnt (Projekt > Domäne > Global)
+- [ ] Inspiration: https://clawhub.ai (Self-Improving Memory Skill)
+
+### v0.21 – LLM-Verbesserungen
+- [ ] Ollama-Integration (llama3.2:3b als bessere lokale Option)
 - [ ] Thermisches Routing verfeinern
-- [ ] Antwortzeit-Optimierung (n_threads auf Pi 5 optimieren)
+- [ ] n_threads auf Pi 5 optimieren
 
 ---
 
-## ✅ Abgeschlossen (v0.13.x)
-
-- Grundinstallation SD-Card Workflow
-- Lokales LLM (Gemma 2B, Phi-3, TinyLlama wählbar)
-- Telegram, Discord, MQTT, WhatsApp Adapter
-- Home Assistant REST + WebSocket
-- Proaktiver Agent (Routinen, Schwellwerte)
-- Web-UI (8 Tabs)
-- Memory-System (QMD)
-- SSH-Wizard (11 Schritte)
-- CLI über WebSocket-API (im Build, noch nicht getestet)
-- 15+ Bugfixes durch Installationstests
-
+## 📋 Technische Schulden
+| # | Problem | Priorität |
+|---|---------|-----------|
+| T1 | llama.cpp verbose Output (teilweise behoben) | Mittel |
+| T2 | Installer-Tool damit Dameon Software autonom installieren kann | Hoch |
