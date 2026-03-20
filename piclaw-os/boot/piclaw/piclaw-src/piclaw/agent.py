@@ -371,6 +371,47 @@ class Agent:
         await self._queue.put(task)
         return await task.future
 
+    def _detect_marketplace_intent(self, text: str) -> dict | None:
+        """Detect marketplace search intent and extract parameters directly.
+        Returns kwargs for marketplace_search or None if not a marketplace request."""
+        import re
+        t = text.lower()
+        # Keywords that indicate a marketplace search
+        market_kw = ["kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
+                     "verkaufen", "suche", "finde", "marktplatz", "gebraucht",
+                     "neu ", "preis", "euro", "€"]
+        search_kw = ["suche", "finde", "such", "find", "schau", "schaue",
+                     "durchsuche", "zeig", "liste", "search", "look for"]
+        if not any(k in t for k in search_kw):
+            return None
+        if not any(k in t for k in market_kw + ["kleinanzeigen", "ebay", "markt"]):
+            return None
+        # Extract platform
+        platforms = []
+        if "kleinanzeigen" in t: platforms.append("kleinanzeigen")
+        if "ebay" in t: platforms.append("ebay")
+        if not platforms: platforms = ["kleinanzeigen", "ebay", "web"]
+        # Extract PLZ (5 digits)
+        plz = re.search(r'(\d{5})', text)
+        location = plz.group(1) if plz else None
+        # Extract max_price
+        price = re.search(r'unter\s+(\d+)\s*€|max\s+(\d+)\s*€|bis\s+(\d+)\s*€', t)
+        max_price = None
+        if price:
+            max_price = float(next(g for g in price.groups() if g))
+        # Extract query — remove location/price/platform words
+        query = text
+        for stop in ["auf kleinanzeigen", "auf ebay", "auf marktplatz", "im umkreis",
+                     "in umkreis", f"um {plz.group(1)}" if plz else "",
+                     "rosengarten", "hamburg", "berlin", "münchen"]:
+            if stop: query = re.sub(re.escape(stop), "", query, flags=re.IGNORECASE)
+        # Clean up query
+        query = re.sub(r'(?i)(bitte\s+)?(suche|finde|such|durchsuche|zeig mir|liste)\s+', "", query).strip()
+        query = re.sub(r'\s+', ' ', query).strip(" ,.")
+        if len(query) < 3:
+            return None
+        return {"query": query, "platforms": platforms, "location": location, "max_price": max_price}
+
     async def _delegate_to_installer(self, request: str) -> str:
         """Spawn a privileged InstallerAgent sub-agent."""
         agent_def = SubAgentDef(
@@ -411,6 +452,26 @@ class Agent:
         if history:
             messages.extend(history[-20:])
         messages.append(Message(role="user", content=user_input))
+
+        # Marketplace intent shortcut — call tool directly without relying on LLM tool-calling
+        # This bypasses the Kimi K2 tool-calling reliability issue
+        mp_kwargs = self._detect_marketplace_intent(user_input)
+        if mp_kwargs:
+            log.info("Marketplace intent detected, calling tool directly: %s", mp_kwargs)
+            try:
+                from piclaw.tools.marketplace import marketplace_search, format_results
+                result = await marketplace_search(**mp_kwargs)
+                formatted = format_results(result)
+                # Let the LLM wrap the results in a natural response
+                summary_prompt = (
+                    user_input + "\n\n[Suchergebnisse von marketplace_search]:\n"
+                    + formatted + "\n\nBitte fasse diese Ergebnisse für den Nutzer zusammen."
+                )
+                messages.append(Message(role="user", content=summary_prompt))
+                create_background_task(self.memory.after_turn(user_input, formatted))
+                return formatted
+            except Exception as e:
+                log.warning("Marketplace shortcut failed: %s — falling back to LLM", e)
 
         # Memory-Recall: kurzer Timeout damit Agent immer antwortet
         try:
