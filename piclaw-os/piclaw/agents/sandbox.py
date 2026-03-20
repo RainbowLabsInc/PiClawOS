@@ -34,6 +34,7 @@ log = logging.getLogger("piclaw.agents.sandbox")
 BLOCKED_ALWAYS: frozenset[str] = frozenset({
     # Filesystem wipe / recursive deletion
     "shell",             # raw shell access – use specific tools instead (unless privileged)
+    "shell_exec",
     "rm_recursive",
 
     # System integrity

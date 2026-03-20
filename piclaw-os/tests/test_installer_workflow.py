@@ -82,3 +82,45 @@ async def test_watchdog_installer_hang(tmp_path, monkeypatch):
     assert len(alerts) == 1
     assert alerts[0].message == "Installer Hang Detected"
     assert alerts[0].severity == "critical"
+
+@pytest.mark.asyncio
+async def test_installer_lock_creation_and_cleanup(mock_cfg, monkeypatch):
+    from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+
+    # Setup agent
+    agent = Agent(mock_cfg)
+    # Mock runner and registry
+    agent.sa_runner = AsyncMock()
+    agent.sa_runner._tasks = {}
+
+    # We need to simulate the task finishing to trigger the callback
+    mock_task = MagicMock()
+    agent.sa_runner.start_agent = AsyncMock(return_value="Started")
+
+    # Store the callback
+    cleanup_callback = None
+    def mock_add_done_callback(cb):
+        nonlocal cleanup_callback
+        cleanup_callback = cb
+
+    mock_task.add_done_callback = mock_add_done_callback
+
+    async def mock_start_agent(aid):
+        agent.sa_runner._tasks[aid] = mock_task
+        return "Started"
+
+    agent.sa_runner.start_agent.side_effect = mock_start_agent
+
+    # Trigger @installer
+    await agent.run("@installer test")
+
+    # Check lock file created
+    assert INSTALLER_LOCK_FILE.exists()
+    assert "test" in INSTALLER_LOCK_FILE.read_text()
+
+    # Trigger cleanup callback
+    if cleanup_callback:
+        cleanup_callback(mock_task)
+
+    # Check lock file removed
+    assert not INSTALLER_LOCK_FILE.exists()

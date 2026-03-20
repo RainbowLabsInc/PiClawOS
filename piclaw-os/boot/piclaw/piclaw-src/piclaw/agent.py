@@ -18,6 +18,7 @@ from piclaw.tools  import network  as network_mod
 from piclaw.tools  import gpio     as gpio_mod
 from piclaw.tools  import services as services_mod
 from piclaw.tools  import updater  as updater_mod
+from piclaw.tools  import agentmail as agentmail_mod
 from piclaw.tools.scheduler import Scheduler
 
 from piclaw.memory        import QMDBackend, MemoryMiddleware
