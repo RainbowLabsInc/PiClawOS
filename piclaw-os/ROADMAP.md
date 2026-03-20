@@ -1,6 +1,6 @@
 # PiClaw OS – Roadmap
 
-## Status: v0.13.3 (März 2026)
+## Status: v0.15 (März 2026)
 Aktueller Stand: Grundsystem läuft, lokales LLM (Gemma 2B) antwortet, Telegram funktioniert.
 
 ---
@@ -17,19 +17,15 @@ Aktueller Stand: Grundsystem läuft, lokales LLM (Gemma 2B) antwortet, Telegram 
 
 ## 🚀 Geplante Features
 
-### v0.14 – Stabilität & Parallelität
-- [ ] **Queue-System**: Agent verarbeitet Telegram + CLI parallel (asyncio.Queue)
-- [ ] **llama.cpp stdout unterdrücken**: stderr nach /dev/null im LocalBackend
-- [ ] **CLI via WebSocket** testen und finalisieren (bereits im Build)
+### ~~v0.14~~ ✅ – Stabilität & Parallelität
+- [x] **Queue-System**: Agent verarbeitet Telegram + CLI parallel (asyncio.Queue)
+- [x] **llama.cpp stdout unterdrücken**: stderr nach /dev/null im LocalBackend
+- [x] **Router-Fallback-Bug**: kein ⚠️ mehr nach erfolgreicher Antwort
 
-### v0.15 – Netzwerk-Monitoring
-- [ ] `tools/network_monitor.py` mit 4 Funktionen:
-  - `scan_devices()` – alle Geräte im LAN per nmap
-  - `check_new_devices()` – unbekannte Geräte → Telegram-Alert
-  - `port_scan(ip)` – offene Ports eines Geräts
-  - `ping_watchdog()` – wichtige Hosts überwachen
-- [ ] Proaktive Routine `network_check` alle 15 Minuten
-- [ ] Schwellwert: zu viele Verbindungsversuche → Telegram-Rückfrage
+### ~~v0.15~~ ✅ – Netzwerk-Monitoring
+- [x] `tools/network_monitor.py`: network_scan, port_scan, check_new_devices
+- [x] Proaktive Routinen für Netzwerk-Checks
+- [x] Neue Geräte im LAN → Telegram-Alert
 
 ### v0.16 – Notfall-Shutdown
 - [ ] Schaltbare Steckdose am Modem (Shelly Plug S oder TP-Link Tapo P110)
