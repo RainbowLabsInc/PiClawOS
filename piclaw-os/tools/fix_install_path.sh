@@ -16,27 +16,29 @@ echo "" && echo "🔧 PiClaw Install-Pfad reparieren" && echo "=================
 echo "  ⏸  Services stoppen..."
 systemctl stop piclaw-api piclaw-agent 2>/dev/null || true
 
-# Pip-Ziel ermitteln
-if [[ -f "$INSTALL_DIR/piclaw-os/pyproject.toml" ]]; then
-    PIP_TARGET="$INSTALL_DIR/piclaw-os"
-    TESTS_SRC="$INSTALL_DIR/piclaw-os/tests"
-elif [[ -f "$INSTALL_DIR/pyproject.toml" ]]; then
-    PIP_TARGET="$INSTALL_DIR"
-    TESTS_SRC="$INSTALL_DIR/piclaw-os/tests"
+# Kern-Fix: piclaw/ als Symlink auf piclaw-os/piclaw/ setzen
+# Damit zeigt der editable install auf den git-verwalteten Code
+echo "  🔗 piclaw/ → piclaw-os/piclaw/ (Symlink)..."
+if [[ -d "$INSTALL_DIR/piclaw-os/piclaw" ]]; then
+    if [[ -d "$INSTALL_DIR/piclaw" && ! -L "$INSTALL_DIR/piclaw" ]]; then
+        mv "$INSTALL_DIR/piclaw" "$INSTALL_DIR/piclaw.bak"
+        echo "  ℹ  Alte piclaw/ gesichert als piclaw.bak/"
+    fi
+    ln -sfn "$INSTALL_DIR/piclaw-os/piclaw" "$INSTALL_DIR/piclaw"
+    echo "  ✅ Symlink gesetzt"
 else
-    echo "  ❌ Kein pyproject.toml gefunden"; exit 1
+    echo "  ⚠️  piclaw-os/piclaw/ nicht gefunden – Symlink nicht möglich"
 fi
-echo "  ℹ  pip-Ziel: $PIP_TARGET"
 
 # tests/ verlinken
-if [[ -d "$TESTS_SRC" ]]; then
-    ln -sfn "$TESTS_SRC" "$INSTALL_DIR/tests" 2>/dev/null || true
+if [[ -d "$INSTALL_DIR/piclaw-os/tests" ]]; then
+    ln -sfn "$INSTALL_DIR/piclaw-os/tests" "$INSTALL_DIR/tests" 2>/dev/null || true
     echo "  ✅ tests/ verlinkt"
 fi
 
-# pip install
-echo "  📦 pip install -e $PIP_TARGET ..."
-"$VENV/bin/pip" install -e "$PIP_TARGET" -q || { echo "  ❌ pip install fehlgeschlagen"; exit 1; }
+# pip install -e /opt/piclaw (pyproject.toml liegt dort)
+echo "  📦 pip install -e $INSTALL_DIR ..."
+"$VENV/bin/pip" install -e "$INSTALL_DIR" -q || { echo "  ❌ pip install fehlgeschlagen"; exit 1; }
 echo "  ✅ piclaw installiert"
 
 # Rechte
@@ -57,4 +59,4 @@ echo "  ✅ sudoers gesetzt"
 
 systemctl start piclaw-api piclaw-agent 2>/dev/null || true
 
-echo "" && echo "✅ Fertig! Ab jetzt: piclaw update" && echo ""
+echo "" && echo "✅ Fertig! git pull → Änderungen sofort aktiv." && echo ""
