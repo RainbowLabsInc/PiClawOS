@@ -24,6 +24,7 @@ Long-Lived Token in HA erstellen:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -369,10 +370,8 @@ class HAEventListener:
                 retries += 1
                 log_fn = logger.warning if retries <= 3 else logger.debug
                 log_fn("HA WebSocket Fehler #%d: %s – Retry in %.0fs", retries, e, delay)
-                try:
+                with contextlib.suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(self._stop.wait(), timeout=delay)
-                except asyncio.TimeoutError:
-                    pass
                 delay = min(delay * 2, 300)  # max 5 min zwischen retries
 
     async def _connect(self) -> None:
