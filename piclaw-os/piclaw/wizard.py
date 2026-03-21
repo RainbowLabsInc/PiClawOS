@@ -119,8 +119,8 @@ def _flush_stdin() -> None:
     try:
         import termios
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Failed to flush stdin: %s", _e)
 
 
 def _prompt(label: str, default: str = "", secret: bool = False) -> str:
@@ -320,7 +320,8 @@ def step_welcome(state: WizardState) -> None:
     print()
     # System-Info anzeigen
     try:
-        import platform, psutil
+        import platform
+        import psutil
         mem_gb = round(psutil.virtual_memory().total / 1024**3, 1)
         print(f"  {FG_GRAY}System:  {platform.node()} | {platform.machine()} | {mem_gb} GB RAM{R}")
     except Exception as _e:
@@ -507,7 +508,8 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
         if ans in ("", "j", "y"):
             print()
             _info("Lade Gemma 2B herunter – bitte warten...")
-            import subprocess, sys
+            import subprocess
+            import sys
             venv_python = sys.executable
             result = subprocess.run(
                 [venv_python, "-m", "piclaw.cli", "model", "download"],
@@ -808,7 +810,8 @@ def step_mqtt(state: WizardState, step: int, total: int) -> None:
     # Schreibe in config.toml direkt (MQTT ist noch kein Dataclass-Feld)
     try:
         from piclaw.config import CONFIG_FILE
-        import tomllib, tomli_w
+        import tomllib
+        import tomli_w
         if CONFIG_FILE.exists():
             with open(CONFIG_FILE, "rb") as f:
                 raw = tomllib.load(f)
@@ -856,7 +859,8 @@ def step_homeassistant(state: WizardState, step: int, total: int) -> None:
             ha_raw = raw.get("homeassistant", {})
             existing_url   = ha_raw.get("url", "")
             existing_token = ha_raw.get("token", "")
-    except Exception:
+    except Exception as _e:
+        log.debug("Failed to load homeassistant config: %s", _e)
         existing_url = ""
         existing_token = ""
 
@@ -922,7 +926,8 @@ def step_homeassistant(state: WizardState, step: int, total: int) -> None:
 
     # In config.toml schreiben
     try:
-        import tomllib, tomli_w
+        import tomllib
+        import tomli_w
         if CONFIG_FILE.exists():
             with open(CONFIG_FILE, "rb") as f:
                 raw = tomllib.load(f)
@@ -1089,7 +1094,8 @@ def step_proactive(state: WizardState, step: int, total: int) -> None:
         try:
             from piclaw.config import CONFIG_DIR
             from piclaw.routines import RoutineRegistry
-            import tomllib, tomli_w
+            import tomllib
+            import tomli_w
 
             # Routinen aktivieren
             registry = RoutineRegistry(CONFIG_DIR / "routines.json")
@@ -1150,8 +1156,8 @@ def step_hardware(state: WizardState, step: int, total: int) -> None:
             default_pin = 14  # Pi 5: offizieller PWM-Lüfterpin
         elif "Raspberry Pi 4" in cpuinfo:
             default_pin = 14  # Pi 4: GPIO14 (PWM0)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Failed to detect Pi model: %s", _e)
 
     print(f"\n  {FG_GRAY}Ein PWM-Lüfter am GPIO-Pin wird automatisch temperaturgesteuert.{R}")
     print(f"  {FG_GRAY}Standard-Pin: GPIO{default_pin} (funktioniert für die meisten Pi-Lüfter){R}")
@@ -1174,7 +1180,8 @@ def step_hardware(state: WizardState, step: int, total: int) -> None:
 
         try:
             from piclaw.config import CONFIG_FILE
-            import tomllib, tomli_w
+            import tomllib
+            import tomli_w
             if CONFIG_FILE.exists():
                 with open(CONFIG_FILE, "rb") as f:
                     raw = tomllib.load(f)
@@ -1234,7 +1241,8 @@ def step_soul(state: WizardState, step: int, total: int) -> None:
     try:
         import piclaw.soul as soul_mod
         soul_path = soul_mod.SOUL_FILE
-    except Exception:
+    except Exception as _e:
+        log.debug("Failed to load soul_mod.SOUL_FILE: %s", _e)
         soul_path = Path("/etc/piclaw/SOUL.md")
 
     print(f"  {FG_GRAY}Der Soul ist eine Markdown-Datei die als erstes in jeden{R}")
