@@ -94,9 +94,10 @@ def cmd_chat():
         try:
             async with websockets.connect(
                 url,
-                ping_interval=30,  # keepalive alle 30s
-                ping_timeout=120,  # 2 Min warten (Nemotron/grosse Modelle)
+                ping_interval=20,  # keepalive alle 20s
+                ping_timeout=300,  # 5 Min warten (grosse Modelle + Marketplace)
                 open_timeout=15,
+                close_timeout=10,
             ) as ws:
                 while True:
                     try:
