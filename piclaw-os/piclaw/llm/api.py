@@ -210,13 +210,19 @@ class OpenAIBackend(LLMBackend):
     def __init__(self, api_key, model, base_url, temperature, max_tokens, timeout, **_):
         self.api_key = api_key
         self.model = model
-        # Normalize base_url: strip trailing slash and trailing /v1
-        # so that base_url='https://integrate.api.nvidia.com/v1' and
-        # base_url='https://api.openai.com' both work correctly
+        # Normalize base_url und Chat-Endpoint bestimmen
         _url = base_url.rstrip("/")
-        if _url.endswith("/v1"):
-            _url = _url[:-3]
-        self.base_url = _url
+        # Providers mit eigenem Pfad-Präfix (z.B. Gemini /v1beta/openai)
+        # bekommen kein /v1 vorangestellt
+        _FULL_PATH_HOSTS = ("generativelanguage.googleapis.com",)
+        if any(h in _url for h in _FULL_PATH_HOSTS):
+            self.base_url = _url
+            self._chat_endpoint = f"{_url}/chat/completions"
+        else:
+            if _url.endswith("/v1"):
+                _url = _url[:-3]
+            self.base_url = _url
+            self._chat_endpoint = f"{_url}/v1/chat/completions"
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout = aiohttp.ClientTimeout(total=timeout)
@@ -276,7 +282,7 @@ class OpenAIBackend(LLMBackend):
                 payload["tool_choice"] = "auto"
         async with aiohttp.ClientSession(timeout=self.timeout) as s:
             async with s.post(
-                f"{self.base_url}/v1/chat/completions",
+                f"{self._chat_endpoint}",
                 headers=self._headers(),
                 json=payload,
             ) as r:
@@ -315,7 +321,7 @@ class OpenAIBackend(LLMBackend):
         }
         async with aiohttp.ClientSession(timeout=self.timeout) as s:
             async with s.post(
-                f"{self.base_url}/v1/chat/completions",
+                f"{self._chat_endpoint}",
                 headers=self._headers(),
                 json=payload,
             ) as r:
