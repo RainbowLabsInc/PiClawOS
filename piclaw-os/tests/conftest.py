@@ -12,7 +12,7 @@ from unittest.mock import patch
 # ── Ensure piclaw package is importable ───────────────────────────
 # When running from project root: pytest tests/
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
+import piclaw.config
 
 @pytest.fixture(scope="session", autouse=True)
 def patch_config_dir(tmp_path_factory):
