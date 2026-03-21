@@ -183,7 +183,7 @@ class AnthropicBackend(LLMBackend):
 
 
 class OpenAIBackend(LLMBackend):
-    # NVIDIA NIM braucht explizites tool_choice und parallel_tool_calls=False
+    # NVIDIA NIM braucht parallel_tool_calls=False, aber kein tool_choice
     _NIM_HOST = "integrate.api.nvidia.com"
 
     def __init__(self, api_key, model, base_url, temperature, max_tokens, timeout, **_):
@@ -243,10 +243,11 @@ class OpenAIBackend(LLMBackend):
                 }
                 for t in tools
             ]
-            # NVIDIA NIM / Kimi K2: explizites tool_choice=auto
+            # NVIDIA NIM / Kimi K2:
             # 'required' fuehrt bei Llama 3.1 NIM zu Error 400
+            # 'auto' fuehrt in neueren Versionen auch zu Fehler 400 (requires --enable-auto-tool-choice and --tool-call-parser)
+            # Daher: komplett weglassen fuer NIM.
             if self._is_nim:
-                payload["tool_choice"] = "auto"
                 payload["parallel_tool_calls"] = False
             else:
                 payload["tool_choice"] = "auto"
