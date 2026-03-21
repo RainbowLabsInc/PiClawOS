@@ -14,7 +14,6 @@ import json
 import logging
 import re
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus
 
@@ -35,6 +34,55 @@ HEADERS = {
     "Accept-Language": "de-DE,de;q=0.9",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
+
+
+# ── Pre-compiled Regular Expressions ──────────────────────────────────────────
+
+# Query Cleaning
+RE_CLEAN_CHAT_PREFIX = re.compile(r"\[.*?\]")
+RE_CLEAN_PLZ = re.compile(r"(?<!\d)\d{5}(?!\d)")
+RE_CLEAN_RADIUS = re.compile(r"\d+\s*km", flags=re.IGNORECASE)
+RE_CLEAN_PLATFORMS = {
+    term: re.compile(re.escape(term), flags=re.IGNORECASE)
+    for term in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay", ".de"]
+}
+RE_CLEAN_NOISE = []
+noise_words = ["suche", "finde", "such", "find", "schau", "schaue", "durchsuche",
+         "zeig", "liste", "was kostet", "preis für", "gibt es", "schnäppchen",
+         "angebot", "umkreis", "radius", "einen", "eine", "ein", "mir",
+         "dem", "der", "die", "das", "bitte", "im", "in", "um", "von", "bis",
+         "nähe", "für", "unter", "euro", "rosengarten", "hamburg", "berlin",
+         "nach", "mit", "den", "auf", "mal", "einem", "einer", "münchen",
+         "frankfurt", "düsseldorf", "köln", "hannover", "leipzig", "bremen",
+         "kaufen", "verkaufen", "preis", "günstig", "billig", "suche", "verkaufe",
+         "bitte", "gerade", "aktuell", "inserate", "anzeigen"]
+noise_words.sort(key=len, reverse=True)
+for word in noise_words:
+    RE_CLEAN_NOISE.append(re.compile(r"(?i)(?:^|(?<=\W))" + re.escape(word) + r"(?:(?=\W)|$)"))
+RE_CLEAN_SPECIAL_CHARS = re.compile(r"[?!.,;:\-_/]")
+
+# Common Parsing
+RE_HTML_TAGS = re.compile(r'<[^>]+>')
+RE_PARSE_PRICE = re.compile(r"(\d+(?:\.\d+)?)")
+
+# Kleinanzeigen Parsing
+RE_KA_ARTICLES = re.compile(r'<article[^>]+data-adid="(\d+)"[^>]*>(.*?)</article>', re.DOTALL)
+RE_KA_TITLE_1 = re.compile(r'class="[^"]*text-module-begin[^"]*"[^>]*>\s*<a[^>]*>(.*?)</a>', re.DOTALL)
+RE_KA_TITLE_2 = re.compile(r'<a[^>]*class="[^"]*ellipsis[^"]*"[^>]*>(.*?)</a>', re.DOTALL)
+RE_KA_PRICE = re.compile(r'<p[^>]*class="[^"]*aditem-main--middle--price[^"]*"[^>]*>(.*?)</p>', re.DOTALL)
+RE_KA_LOCATION = re.compile(r'<span[^>]*class="[^"]*aditem-main--top--left[^"]*"[^>]*>(.*?)</span>', re.DOTALL)
+
+# eBay Parsing
+RE_EBAY_ITEMS_1 = re.compile(r'<li[^>]+data-view="[^"]*mi:1686[^"]*"[^>]*id="item(\d+)"[^>]*>(.*?)</li>', re.DOTALL)
+RE_EBAY_ITEMS_2 = re.compile(r'<div[^>]+class="[^"]*s-item[^"]*"[^>]*>(.*?)</div>\s*</div>\s*</li>', re.DOTALL)
+RE_EBAY_TITLE_1 = re.compile(r'<span[^>]+role="heading"[^>]*>(.*?)</span>', re.DOTALL)
+RE_EBAY_TITLE_2 = re.compile(r'class="[^"]*s-item__title[^"]*"[^>]*>(.*?)</[^>]+>', re.DOTALL)
+RE_EBAY_PRICE = re.compile(r'class="[^"]*s-item__price[^"]*"[^>]*>(.*?)</span>', re.DOTALL)
+RE_EBAY_LINK = re.compile(r'href="(https://www\.ebay\.de/itm/[^"]+)"')
+
+# Web Parsing
+RE_WEB_HITS = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
+RE_WEB_SNIPPETS = re.compile(r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.DOTALL)
 
 
 # ── Seen-IDs verwalten ─────────────────────────────────────────────────────────
@@ -69,40 +117,25 @@ def _make_id(platform: str, listing_id: str) -> str:
 
 def _clean_query(query: str) -> str:
     """Bereinigt den Suchbegriff von Rauschen (PLZ, Radius, Plattformen, Füllwörter)."""
-    import re
     # Chat-Präfixe entfernen
-    q = re.sub(r"\[.*?\]", " ", query)
+    q = RE_CLEAN_CHAT_PREFIX.sub(" ", query)
 
     # PLZ (5 Ziffern) - Aggressiver
-    q = re.sub(r"(?<!\d)\d{5}(?!\d)", " ", q)
+    q = RE_CLEAN_PLZ.sub(" ", q)
 
     # Radius (z.B. "20km", "20 km")
-    q = re.sub(r"\d+\s*km", " ", q, flags=re.IGNORECASE)
+    q = RE_CLEAN_RADIUS.sub(" ", q)
 
     # Plattformnamen und Domains
-    for term in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay", ".de"]:
-        q = re.sub(re.escape(term), " ", q, flags=re.IGNORECASE)
+    for term, pattern in RE_CLEAN_PLATFORMS.items():
+        q = pattern.sub(" ", q)
 
     # Deutsche Stoppwörter/Rauschen für Marktplatz-Suche
-    noise = ["suche", "finde", "such", "find", "schau", "schaue", "durchsuche",
-             "zeig", "liste", "was kostet", "preis für", "gibt es", "schnäppchen",
-             "angebot", "umkreis", "radius", "einen", "eine", "ein", "mir",
-             "dem", "der", "die", "das", "bitte", "im", "in", "um", "von", "bis",
-             "nähe", "für", "unter", "euro", "rosengarten", "hamburg", "berlin",
-             "nach", "mit", "den", "auf", "mal", "einem", "einer", "münchen",
-             "frankfurt", "düsseldorf", "köln", "hannover", "leipzig", "bremen",
-             "kaufen", "verkaufen", "preis", "günstig", "billig", "suche", "verkaufe",
-             "bitte", "gerade", "aktuell", "inserate", "anzeigen"]
-
-    # Längere Phrasen zuerst
-    noise.sort(key=len, reverse=True)
-
-    for word in noise:
-        pattern = r"(?i)(?:^|(?<=\W))" + re.escape(word) + r"(?:(?=\W)|$)"
-        q = re.sub(pattern, " ", q)
+    for pattern in RE_CLEAN_NOISE:
+        q = pattern.sub(" ", q)
 
     # Alle Sonderzeichen entfernen
-    q = re.sub(r"[?!.,;:\-_/]", " ", q)
+    q = RE_CLEAN_SPECIAL_CHARS.sub(" ", q)
 
     # Mehrfache Leerzeichen bereinigen
     q = " ".join(q.split()).strip()
@@ -114,7 +147,7 @@ def _clean_query(query: str) -> str:
 def _parse_price(text: str) -> Optional[float]:
     """Extrahiert Preis aus Text wie '149 €', '1.299,00 €', 'VB 80 €'"""
     text = text.replace(".", "").replace(",", ".")
-    match = re.search(r"(\d+(?:\.\d+)?)", text)
+    match = RE_PARSE_PRICE.search(text)
     if match:
         try:
             return float(match.group(1))
@@ -162,32 +195,23 @@ async def _search_kleinanzeigen(
 
     # Inserate parsen
     # Artikel-Blöcke: <article class="aditem ...">
-    articles = re.findall(
-        r'<article[^>]+data-adid="(\d+)"[^>]*>(.*?)</article>',
-        html, re.DOTALL
-    )
+    articles = RE_KA_ARTICLES.findall(html)
 
     for ad_id, content in articles[:max_results]:
         # Titel
-        title_match = re.search(
-            r'class="[^"]*text-module-begin[^"]*"[^>]*>\s*<a[^>]*>(.*?)</a>',
-            content, re.DOTALL
-        )
+        title_match = RE_KA_TITLE_1.search(content)
         if not title_match:
-            title_match = re.search(r'<a[^>]*class="[^"]*ellipsis[^"]*"[^>]*>(.*?)</a>',
-                                    content, re.DOTALL)
-        title = " ".join(re.sub(r'<[^>]+>', ' ', title_match.group(1)).split()).strip() if title_match else ""
+            title_match = RE_KA_TITLE_2.search(content)
+        title = " ".join(RE_HTML_TAGS.sub(' ', title_match.group(1)).split()).strip() if title_match else ""
 
         # Preis
-        price_match = re.search(r'<p[^>]*class="[^"]*aditem-main--middle--price[^"]*"[^>]*>(.*?)</p>',
-                                 content, re.DOTALL)
-        price_text = " ".join(re.sub(r'<[^>]+>', ' ', price_match.group(1)).split()).strip() if price_match else ""
+        price_match = RE_KA_PRICE.search(content)
+        price_text = " ".join(RE_HTML_TAGS.sub(' ', price_match.group(1)).split()).strip() if price_match else ""
         price = _parse_price(price_text)
 
         # Ort
-        loc_match = re.search(r'<span[^>]*class="[^"]*aditem-main--top--left[^"]*"[^>]*>(.*?)</span>',
-                               content, re.DOTALL)
-        location_text = " ".join(re.sub(r'<[^>]+>', ' ', loc_match.group(1)).split()).strip() if loc_match else ""
+        loc_match = RE_KA_LOCATION.search(content)
+        location_text = " ".join(RE_HTML_TAGS.sub(' ', loc_match.group(1)).split()).strip() if loc_match else ""
 
         if not title:
             continue
@@ -233,39 +257,28 @@ async def _search_ebay(
         return []
 
     # eBay Artikel parsen
-    items = re.findall(
-        r'<li[^>]+data-view="[^"]*mi:1686[^"]*"[^>]*id="item(\d+)"[^>]*>(.*?)</li>',
-        html, re.DOTALL
-    )
+    items = RE_EBAY_ITEMS_1.findall(html)
     # Alternativ: s-item Blöcke
     if not items:
-        items = re.findall(
-            r'<div[^>]+class="[^"]*s-item[^"]*"[^>]*>(.*?)</div>\s*</div>\s*</li>',
-            html, re.DOTALL
-        )
+        items = RE_EBAY_ITEMS_2.findall(html)
         items = [(hashlib.md5(c.encode()).hexdigest()[:12], c) for c in items]
 
     for item_id, content in items[:max_results]:
         # Titel
-        title_match = re.search(
-            r'<span[^>]+role="heading"[^>]*>(.*?)</span>',
-            content, re.DOTALL
-        )
+        title_match = RE_EBAY_TITLE_1.search(content)
         if not title_match:
-            title_match = re.search(r'class="[^"]*s-item__title[^"]*"[^>]*>(.*?)</[^>]+>',
-                                    content, re.DOTALL)
-        title = " ".join(re.sub(r'<[^>]+>', ' ', title_match.group(1)).split()).strip() if title_match else ""
+            title_match = RE_EBAY_TITLE_2.search(content)
+        title = " ".join(RE_HTML_TAGS.sub(' ', title_match.group(1)).split()).strip() if title_match else ""
         if not title or "Shop on eBay" in title:
             continue
 
         # Preis
-        price_match = re.search(r'class="[^"]*s-item__price[^"]*"[^>]*>(.*?)</span>',
-                                 content, re.DOTALL)
-        price_text = " ".join(re.sub(r'<[^>]+>', ' ', price_match.group(1)).split()).strip() if price_match else ""
+        price_match = RE_EBAY_PRICE.search(content)
+        price_text = " ".join(RE_HTML_TAGS.sub(' ', price_match.group(1)).split()).strip() if price_match else ""
         price = _parse_price(price_text)
 
         # Link
-        link_match = re.search(r'href="(https://www\.ebay\.de/itm/[^"]+)"', content)
+        link_match = RE_EBAY_LINK.search(content)
         link = link_match.group(1).split("?")[0] if link_match else f"https://www.ebay.de/itm/{item_id}"
 
         results.append({
@@ -304,18 +317,12 @@ async def _search_web(
         return []
 
     # DDG Ergebnisse parsen
-    hits = re.findall(
-        r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-        html, re.DOTALL
-    )
-    snippets = re.findall(
-        r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
-        html, re.DOTALL
-    )
+    hits = RE_WEB_HITS.findall(html)
+    snippets = RE_WEB_SNIPPETS.findall(html)
 
     for i, (href, title) in enumerate(hits[:max_results]):
-        title_clean = re.sub(r'<[^>]+>', '', title).strip()
-        snippet = re.sub(r'<[^>]+>', '', snippets[i]).strip() if i < len(snippets) else ""
+        title_clean = RE_HTML_TAGS.sub('', title).strip()
+        snippet = RE_HTML_TAGS.sub('', snippets[i]).strip() if i < len(snippets) else ""
         price = _parse_price(snippet)
 
         results.append({
@@ -363,7 +370,7 @@ async def marketplace_search(
 
     # Falls PLZ im Query ist aber nicht als Parameter, extrahieren wir sie
     if not location:
-        plz_match = re.search(r"(?<!\d)(\d{5})(?!\d)", query)
+        plz_match = RE_CLEAN_PLZ.search(query)
         if plz_match:
             location = plz_match.group(1)
             log.info("PLZ %s aus Query extrahiert", location)
@@ -446,9 +453,12 @@ def format_results(results: dict, mode: str = "text") -> str:
         safe_title = item['title'].replace("[", "\\[").replace("]", "\\]")[:70]
 
         lines.append(f"{i}. {emoji} [{plat}] {safe_title}")
-        if price: lines.append(f"   {price.strip()}")
-        if loc:   lines.append(f"   {loc.strip()}")
-        if url:   lines.append(f"   🔗 {url}")
+        if price:
+            lines.append(f"   {price.strip()}")
+        if loc:
+            lines.append(f"   {loc.strip()}")
+        if url:
+            lines.append(f"   🔗 {url}")
         lines.append("")
 
     if len(new) > 10:

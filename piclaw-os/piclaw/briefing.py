@@ -14,15 +14,13 @@ Quellen:
 
 Das Briefing wird vom LLM zu einer natürlichen Nachricht zusammengefasst.
 """
-from __future__ import annotations
-
 import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any
 
 _SECS_PER_DAY = 86_400  # Sekunden pro Tag
-
+_BOOT_TIME: float | None = None
 
 log = logging.getLogger("piclaw.briefing")
 
@@ -32,8 +30,10 @@ log = logging.getLogger("piclaw.briefing")
 async def _gather_pi_status() -> dict[str, Any]:
     """Pi-Hardware-Status."""
     try:
-        import psutil, subprocess
+        import psutil
+        import subprocess
         cpu_temp = None
+        global _BOOT_TIME
         try:
             loop = asyncio.get_running_loop()
             def _vcgencmd():
