@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import contextlib
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -334,11 +335,9 @@ class MetricsCollector:
             except Exception as e:
                 logger.warning("MetricsCollector Fehler: %s", e)
 
-            try:
+            with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=self.interval_s)
                 break
-            except asyncio.TimeoutError:
-                pass
 
     def stop(self) -> None:
         self._stop.set()
@@ -394,11 +393,9 @@ class MetricsCollector:
 def _read_cpu_temp() -> float | None:
     """Liest CPU-Temperatur – funktioniert auf Pi und in psutil-Fallback."""
     # Pi: /sys/class/thermal/thermal_zone0/temp (in Milligrad)
-    try:
+    with contextlib.suppress(OSError):
         t = Path("/sys/class/thermal/thermal_zone0/temp").read_text(encoding="utf-8").strip()
         return int(t) / 1000.0
-    except OSError:
-        pass  # thermal_zone0 not present on non-Pi
     # psutil fallback (Linux allgemein)
     try:
         temps = psutil.sensors_temperatures()
