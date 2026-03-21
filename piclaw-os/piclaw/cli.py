@@ -957,20 +957,31 @@ def cmd_debug(args: list):
     save = input("Ausgabe in Datei speichern? [y/N]: ").strip().lower() in ("y", "j")
 
     async def _run():
-        cmd = [sys.executable, "-m", "pytest", "-v"] + paths
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=str(base_dir),
-            env={"PYTHONPATH": str(base_dir), **os.environ}
-        )
-        out, _ = await proc.communicate()
-        output = out.decode("utf-8", errors="replace")
-        print(output)
+        all_output = []
+        for path in paths:
+            script = Path(path)
+            # [debug] scripts run directly with Python, [test] scripts via pytest
+            if script.parent.name == "debug":
+                cmd = [sys.executable, path]
+            else:
+                cmd = [sys.executable, "-m", "pytest", "-v", path]
+
+            print(f"\n  ▶  {script.name}\n")
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(base_dir),
+                env={"PYTHONPATH": str(base_dir), **os.environ}
+            )
+            out, _ = await proc.communicate()
+            output = out.decode("utf-8", errors="replace")
+            print(output)
+            all_output.append(f"=== {script.name} ===\n{output}")
+
         if save:
             log = base_dir / "debug_output.txt"
-            log.write_text(output)
+            log.write_text("\n".join(all_output))
             print(f"\n  💾 Gespeichert: {log}\n")
 
     asyncio.run(_run())
