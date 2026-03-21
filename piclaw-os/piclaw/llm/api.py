@@ -7,68 +7,82 @@ from typing import AsyncIterator
 from .base import LLMBackend, ToolCall, LLMResponse
 
 
+# ── Bekannte Provider ──────────────────────────────────────────────
+# Format: key_prefix → (provider, base_url, default_model)
+_KNOWN_PROVIDERS_BY_PREFIX = {
+    "sk-ant-":  ("anthropic", "https://api.anthropic.com",                  "claude-sonnet-4-20250514"),
+    "nvapi-":   ("openai",    "https://integrate.api.nvidia.com/v1",        "nvidia/llama-3.1-nemotron-70b-instruct"),
+    "AIza":     ("openai",    "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.0-flash"),
+    "fw-":      ("openai",    "https://api.fireworks.ai/inference/v1",      "accounts/fireworks/models/llama-v3p1-70b-instruct"),
+}
+
+# Provider die /v1/models unterstützen (OpenAI-kompatibel)
+_PROBE_ENDPOINTS = [
+    ("https://api.openai.com/v1/models",       "openai",   "https://api.openai.com/v1",        "gpt-4o"),
+    ("https://api.mistral.ai/v1/models",        "openai",   "https://api.mistral.ai/v1",        "mistral-large-latest"),
+    ("https://api.fireworks.ai/inference/v1/models", "openai", "https://api.fireworks.ai/inference/v1", "accounts/fireworks/models/llama-v3p1-70b-instruct"),
+]
+
+
 async def detect_provider_and_model(api_key: str) -> tuple[str, str, str]:
     """
-    Auto-detects the provider, base URL, and a suitable default model based on the given API key.
+    Auto-erkennt Provider, Base-URL und Standardmodell anhand des API-Keys.
+    Unterstützt: Anthropic, OpenAI, NVIDIA NIM, Google Gemini, Mistral, Fireworks AI.
 
     Returns:
         tuple: (provider, base_url, model)
     """
     api_key = api_key.strip()
 
-    # 1. Check Anthropic by prefix
-    if api_key.startswith("sk-ant-"):
-        # We assume if it's Anthropic, the key is likely valid.
-        return "anthropic", "https://api.anthropic.com", "claude-3-5-sonnet-20241022"
+    # 1. Prefix-Erkennung (sofort, kein API-Call nötig)
+    for prefix, (provider, base_url, model) in _KNOWN_PROVIDERS_BY_PREFIX.items():
+        if api_key.startswith(prefix):
+            return provider, base_url, model
 
-    # 2. Check NVIDIA NIM by prefix
-    if api_key.startswith("nvapi-"):
-        return "openai", "https://integrate.api.nvidia.com/v1", "nvidia/llama-3.1-nemotron-70b-instruct"
-
-    # 3. Fallback logic: check OpenAI vs Anthropic by trying the API endpoints
-    # Anthropic models don't have a standard format other than the sk-ant- prefix,
-    # but OpenAI models often start with 'sk-proj-' or just 'sk-'.
-
-    # Let's verify OpenAI first, as it's the most common
+    # 2. API-Probe: /v1/models abfragen
     timeout = aiohttp.ClientTimeout(total=5)
+    headers = {"Authorization": f"Bearer {api_key}"}
 
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            # Try OpenAI /v1/models endpoint
-            headers = {"Authorization": f"Bearer {api_key}"}
-            async with session.get("https://api.openai.com/v1/models", headers=headers) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    models = [m["id"] for m in data.get("data", [])]
-                    if "gpt-4o" in models:
-                        return "openai", "https://api.openai.com/v1", "gpt-4o"
-                    elif "gpt-4-turbo" in models:
-                        return "openai", "https://api.openai.com/v1", "gpt-4-turbo"
-                    else:
-                        return "openai", "https://api.openai.com/v1", "gpt-3.5-turbo"
+            for endpoint, provider, base_url, default_model in _PROBE_ENDPOINTS:
+                try:
+                    async with session.get(endpoint, headers=headers) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            models = [m["id"] for m in data.get("data", [])]
+                            # Bestes verfügbares Modell wählen
+                            preferred = {
+                                "openai":   ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+                                "mistral":  ["mistral-large-latest", "mistral-medium"],
+                                "fireworks": ["accounts/fireworks/models/llama-v3p1-70b-instruct"],
+                            }
+                            for m in preferred.get(provider, []):
+                                if m in models:
+                                    return provider, base_url, m
+                            # Fallback: erstes verfügbares Modell
+                            if models:
+                                return provider, base_url, models[0]
+                            return provider, base_url, default_model
+                except Exception:
+                    continue
     except Exception:
         pass
 
-    # Try Anthropic anyway if OpenAI failed (in case prefix changed)
+    # 3. Anthropic-Test (kein /v1/models Endpoint)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            headers = {
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01"
-            }
-            # Send a minimal request to check validity
-            payload = {
-                "model": "claude-3-haiku-20240307",
-                "max_tokens": 1,
-                "messages": [{"role": "user", "content": "hi"}]
-            }
-            async with session.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload) as resp:
+            headers_ant = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+            payload = {"model": "claude-3-haiku-20240307", "max_tokens": 1,
+                       "messages": [{"role": "user", "content": "hi"}]}
+            async with session.post("https://api.anthropic.com/v1/messages",
+                                    headers=headers_ant, json=payload) as resp:
                 if resp.status == 200:
-                    return "anthropic", "https://api.anthropic.com", "claude-3-5-sonnet-20241022"
+                    return "anthropic", "https://api.anthropic.com", "claude-sonnet-4-20250514"
     except Exception:
         pass
 
-    # If all else fails, assume standard OpenAI with GPT-4o
+    # 4. Fallback
     return "openai", "https://api.openai.com/v1", "gpt-4o"
 
 
@@ -184,7 +198,14 @@ class AnthropicBackend(LLMBackend):
 
 class OpenAIBackend(LLMBackend):
     # NVIDIA NIM braucht parallel_tool_calls=False, aber kein tool_choice
-    _NIM_HOST = "integrate.api.nvidia.com"
+    _NIM_HOST     = "integrate.api.nvidia.com"
+    _GEMINI_HOST  = "generativelanguage.googleapis.com"
+    _MISTRAL_HOST = "api.mistral.ai"
+    _FW_HOST      = "api.fireworks.ai"
+    # Hosts die kein tool_choice vertragen
+    _NO_TOOL_CHOICE_HOSTS = frozenset([
+        "integrate.api.nvidia.com",
+    ])
 
     def __init__(self, api_key, model, base_url, temperature, max_tokens, timeout, **_):
         self.api_key = api_key
@@ -200,6 +221,7 @@ class OpenAIBackend(LLMBackend):
         self.max_tokens = max_tokens
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self._is_nim = self._NIM_HOST in self.base_url
+        self._no_tool_choice = any(h in self.base_url for h in self._NO_TOOL_CHOICE_HOSTS)
 
     def _headers(self):
         return {
@@ -247,8 +269,9 @@ class OpenAIBackend(LLMBackend):
             # 'required' fuehrt bei Llama 3.1 NIM zu Error 400
             # 'auto' fuehrt in neueren Versionen auch zu Fehler 400 (requires --enable-auto-tool-choice and --tool-call-parser)
             # Daher: komplett weglassen fuer NIM.
-            if self._is_nim:
+            if self._no_tool_choice:
                 payload["parallel_tool_calls"] = False
+                # tool_choice wird NICHT gesetzt – Server entscheidet selbst
             else:
                 payload["tool_choice"] = "auto"
         async with aiohttp.ClientSession(timeout=self.timeout) as s:

@@ -463,7 +463,7 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
     provider = _choice(
         "Welchen Anbieter möchtest du verwenden?",
         [
-            ("1", "API-Key (Auto-Detect)", "Anthropic / OpenAI / NVIDIA NIM erkennen"),
+            ("1", "API-Key (Auto-Detect)", "Anthropic / OpenAI / Gemini / Mistral / Fireworks / NVIDIA NIM"),
             ("2", "Ollama (lokal)", "eigener Server · kein API-Key"),
             ("3", "Gemma 2B (Pi)", "offline · ~1.5 GB RAM · schnell"),  # Standard
             ("e", "Behalten", f"aktuell: {cfg.llm.backend}"),
@@ -473,7 +473,13 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
 
     if provider == "1":
         _w()
-        print(f"  {FG_GRAY}API-Key eingeben (z.B. sk-ant-..., sk-..., nvapi-...){R}")
+        print(f"  {FG_GRAY}Unterstützte Provider:{R}")
+        print(f"  {FG_GRAY}  Anthropic:   sk-ant-...{R}")
+        print(f"  {FG_GRAY}  OpenAI:      sk-proj-... oder sk-...{R}")
+        print(f"  {FG_GRAY}  Google:      AIza...  → Gemini 2.0 Flash{R}")
+        print(f"  {FG_GRAY}  Mistral:     Key von console.mistral.ai{R}")
+        print(f"  {FG_GRAY}  Fireworks:   fw-...{R}")
+        print(f"  {FG_GRAY}  NVIDIA NIM:  nvapi-... → Nemotron 70B{R}")
         key = _prompt("API-Key", secret=True)
         if not key:
             _skip("Übersprungen")
