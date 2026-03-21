@@ -139,3 +139,29 @@ async def test_installer_lock_creation_and_cleanup(mock_cfg, tmp_path, monkeypat
 
     # Check lock file removed
     assert not test_lock.exists(), f"Lock file {test_lock} still exists"
+
+def test_build_handlers(monkeypatch):
+    from piclaw.tools.installer import build_handlers
+
+    # Mock the installer_confirm function to track if it was called
+    mock_called_with = {}
+
+    async def mock_installer_confirm(**kwargs):
+        mock_called_with.update(kwargs)
+        return "YES"
+
+    monkeypatch.setattr("piclaw.tools.installer.installer_confirm", mock_installer_confirm)
+
+    handlers = build_handlers()
+
+    # Verify the dictionary structure
+    assert isinstance(handlers, dict)
+    assert "installer_confirm" in handlers
+    assert callable(handlers["installer_confirm"])
+
+    # Verify the lambda correctly proxies arguments
+    import asyncio
+    result = asyncio.run(handlers["installer_confirm"](plan="test plan"))
+
+    assert result == "YES"
+    assert mock_called_with == {"plan": "test plan"}

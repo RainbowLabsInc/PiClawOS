@@ -20,6 +20,7 @@ def patch_config_dir(tmp_path_factory):
     Replace CONFIG_DIR with a temp dir for the entire test session.
     This prevents tests from reading/writing /etc/piclaw.
     """
+    import piclaw.config  # Import explicit to avoid AttributeError
     cfg_dir = tmp_path_factory.mktemp("piclaw_config")
     with patch("piclaw.config.CONFIG_DIR", cfg_dir):
         yield cfg_dir
