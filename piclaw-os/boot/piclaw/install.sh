@@ -312,12 +312,9 @@ elif [[ "$INTERNET" == "true" ]]; then
     fi
     git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" 2>/dev/null || \
         die "Repository-Klon fehlgeschlagen.\nToken fehlt? Nutze: sudo GITHUB_TOKEN=xxx bash install.sh"
-    # Repo enthält piclaw-os/ Unterordner - Inhalt nach INSTALL_DIR verschieben
-    if [[ -d "$INSTALL_DIR/piclaw-os" ]]; then
-        cp -r "$INSTALL_DIR/piclaw-os/." "$INSTALL_DIR/"
-        rm -rf "$INSTALL_DIR/piclaw-os"
-    fi
-    ok "Code von GitHub geklont"
+    ok "Code von GitHub geklont (Repo-Struktur erhalten)"
+    # Hinweis: piclaw-os/ bleibt als Unterordner – pip install -e piclaw-os/
+    # git pull aktualisiert automatisch den korrekten Pfad
 fi
 
 chown -R "$PICLAW_USER":"$PICLAW_USER" "$INSTALL_DIR"
@@ -360,10 +357,10 @@ VENV="$INSTALL_DIR/.venv"
     2>/dev/null || true  # optional, teuer - nur wenn konfiguriert
 
 # PiClaw-Paket selbst
-if ! "$VENV/bin/pip" install -e "$INSTALL_DIR" 2>/tmp/piclaw_pip.log; then
+if ! "$VENV/bin/pip" install -e "$INSTALL_DIR/piclaw-os" 2>/tmp/piclaw_pip.log; then
     warn "piclaw pip-Installation fehlgeschlagen:"
     tail -5 /tmp/piclaw_pip.log | while read -r line; do warn "  $line"; done
-    warn "Manuell beheben: sudo $VENV/bin/pip install -e $INSTALL_DIR"
+    warn "Manuell beheben: sudo $VENV/bin/pip install -e $INSTALL_DIR/piclaw-os"
 else
     ok "piclaw Python-Paket installiert"
 fi
