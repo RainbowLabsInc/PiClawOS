@@ -808,6 +808,84 @@ async def api_camera_image(filename: str, _: str = Depends(require_auth)):
 
 
 # ══════════════════════════════════════════════════════════════════
+# Debug API
+# ══════════════════════════════════════════════════════════════════
+
+@app.get("/api/debug/scripts")
+async def api_debug_scripts(_: str = Depends(require_auth)):
+    """Listet alle verfügbaren Testskripte in piclaw-os/tests/ auf."""
+    try:
+        import glob
+        import os
+        from pathlib import Path
+
+        # Gehe vom api.py Verzeichnis (piclaw-os/piclaw) aus hoch
+        base_dir = Path(__file__).parent.parent
+        tests_dir = base_dir / "tests"
+
+        scripts = []
+        if tests_dir.exists() and tests_dir.is_dir():
+            for filepath in tests_dir.glob("test_*.py"):
+                scripts.append({
+                    "filename": filepath.name,
+                    "path": str(filepath.relative_to(base_dir))
+                })
+
+        # Sortiere alphabetisch
+        scripts.sort(key=lambda x: x["filename"])
+        return {"scripts": scripts}
+    except Exception as e:
+        return {"error": str(e), "scripts": []}
+
+@app.post("/api/debug/run")
+async def api_debug_run(request: Request, _: str = Depends(require_auth)):
+    """Führt die ausgewählten Testskripte aus und gibt den Output zurück."""
+    try:
+        body = await request.json()
+        scripts = body.get("scripts", [])
+        if not scripts:
+            raise HTTPException(400, "Keine Skripte ausgewählt")
+
+        import asyncio
+        from pathlib import Path
+        import sys
+
+        base_dir = Path(__file__).parent.parent
+        tests_dir = base_dir / "tests"
+
+        # Verifiziere, dass alle Skripte existieren und test_*.py sind
+        valid_scripts = []
+        for s in scripts:
+            filepath = tests_dir / s
+            if filepath.exists() and filepath.name.startswith("test_") and filepath.name.endswith(".py"):
+                valid_scripts.append(str(filepath))
+
+        if not valid_scripts:
+            raise HTTPException(400, "Keine gültigen Skripte gefunden")
+
+        # Führe pytest als Subprocess aus
+        cmd = [sys.executable, "-m", "pytest"] + valid_scripts
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(base_dir),
+            env={"PYTHONPATH": str(base_dir), **os.environ}
+        )
+
+        stdout, _ = await proc.communicate()
+        output = stdout.decode('utf-8') if stdout else ""
+
+        return {
+            "ok": proc.returncode == 0,
+            "output": output,
+            "returncode": proc.returncode
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ══════════════════════════════════════════════════════════════════
 # Backup API (v0.10)
 # ══════════════════════════════════════════════════════════════════
 
