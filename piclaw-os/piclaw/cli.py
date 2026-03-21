@@ -52,6 +52,7 @@ Commands:
   routine disable   Disable a routine
   briefing          Generate and print a briefing now
   briefing send     Generate and send via messaging (morning/evening/status)
+  update            Update PiClaw via git pull (update check|piclaw|system)
   setup             First-boot setup wizard (LLM, Telegram, Soul)
   help              This message
 
@@ -821,6 +822,7 @@ def main():
     elif cmd == "routine":                cmd_routine(args[1:])
     elif cmd == "briefing":               cmd_briefing(args[1:])
     elif cmd == "llm":                    cmd_llm(args[1:])
+    elif cmd == "update":                 cmd_update(args[1:])
     elif cmd in ("help", "-h", "--help"): print(BANNER + HELP)
     else:
         print(f"Unknown command: {cmd}")
@@ -1070,3 +1072,19 @@ def cmd_briefing(args: list):
         print()
 
     asyncio.run(_run())
+
+
+# ── Update ─────────────────────────────────────────────────────────
+
+def cmd_update(args: list):
+    """piclaw update [check|piclaw|system]"""
+    import asyncio
+    from piclaw.config import load
+    from piclaw.tools.updater import system_update
+
+    sub = args[0] if args else "piclaw"
+    cfg = load()
+
+    print(f"\n  🔄 PiClaw Update ({sub})…\n")
+    result = asyncio.run(system_update(target=sub, cfg=cfg.updater))
+    print(f"  {result}\n")
