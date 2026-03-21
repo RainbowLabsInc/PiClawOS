@@ -46,23 +46,27 @@ echo -e "${CYAN}${BOLD}  PiClaw OS v${PICLAW_VERSION} - Installer${R}"
 echo -e "${CYAN}${BOLD}============================================${R}"
 echo ""
 
-# piclaw.conf einlesen
-if [[ ! -f "$CONF_FILE" ]]; then
-    die "piclaw.conf nicht gefunden in: $SCRIPT_DIR\nErwartet: $CONF_FILE"
-fi
-
-ok "Konfiguration gefunden: $CONF_FILE"
-
-# Werte aus piclaw.conf parsen (einfaches KEY = "VALUE" Format)
+# piclaw.conf einlesen (optional – alle Werte haben Defaults)
 _conf_get() {
     local key="$1"
     local default="${2:-}"
+    if [[ ! -f "$CONF_FILE" ]]; then
+        echo "$default"
+        return
+    fi
     local val
     val=$(grep -E "^${key}\s*=" "$CONF_FILE" 2>/dev/null \
           | sed 's/.*=\s*"\(.*\)".*/\1/' \
           | tail -1)
     echo "${val:-$default}"
 }
+
+if [[ -f "$CONF_FILE" ]]; then
+    ok "Konfigurationsdatei gefunden: $CONF_FILE"
+else
+    info "Keine piclaw.conf gefunden – Standardwerte werden verwendet"
+    info "Alles kann danach mit 'piclaw setup' konfiguriert werden"
+fi
 
 PICLAW_LLM_KEY=$(_conf_get "PICLAW_LLM_KEY" "")
 PICLAW_LLM_PROVIDER=$(_conf_get "PICLAW_LLM_PROVIDER" "auto")
@@ -97,9 +101,13 @@ if [[ "$PICLAW_LLM_PROVIDER" == "auto" ]]; then
     fi
 fi
 
-# Konfiguration anzeigen
+# Konfiguration anzeigen (nur wenn conf vorhanden)
 echo ""
-echo "  Konfiguration aus piclaw.conf:"
+if [[ -f "$CONF_FILE" ]]; then
+    echo "  Konfiguration aus piclaw.conf:"
+else
+    echo "  Installation mit Standardwerten:"
+fi
 echo ""
 printf "  %-22s %s\n" "Agent-Name:"    "$PICLAW_AGENT_NAME"
 printf "  %-22s %s\n" "LLM-Anbieter:"  "$PICLAW_LLM_PROVIDER"
@@ -111,12 +119,16 @@ printf "  %-22s %s\n" "Web-Port:"      "$PICLAW_API_PORT"
 printf "  %-22s %s\n" "Home Assistant:" "$([ -n "$PICLAW_HA_URL" ] && echo "$PICLAW_HA_URL" || echo '(nicht konfiguriert)')"
 echo ""
 
-ask "Stimmt alles? Installation starten? [J/n]:"
-read -r CONFIRM
-if [[ "${CONFIRM,,}" == "n" ]]; then
-    echo ""
-    echo "  Abgebrochen. piclaw.conf bearbeiten und erneut ausfuehren."
-    exit 0
+if [[ -f "$CONF_FILE" ]]; then
+    ask "Stimmt alles? Installation starten? [J/n]:"
+    read -r CONFIRM
+    if [[ "${CONFIRM,,}" == "n" ]]; then
+        echo ""
+        echo "  Abgebrochen. piclaw.conf bearbeiten und erneut ausfuehren."
+        exit 0
+    fi
+else
+    info "Starte Installation mit Standardwerten..."
 fi
 
 # ====================================================================
