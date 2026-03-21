@@ -252,6 +252,16 @@ CONFIG_DIR="/etc/piclaw"
 LOG_DIR="/var/log/piclaw"
 PICLAW_USER="piclaw"
 
+# Neuinstallation: bestehende Installation sauber entfernen
+if [[ -d "$INSTALL_DIR" ]]; then
+    info "Bestehende Installation gefunden – stoppe Services und räume auf..."
+    systemctl stop piclaw-api piclaw-agent piclaw-watchdog piclaw-crawler 2>/dev/null || true
+    systemctl disable piclaw-api piclaw-agent piclaw-watchdog piclaw-crawler 2>/dev/null || true
+    # Code entfernen, Config BEHALTEN (/etc/piclaw bleibt für Upgrade-Szenario)
+    rm -rf "$INSTALL_DIR"
+    ok "Alter Code entfernt (Config in /etc/piclaw bleibt erhalten)"
+fi
+
 mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$LOG_DIR" "$CONFIG_DIR/memory"
 
 # System-User anlegen
@@ -282,9 +292,14 @@ if [[ -d "$SRC_DIR" ]]; then
 elif [[ "$INTERNET" == "true" ]]; then
     # Online-Installation: von GitHub klonen
     info "Klone Repository von GitHub..."
-    REPO_URL="https://github.com/youruser/piclaw-os"
+    REPO_URL="https://github.com/RainbowLabsInc/PiClawOS.git"
     git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" 2>/dev/null || \
         die "Repository-Klon fehlgeschlagen.\nBitte piclaw-src/ Ordner neben install.sh legen fuer Offline-Installation."
+    # Repo enthält piclaw-os/ Unterordner - Inhalt nach INSTALL_DIR verschieben
+    if [[ -d "$INSTALL_DIR/piclaw-os" ]]; then
+        cp -r "$INSTALL_DIR/piclaw-os/." "$INSTALL_DIR/"
+        rm -rf "$INSTALL_DIR/piclaw-os"
+    fi
     ok "Code von GitHub geklont"
 fi
 
