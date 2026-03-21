@@ -910,6 +910,72 @@ def cmd_update(args: list):
     result = asyncio.run(system_update(target=sub, cfg=cfg.updater))
     print(f"  {result}\n")
 
+# ── Debug ──────────────────────────────────────────────────────────
+
+def cmd_debug(args: list):
+    """piclaw debug – run debug/test scripts via pytest"""
+    import asyncio, os, sys
+    from pathlib import Path
+
+    base_dir = Path(__file__).parent.parent
+    tests_dir = base_dir / "tests"
+    debug_dir = tests_dir / "debug"
+
+    scripts_map = {}
+    if tests_dir.exists():
+        for f in sorted(tests_dir.glob("test_*.py")):
+            scripts_map[f"[test]  {f.name}"] = f
+    if debug_dir.exists():
+        for f in sorted(debug_dir.glob("test_debug_*.py")):
+            scripts_map[f"[debug] {f.name}"] = f
+
+    if not scripts_map:
+        print("\n  ❌ Keine Testskripte gefunden.\n")
+        return
+
+    print("\n🐛 PiClaw Debug")
+    print("─" * 40)
+    entries = list(scripts_map.keys())
+    for i, name in enumerate(entries, 1):
+        print(f"  {i}. {name}")
+    print("  0. Abbrechen")
+    print("  a. Alle ausführen\n")
+
+    choice = input("Auswahl [0/a/Nummer]: ").strip().lower()
+    if choice == "0" or not choice:
+        return
+    if choice == "a":
+        selected = entries
+    else:
+        try:
+            selected = [entries[int(x.strip()) - 1] for x in choice.split(",") if x.strip()]
+        except (ValueError, IndexError):
+            print("  ❌ Ungültige Auswahl")
+            return
+
+    paths = [str(scripts_map[s]) for s in selected]
+    save = input("Ausgabe in Datei speichern? [y/N]: ").strip().lower() in ("y", "j")
+
+    async def _run():
+        cmd = [sys.executable, "-m", "pytest", "-v"] + paths
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(base_dir),
+            env={"PYTHONPATH": str(base_dir), **os.environ}
+        )
+        out, _ = await proc.communicate()
+        output = out.decode("utf-8", errors="replace")
+        print(output)
+        if save:
+            log = base_dir / "debug_output.txt"
+            log.write_text(output)
+            print(f"\n  💾 Gespeichert: {log}\n")
+
+    asyncio.run(_run())
+
+
 def main():
     import sys
 
@@ -957,6 +1023,8 @@ def main():
         cmd_llm(args[1:])
     elif cmd == "update":
         cmd_update(args[1:])
+    elif cmd == "debug":
+        cmd_debug(args[1:])
     elif cmd in ("help", "-h", "--help"):
         print(BANNER + HELP)
     else:
