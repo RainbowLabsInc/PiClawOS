@@ -1,14 +1,23 @@
 """
 PiClaw OS – Updater Tool
-Self-update via pip / git pull
+Self-update via git pull + service restart.
+
+Update-Flow:
+  1. git pull in /opt/piclaw  (piclaw user owns it)
+  2. pip install -e .          (venv owned by piclaw)
+  3. sudo systemctl restart    (allowed via /etc/sudoers.d/piclaw)
 """
 
 import asyncio
 import logging
+from pathlib import Path
 from piclaw.llm.base import ToolDefinition
 from piclaw.config import UpdaterConfig
 
 log = logging.getLogger("piclaw.updater")
+
+INSTALL_DIR = Path("/opt/piclaw")
+VENV_PIP    = INSTALL_DIR / ".venv" / "bin" / "pip"
 
 TOOL_DEFS = [
     ToolDefinition(
@@ -21,7 +30,7 @@ TOOL_DEFS = [
                     "type": "string",
                     "enum": ["piclaw", "system", "check"],
                     "description": (
-                        "piclaw=update PiClaw itself, "
+                        "piclaw=update PiClaw itself via git pull, "
                         "system=apt upgrade, "
                         "check=check for updates only"
                     ),
@@ -33,7 +42,7 @@ TOOL_DEFS = [
 ]
 
 
-async def _run(cmd: str, timeout: int = 120) -> str:
+async def _run(cmd: str, timeout: int = 120) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_shell(
         cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -43,40 +52,63 @@ async def _run(cmd: str, timeout: int = 120) -> str:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
-        return "[TIMEOUT] Update took too long."
-    rc  = proc.returncode
-    out = out.decode(errors="replace").strip()
-    err = err.decode(errors="replace").strip()
-    result = out + ("\n[stderr] " + err if err else "")
-    return f"[exit {rc}] {result}"
+        return 1, "[TIMEOUT]"
+    combined = out.decode(errors="replace").strip()
+    if err.strip():
+        combined += "\n" + err.decode(errors="replace").strip()
+    return proc.returncode, combined
 
 
 async def system_update(target: str, cfg: UpdaterConfig) -> str:
     if target == "check":
-        result = await _run("pip list --outdated 2>&1 | grep piclaw || echo 'PiClaw is up to date'")
-        apt    = await _run("apt list --upgradable 2>/dev/null | wc -l")
-        return f"PiClaw: {result}\nSystem packages upgradable: {apt.strip()}"
+        rc, out = await _run(
+            f"cd {INSTALL_DIR} && git fetch origin && "
+            "git log HEAD..origin/main --oneline 2>/dev/null || echo '(up to date)'"
+        )
+        if not out.strip() or "(up to date)" in out:
+            return "✅ PiClaw ist aktuell."
+        lines = out.strip().splitlines()
+        return f"🔄 {len(lines)} Update(s) verfügbar:\n" + "\n".join(f"  {l}" for l in lines)
 
     elif target == "piclaw":
-        log.info("Updating PiClaw via pip…")
-        if cfg.repo_url and cfg.channel == "stable":
-            result = await _run(
-                f"pip install --upgrade git+{cfg.repo_url}.git 2>&1"
-            )
+        log.info("PiClaw update via git pull...")
+        results = []
+
+        # 1. git pull
+        rc, out = await _run(f"cd {INSTALL_DIR} && git pull origin main 2>&1")
+        results.append(f"git pull: {out[:200]}")
+        if rc != 0:
+            return f"❌ git pull fehlgeschlagen:\n{out}"
+        if "Already up to date" in out:
+            return "✅ PiClaw ist bereits aktuell – kein Neustart nötig."
+
+        # 2. pip install -e . (nur wenn sich pyproject.toml geändert hat)
+        rc2, out2 = await _run(
+            f"cd {INSTALL_DIR} && git diff HEAD@{{1}} HEAD -- pyproject.toml | grep -q '^[+-]' && "
+            f"{VENV_PIP} install -e . -q 2>&1 || echo 'dependencies unchanged'"
+        )
+        if out2 and "dependencies unchanged" not in out2:
+            results.append(f"pip: {out2[:200]}")
+
+        # 3. sudo systemctl restart
+        rc3, out3 = await _run(
+            "sudo systemctl restart piclaw-api piclaw-agent 2>&1"
+        )
+        if rc3 == 0:
+            results.append("✅ Services neu gestartet")
         else:
-            result = await _run("pip install --upgrade piclaw 2>&1")
-        # Restart the service after update
-        await _run("systemctl restart piclaw-agent piclaw-api 2>/dev/null || true")
-        return result + "\n✅ PiClaw updated and restarted."
+            results.append(f"⚠️ Service-Neustart: {out3[:100]}")
+
+        return "✅ PiClaw aktualisiert\n" + "\n".join(results)
 
     elif target == "system":
-        log.info("Running apt upgrade…")
-        result = await _run(
+        log.info("Running apt upgrade...")
+        rc, out = await _run(
             "DEBIAN_FRONTEND=noninteractive apt-get update -qq && "
             "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y 2>&1",
             timeout=300,
         )
-        return result
+        return f"[exit {rc}]\n{out}"
 
     return f"Unknown target: {target}"
 

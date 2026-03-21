@@ -641,6 +641,23 @@ RandomizedDelaySec=5min
 WantedBy=timers.target
 TMREOF
 
+# ── Sudoers: piclaw darf eigene Services neu starten ──────────────────
+SUDOERS_FILE="/etc/sudoers.d/piclaw"
+cat > "$SUDOERS_FILE" << 'SUDOEOF'
+# PiClaw: allow piclaw user to restart its own services without password
+piclaw ALL=(ALL) NOPASSWD: \
+  /bin/systemctl restart piclaw-api, \
+  /bin/systemctl restart piclaw-agent, \
+  /bin/systemctl restart piclaw-watchdog, \
+  /bin/systemctl restart piclaw-crawler, \
+  /bin/systemctl stop piclaw-api, \
+  /bin/systemctl stop piclaw-agent, \
+  /bin/systemctl start piclaw-api, \
+  /bin/systemctl start piclaw-agent
+SUDOEOF
+chmod 440 "$SUDOERS_FILE"
+ok "Sudoers-Regel gesetzt: piclaw kann eigene Services neu starten"
+
 systemctl daemon-reload
 systemctl enable piclaw-api piclaw-agent piclaw-watchdog piclaw-crawler 2>/dev/null
 systemctl enable piclaw-qmd-update.timer 2>/dev/null
