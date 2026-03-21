@@ -304,9 +304,14 @@ if [[ -d "$SRC_DIR" ]]; then
 elif [[ "$INTERNET" == "true" ]]; then
     # Online-Installation: von GitHub klonen
     info "Klone Repository von GitHub..."
-    REPO_URL="https://github.com/RainbowLabsInc/PiClawOS.git"
+    # Token aus Umgebungsvariable nutzen falls vorhanden (privates Repo)
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        REPO_URL="https://${GITHUB_TOKEN}@github.com/RainbowLabsInc/PiClawOS.git"
+    else
+        REPO_URL="https://github.com/RainbowLabsInc/PiClawOS.git"
+    fi
     git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" 2>/dev/null || \
-        die "Repository-Klon fehlgeschlagen.\nBitte piclaw-src/ Ordner neben install.sh legen fuer Offline-Installation."
+        die "Repository-Klon fehlgeschlagen.\nToken fehlt? Nutze: sudo GITHUB_TOKEN=xxx bash install.sh"
     # Repo enthält piclaw-os/ Unterordner - Inhalt nach INSTALL_DIR verschieben
     if [[ -d "$INSTALL_DIR/piclaw-os" ]]; then
         cp -r "$INSTALL_DIR/piclaw-os/." "$INSTALL_DIR/"
