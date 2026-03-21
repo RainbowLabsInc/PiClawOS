@@ -201,13 +201,14 @@ async def _gather_metrics_trends() -> dict[str, Any]:
         db  = get_db()
         result: dict[str, Any] = {}
 
-        for metric in ("cpu_temp_c", "cpu_percent", "ram_percent"):
-            rows = db.query(metric, since_s=_SECS_PER_DAY)
-            if rows:
-                vals = [r[1] for r in rows if r[1] is not None]
-                if vals:
-                    result[f"{metric}_avg24h"] = round(sum(vals) / len(vals), 1)
-                    result[f"{metric}_max24h"] = round(max(vals), 1)
+        summary = db.query_summary(
+            names=["cpu_temp_c", "cpu_percent", "ram_percent"],
+            since_s=_SECS_PER_DAY
+        )
+
+        for metric, stats in summary.items():
+            result[f"{metric}_avg24h"] = stats["avg"]
+            result[f"{metric}_max24h"] = stats["max"]
 
         return result
     except Exception as e:
