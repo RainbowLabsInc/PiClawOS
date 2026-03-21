@@ -143,14 +143,73 @@ class MetricsDB:
         resolution=60  → je ein Durchschnittswert pro Minute
         resolution=0   → alle Rohwerte
         """
+        if not names:
+            return {}
+
         since_ts = int(time.time()) - since_s
-        result: dict[str, list[dict]] = {}
-        for name in names:
-            if resolution > 0:
-                rows = self._query_downsampled(name, since_ts, resolution)
-            else:
-                rows = self.query(name, since_s)
-            result[name] = rows
+        result: dict[str, list[dict]] = {name: [] for name in names}
+
+        # SQLite's SQLITE_LIMIT_COMPOUND_SELECT default is 500.
+        # wir teilen in chunks zu je 100 auf, um auf der sicheren Seite zu sein.
+        CHUNK_SIZE = 100
+
+        with self._conn() as con:
+            for i in range(0, len(names), CHUNK_SIZE):
+                chunk = names[i:i + CHUNK_SIZE]
+                queries = []
+                params = []
+
+                if resolution > 0:
+                    for name in chunk:
+                        queries.append(f"""
+                            SELECT ? as query_name, bucket, value, unit
+                            FROM (
+                                SELECT (ts / {resolution}) * {resolution} AS bucket,
+                                       AVG(value) AS value,
+                                       MAX(unit) as unit
+                                FROM metrics
+                                WHERE name = ? AND ts >= ?
+                                GROUP BY bucket
+                                ORDER BY bucket DESC
+                                LIMIT 500
+                            )
+                        """)
+                        params.extend([name, name, since_ts])
+
+                    query = " UNION ALL ".join(queries)
+                    rows = con.execute(query, params).fetchall()
+
+                    for r in rows:
+                        n = r["query_name"]
+                        if n in result:
+                            result[n].append({
+                                "ts": r["bucket"],
+                                "name": n,
+                                "value": round(r["value"], 2),
+                                "unit": r["unit"]
+                            })
+                else:
+                    for name in chunk:
+                        queries.append("""
+                            SELECT ts, name, value, unit, tags
+                            FROM (
+                                SELECT ts, name, value, unit, tags
+                                FROM metrics
+                                WHERE name = ? AND ts >= ?
+                                ORDER BY ts DESC
+                                LIMIT 500
+                            )
+                        """)
+                        params.extend([name, since_ts])
+
+                    query = " UNION ALL ".join(queries)
+                    rows = con.execute(query, params).fetchall()
+
+                    for r in rows:
+                        n = r["name"]
+                        if n in result:
+                            result[n].append(dict(r))
+
         return result
 
     def _query_downsampled(self, name: str, since_ts: int, resolution: int) -> list[dict]:
