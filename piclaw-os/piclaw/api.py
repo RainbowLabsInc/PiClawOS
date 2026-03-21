@@ -731,7 +731,6 @@ async def api_metric_chart(
     """Downgesampelte Daten für Chart-Darstellung."""
     try:
         from piclaw.metrics import get_db
-        import time
         db = get_db()
         result = db.query_range([metric_name], since_s=since, resolution=resolution)
         return {
