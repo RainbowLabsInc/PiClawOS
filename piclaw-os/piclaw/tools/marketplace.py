@@ -334,75 +334,104 @@ async def _search_kleinanzeigen(
 # ── eBay.de ────────────────────────────────────────────────────────────────────
 
 
+async def _fetch_ebay_html(url: str) -> str | None:
+    """Holt eBay-HTML – Kaskade: Scrapling → aiohttp Fallback → Tandem."""
+
+    # 1. Scrapling (stealth HTTP, kein echter Browser nötig)
+    try:
+        from scrapling import Fetcher
+        fetcher = Fetcher(auto_match=False)
+        page = await asyncio.to_thread(fetcher.get, url, stealthy_headers=True, follow_redirects=True)
+        if page and len(str(page.content)) > 500:
+            log.debug("eBay via Scrapling geholt")
+            return str(page.content)
+    except Exception as e:
+        log.debug("Scrapling fehlgeschlagen: %s", e)
+
+    # 2. aiohttp mit Browser-Headers
+    try:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "de-DE,de;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status == 200:
+                    html = await resp.text(errors="replace")
+                    if len(html) > 500:
+                        log.debug("eBay via aiohttp geholt")
+                        return html
+    except Exception as e:
+        log.debug("aiohttp fehlgeschlagen: %s", e)
+
+    # 3. Tandem Browser (letzter Ausweg – echter Browser)
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                "http://127.0.0.1:8765/navigate",
+                json={"url": url},
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    html = data.get("html", "")
+                    if len(html) > 500:
+                        log.debug("eBay via Tandem geholt")
+                        return html
+    except Exception as e:
+        log.debug("Tandem nicht verfügbar: %s", e)
+
+    return None
+
+
 async def _search_ebay(
     session: aiohttp.ClientSession,
     query: str,
     max_price: Optional[float] = None,
     max_results: int = 10,
 ) -> list[dict]:
-    """Sucht auf eBay.de (Festpreisartikel + Auktionen)."""
+    """Sucht auf eBay.de – nutzt Scrapling → aiohttp → Tandem Kaskade."""
     results = []
 
     q = quote_plus(query)
-    url = f"https://www.ebay.de/sch/i.html?_nkw={q}&_sop=15"  # _sop=15 = neueste zuerst
+    url = f"https://www.ebay.de/sch/i.html?_nkw={q}&_sop=15"
     if max_price:
         url += f"&_udhi={int(max_price)}"
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "de-DE,de;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
-    try:
-        async with session.get(
-            url, timeout=aiohttp.ClientTimeout(total=20), headers=headers
-        ) as resp:
-            if resp.status != 200:
-                log.warning("eBay HTTP %s für '%s'", resp.status, query)
-                return []
-            html = await resp.text(errors="replace")
-    except Exception as e:
-        log.warning("eBay Fehler: %s", e)
-        return []
-
-    if not html or len(html) < 500:
-        log.warning("eBay: Leere Antwort für '%s'", query)
+    html = await _fetch_ebay_html(url)
+    if not html:
+        log.warning("eBay: Keine Antwort für '%s' (alle Methoden fehlgeschlagen)", query)
         return []
 
     # eBay Artikel parsen
     items = RE_EBAY_ITEMS_1.findall(html)
-    # Alternativ: s-item Blöcke
     if not items:
         items = RE_EBAY_ITEMS_2.findall(html)
         items = [(hashlib.md5(c.encode()).hexdigest()[:12], c) for c in items]
 
     for item_id, content in items[:max_results]:
-        # Titel
         title_match = RE_EBAY_TITLE_1.search(content)
         if not title_match:
             title_match = RE_EBAY_TITLE_2.search(content)
         title = (
             " ".join(RE_HTML_TAGS.sub(" ", title_match.group(1)).split()).strip()
-            if title_match
-            else ""
+            if title_match else ""
         )
         if not title or "Shop on eBay" in title:
             continue
 
-        # Preis
         price_match = RE_EBAY_PRICE.search(content)
         price_text = (
             " ".join(RE_HTML_TAGS.sub(" ", price_match.group(1)).split()).strip()
-            if price_match
-            else ""
+            if price_match else ""
         )
         price = _parse_price(price_text)
 
-        # Link
         link_match = RE_EBAY_LINK.search(content)
         link = (
             link_match.group(1).split("?")[0]
@@ -410,23 +439,18 @@ async def _search_ebay(
             else f"https://www.ebay.de/itm/{item_id}"
         )
 
-        results.append(
-            {
-                "id": str(item_id),
-                "platform": "ebay",
-                "title": title,
-                "price": price,
-                "price_text": price_text,
-                "location": "",
-                "url": link,
-            }
-        )
+        results.append({
+            "id": str(item_id),
+            "platform": "ebay",
+            "title": title,
+            "price": price,
+            "price_text": price_text,
+            "location": "",
+            "url": link,
+        })
 
     log.info("eBay: %d Artikel gefunden für '%s'", len(results), query)
     return results
-
-
-# ── Freie Websuche ─────────────────────────────────────────────────────────────
 
 
 async def _search_web(

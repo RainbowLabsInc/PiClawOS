@@ -9,6 +9,7 @@ description = "PiClaw – AI Operating System for Raspberry Pi 5"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.9",
+    "scrapling>=0.2",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
     "websockets>=12",
