@@ -807,7 +807,15 @@ def cmd_debug(args):
         print(f"\n  ❌ Test-Verzeichnis nicht gefunden: {tests_dir}\n")
         return
 
-    scripts = sorted([f.name for f in tests_dir.glob("test_*.py")])
+    # Beide Verzeichnisse: tests/ und tests/debug/
+    debug_dir = tests_dir / "debug"
+    scripts_map = {}  # name -> full_path
+    for f in sorted(tests_dir.glob("test_*.py")):
+        scripts_map[f"[test] {f.name}"] = f
+    if debug_dir.exists():
+        for f in sorted(debug_dir.glob("test_debug_*.py")):
+            scripts_map[f"[debug] {f.name}"] = f
+    scripts = list(scripts_map.keys())
     if not scripts:
         print("\n  ❌ Keine Testskripte (test_*.py) gefunden.\n")
         return
@@ -850,7 +858,7 @@ def cmd_debug(args):
     save_to_file = out_choice in ("y", "j", "yes", "ja")
 
     async def _run():
-        valid_paths = [str(tests_dir / s) for s in selected_scripts]
+        valid_paths = [str(scripts_map[s]) for s in selected_scripts]
         cmd = [sys.executable, "-m", "pytest"] + valid_paths
 
         print("\n  ⚙️ Führe Tests aus...\n")
