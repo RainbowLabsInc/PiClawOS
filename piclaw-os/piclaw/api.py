@@ -719,8 +719,22 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
             async def on_token(token: str):
                 await _manager.send(websocket, {"type": "token", "text": token})
 
+            # Keepalive-Task: sendet alle 20s ein "thinking" damit der
+            # WebSocket bei langen Operationen (Marketplace, LLM) nicht abbricht
+            async def _keepalive():
+                try:
+                    while True:
+                        await asyncio.sleep(20)
+                        await _manager.send(websocket, {"type": "thinking"})
+                except asyncio.CancelledError:
+                    pass
+
+            ka_task = asyncio.create_task(_keepalive())
             history = _sessions.get(session_id, [])
-            reply = await _agent.run(user_text, history=history, on_token=on_token)
+            try:
+                reply = await _agent.run(user_text, history=history, on_token=on_token)
+            finally:
+                ka_task.cancel()
 
             history.append(Message(role="user", content=user_text))
             history.append(Message(role="assistant", content=reply))
