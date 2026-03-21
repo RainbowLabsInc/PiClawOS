@@ -281,7 +281,11 @@ async def _validate_llm(
     except asyncio.TimeoutError:
         return False, "Timeout -- API erreichbar?"
     except Exception as e:
-        return False, str(e)[:120]
+        msg = str(e)
+        # 429 = Quota überschritten, aber Key ist gültig
+        if "429" in msg:
+            return True, "Key gültig (Quota-Limit erreicht)"
+        return False, msg[:120]
 
 
 async def _validate_telegram(token: str, chat_id: str) -> tuple[bool, str]:
