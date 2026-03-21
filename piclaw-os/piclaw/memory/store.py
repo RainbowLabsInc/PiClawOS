@@ -14,18 +14,17 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from piclaw.fileutils import safe_write_text
 
 from piclaw.config import CONFIG_DIR
 
 log = logging.getLogger("piclaw.memory.store")
 
-MEMORY_ROOT   = CONFIG_DIR / "memory"
-MEMORY_MAIN   = MEMORY_ROOT / "MEMORY.md"
-DAILY_DIR     = MEMORY_ROOT / "memory"
-SESSIONS_DIR  = MEMORY_ROOT / "sessions"
+MEMORY_ROOT = CONFIG_DIR / "memory"
+MEMORY_MAIN = MEMORY_ROOT / "MEMORY.md"
+DAILY_DIR = MEMORY_ROOT / "memory"
+SESSIONS_DIR = MEMORY_ROOT / "sessions"
 WORKSPACE_DIR = MEMORY_ROOT / "workspace"
-CONTEXT_FILE  = MEMORY_ROOT / "context.md"
+CONTEXT_FILE = MEMORY_ROOT / "context.md"
 
 
 def ensure_dirs():
@@ -49,11 +48,13 @@ def ensure_dirs():
 
 # ── Write helpers ────────────────────────────────────────────────
 
-def write_fact(content: str, category: str = "fact",
-               tags: list[str] | None = None) -> str:
+
+def write_fact(
+    content: str, category: str = "fact", tags: list[str] | None = None
+) -> str:
     """Append a structured fact to MEMORY.md."""
     ensure_dirs()
-    ts    = datetime.now().isoformat(timespec="seconds")
+    ts = datetime.now().isoformat(timespec="seconds")
     tag_s = ", ".join(tags) if tags else ""
     block = (
         f"\n## [{category.upper()}] {ts}\n"
@@ -69,9 +70,9 @@ def write_fact(content: str, category: str = "fact",
 def write_daily_note(content: str, date: str | None = None) -> str:
     """Append to today's daily log."""
     ensure_dirs()
-    day  = date or datetime.now().strftime("%Y-%m-%d")
+    day = date or datetime.now().strftime("%Y-%m-%d")
     path = DAILY_DIR / f"{day}.md"
-    ts   = datetime.now().strftime("%H:%M:%S")
+    ts = datetime.now().strftime("%H:%M:%S")
     if not path.exists():
         path.write_text(f"# Daily Log – {day}\n\n")
     with open(path, "a", encoding="utf-8") as f:
@@ -82,7 +83,7 @@ def write_daily_note(content: str, date: str | None = None) -> str:
 def save_session(session_id: str, messages: list[dict]) -> Path:
     """Persist a conversation session as JSONL for QMD indexing."""
     ensure_dirs()
-    ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = SESSIONS_DIR / f"{ts}_{session_id[:8]}.jsonl"
     with open(path, "w", encoding="utf-8") as f:
         for msg in messages:
@@ -101,6 +102,7 @@ def write_workspace_file(filename: str, content: str) -> str:
 
 # ── Read helpers ─────────────────────────────────────────────────
 
+
 def read_memory_main() -> str:
     ensure_dirs()
     return MEMORY_MAIN.read_text(encoding="utf-8") if MEMORY_MAIN.exists() else ""
@@ -108,30 +110,34 @@ def read_memory_main() -> str:
 
 def read_today() -> str:
     ensure_dirs()
-    day  = datetime.now().strftime("%Y-%m-%d")
+    day = datetime.now().strftime("%Y-%m-%d")
     path = DAILY_DIR / f"{day}.md"
-    return path.read_text(encoding="utf-8") if path.exists() else f"No daily log yet for {day}."
+    return (
+        path.read_text(encoding="utf-8")
+        if path.exists()
+        else f"No daily log yet for {day}."
+    )
 
 
 def list_memory_files() -> list[Path]:
     ensure_dirs()
     return (
-        list(MEMORY_ROOT.glob("*.md")) +
-        list(DAILY_DIR.glob("*.md")) +
-        list(WORKSPACE_DIR.rglob("*.md"))
+        list(MEMORY_ROOT.glob("*.md"))
+        + list(DAILY_DIR.glob("*.md"))
+        + list(WORKSPACE_DIR.rglob("*.md"))
     )
 
 
 def memory_stats() -> dict:
     ensure_dirs()
-    files  = list_memory_files()
-    total  = sum(f.stat().st_size for f in files)
+    files = list_memory_files()
+    total = sum(f.stat().st_size for f in files)
     tokens = total // 4  # rough estimate
     return {
-        "files":       len(files),
+        "files": len(files),
         "total_bytes": total,
-        "est_tokens":  tokens,
-        "main_size":   MEMORY_MAIN.stat().st_size if MEMORY_MAIN.exists() else 0,
+        "est_tokens": tokens,
+        "main_size": MEMORY_MAIN.stat().st_size if MEMORY_MAIN.exists() else 0,
         "daily_count": len(list(DAILY_DIR.glob("*.md"))),
-        "sessions":    len(list(SESSIONS_DIR.glob("*.jsonl"))),
+        "sessions": len(list(SESSIONS_DIR.glob("*.jsonl"))),
     }

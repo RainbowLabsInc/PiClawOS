@@ -27,35 +27,35 @@ import logging
 import re
 import time
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
-from piclaw.llm.base       import LLMBackend, Message, ToolDefinition, ToolCall, LLMResponse
-from piclaw.llm.registry   import LLMRegistry, BackendConfig
+from piclaw.llm.base import LLMBackend, Message, ToolDefinition, LLMResponse
+from piclaw.llm.registry import LLMRegistry, BackendConfig
 from piclaw.llm.classifier import TaskClassifier, ClassificationResult
-from piclaw.llm.api        import AnthropicBackend, OpenAIBackend
-from piclaw.llm.local      import LocalBackend, DEFAULT_MODEL_PATH
+from piclaw.llm.api import AnthropicBackend, OpenAIBackend
+from piclaw.llm.local import LocalBackend, DEFAULT_MODEL_PATH
 from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.llm.multirouter")
 
 # Regex to detect explicit backend override: "@name message"
-OVERRIDE_RE = re.compile(r'^@(\S+)\s+(.*)', re.DOTALL)
+OVERRIDE_RE = re.compile(r"^@(\S+)\s+(.*)", re.DOTALL)
 
 # After this many consecutive failures, mark a backend as degraded
 FAILURE_THRESHOLD = 3
 # Degraded backends are retried after this many seconds
-DEGRADED_RETRY_S  = 120
+DEGRADED_RETRY_S = 120
 
 
 @dataclass
 class BackendHealth:
-    name:           str
+    name: str
     consecutive_failures: int = 0
-    last_failure:   float = 0.0
-    last_success:   float = 0.0
-    total_calls:    int   = 0
-    total_errors:   int   = 0
+    last_failure: float = 0.0
+    last_success: float = 0.0
+    total_calls: int = 0
+    total_errors: int = 0
     avg_latency_ms: float = 0.0
 
     @property
@@ -66,16 +66,16 @@ class BackendHealth:
 
     def record_success(self, latency_ms: float):
         self.consecutive_failures = 0
-        self.last_success         = time.time()
-        self.total_calls         += 1
+        self.last_success = time.time()
+        self.total_calls += 1
         # Rolling average
-        self.avg_latency_ms = (self.avg_latency_ms * 0.8 + latency_ms * 0.2)
+        self.avg_latency_ms = self.avg_latency_ms * 0.8 + latency_ms * 0.2
 
     def record_failure(self):
         self.consecutive_failures += 1
-        self.last_failure          = time.time()
-        self.total_errors         += 1
-        self.total_calls          += 1
+        self.last_failure = time.time()
+        self.total_errors += 1
+        self.total_calls += 1
 
 
 class MultiLLMRouter(LLMBackend):
@@ -85,12 +85,12 @@ class MultiLLMRouter(LLMBackend):
     """
 
     def __init__(self, registry: LLMRegistry, global_cfg):
-        self.registry   = registry
+        self.registry = registry
         self.global_cfg = global_cfg
 
         # Instantiated backends cache (lazy)
         self._instances: dict[str, LLMBackend] = {}
-        self._health:    dict[str, BackendHealth] = {}
+        self._health: dict[str, BackendHealth] = {}
 
         # Local fallback – prefer cfg.llm.model if it looks like a path
         _model_path = DEFAULT_MODEL_PATH
@@ -100,7 +100,8 @@ class MultiLLMRouter(LLMBackend):
                 _model_path = _candidate
         self._local = LocalBackend(
             model_path=_model_path,
-            n_ctx=4096, n_threads=4,
+            n_ctx=4096,
+            n_threads=4,
         )
         self._local_loaded = False
 
@@ -169,7 +170,7 @@ class MultiLLMRouter(LLMBackend):
             # Ollama is OpenAI-compatible
             if cfg.provider == "ollama" and not base_url:
                 kw["base_url"] = "http://localhost:11434/v1"
-                kw["api_key"]  = kw["api_key"] or "ollama"
+                kw["api_key"] = kw["api_key"] or "ollama"
             instance = OpenAIBackend(**kw)
         elif cfg.provider == "local":
             instance = self._local
@@ -188,7 +189,9 @@ class MultiLLMRouter(LLMBackend):
 
     # ── Routing logic ─────────────────────────────────────────────
 
-    def _check_override(self, messages: list[Message]) -> tuple[Optional[str], list[Message]]:
+    def _check_override(
+        self, messages: list[Message]
+    ) -> tuple[Optional[str], list[Message]]:
         """
         Check if the last user message starts with @backend-name.
         Returns (backend_name_or_None, messages_without_prefix).
@@ -200,7 +203,8 @@ class MultiLLMRouter(LLMBackend):
                     name, rest = m.group(1), m.group(2)
                     new_messages = list(messages)
                     new_messages[i] = Message(
-                        role="user", content=rest,
+                        role="user",
+                        content=rest,
                         tool_call_id=messages[i].tool_call_id,
                         tool_name=messages[i].tool_name,
                     )
@@ -231,8 +235,12 @@ class MultiLLMRouter(LLMBackend):
 
         # ── Thermal routing: if Pi is hot, deprioritise local backends ──────
         try:
-            from piclaw.hardware.thermal import local_inference_allowed, get_thermal_state
-            _thermal_ok    = local_inference_allowed()
+            from piclaw.hardware.thermal import (
+                local_inference_allowed,
+                get_thermal_state,
+            )
+
+            _thermal_ok = local_inference_allowed()
             _thermal_state = get_thermal_state()
             if not _thermal_ok:
                 log.info(
@@ -249,16 +257,21 @@ class MultiLLMRouter(LLMBackend):
                     "– preferring cloud backends"
                 )
                 cloud_first = sorted(
-                    candidates,
-                    key=lambda b: (b.provider == "local", -b.priority)
+                    candidates, key=lambda b: (b.provider == "local", -b.priority)
                 )
                 candidates = cloud_first
         except Exception as _e:
-            log.debug("thermal routing check: %s", _e)  # thermal module not available – proceed normally
+            log.debug(
+                "thermal routing check: %s", _e
+            )  # thermal module not available – proceed normally
         # ────────────────────────────────────────────────────────────────────
 
         # Filter out degraded backends (unless they're all degraded)
-        available = [b for b in candidates if not self._health.get(b.name, BackendHealth(b.name)).is_degraded]
+        available = [
+            b
+            for b in candidates
+            if not self._health.get(b.name, BackendHealth(b.name)).is_degraded
+        ]
         if not available:
             available = candidates  # try degraded ones as last resort before local
 
@@ -309,14 +322,18 @@ class MultiLLMRouter(LLMBackend):
             cfg = self.registry.get(override_name)
             if not cfg:
                 # Try partial match
-                matches = [b for b in self.registry.list_enabled()
-                           if override_name.lower() in b.name.lower()]
+                matches = [
+                    b
+                    for b in self.registry.list_enabled()
+                    if override_name.lower() in b.name.lower()
+                ]
                 cfg = matches[0] if matches else None
             if not cfg:
                 return LLMResponse(
                     content=f"❌ Unknown backend: '{override_name}'. "
-                            f"Available: {[b.name for b in self.registry.list_enabled()]}",
-                    tool_calls=[], finish_reason="error",
+                    f"Available: {[b.name for b in self.registry.list_enabled()]}",
+                    tool_calls=[],
+                    finish_reason="error",
                 )
             classification = ClassificationResult(
                 tags=cfg.tags, confidence=1.0, method="override"
@@ -342,18 +359,24 @@ class MultiLLMRouter(LLMBackend):
         tried.add(primary.name)
 
         instance = self._get_instance(primary)
-        t_start  = time.time()
+        t_start = time.time()
 
         try:
             resp = await instance.chat(messages, tools=tools)
-            self._health.setdefault(primary.name, BackendHealth(primary.name))\
-                .record_success((time.time() - t_start) * 1000)
-            log.info("Response from '%s' (%sms)", primary.name, int((time.time()-t_start)*1000))
+            self._health.setdefault(
+                primary.name, BackendHealth(primary.name)
+            ).record_success((time.time() - t_start) * 1000)
+            log.info(
+                "Response from '%s' (%sms)",
+                primary.name,
+                int((time.time() - t_start) * 1000),
+            )
             return resp
 
         except Exception as e:
-            self._health.setdefault(primary.name, BackendHealth(primary.name))\
-                .record_failure()
+            self._health.setdefault(
+                primary.name, BackendHealth(primary.name)
+            ).record_failure()
             log.warning("Backend '%s' failed: %s", primary.name, e)
 
             # Try next best backend
@@ -385,7 +408,9 @@ class MultiLLMRouter(LLMBackend):
             if not cfg:
                 yield f"❌ Unknown backend: '{override_name}'"
                 return
-            classification = ClassificationResult(tags=cfg.tags, confidence=1.0, method="override")
+            classification = ClassificationResult(
+                tags=cfg.tags, confidence=1.0, method="override"
+            )
         else:
             cfg, classification = await self._select_backend(messages)
 
@@ -403,18 +428,33 @@ class MultiLLMRouter(LLMBackend):
                 tokens_yielded += 1
                 yield token
         except Exception as e:
-            log.warning("Stream from '%s' failed after %d tokens: %r", cfg.name, tokens_yielded, e)
+            log.warning(
+                "Stream from '%s' failed after %d tokens: %r",
+                cfg.name,
+                tokens_yielded,
+                e,
+            )
             # Only show warning and fall back if we got NO tokens yet
             # (if tokens came through, the response was already delivered to the user)
-            if tokens_yielded == 0 and cfg.provider != "local" and cfg.name != "local-fallback":
+            if (
+                tokens_yielded == 0
+                and cfg.provider != "local"
+                and cfg.name != "local-fallback"
+            ):
                 log.warning("Switching to local fallback after stream failure")
                 # Try next API backend first before going local
                 candidates = self.registry.list_enabled()
                 next_api = next(
-                    (b for b in candidates
-                     if b.name != cfg.name and b.provider != "local"
-                     and not self._health.get(b.name, BackendHealth(b.name)).is_degraded),
-                    None
+                    (
+                        b
+                        for b in candidates
+                        if b.name != cfg.name
+                        and b.provider != "local"
+                        and not self._health.get(
+                            b.name, BackendHealth(b.name)
+                        ).is_degraded
+                    ),
+                    None,
                 )
                 if next_api:
                     log.info("Trying next API backend: %s", next_api.name)
@@ -471,23 +511,25 @@ class MultiLLMRouter(LLMBackend):
         backends = []
         for b in self.registry.list_all():
             h = self._health.get(b.name, BackendHealth(b.name))
-            backends.append({
-                "name":     b.name,
-                "provider": b.provider,
-                "model":    b.model,
-                "tags":     b.tags,
-                "priority": b.priority,
-                "enabled":  b.enabled,
-                "degraded": h.is_degraded,
-                "errors":   h.total_errors,
-                "calls":    h.total_calls,
-                "avg_ms":   round(h.avg_latency_ms),
-            })
+            backends.append(
+                {
+                    "name": b.name,
+                    "provider": b.provider,
+                    "model": b.model,
+                    "tags": b.tags,
+                    "priority": b.priority,
+                    "enabled": b.enabled,
+                    "degraded": h.is_degraded,
+                    "errors": h.total_errors,
+                    "calls": h.total_calls,
+                    "avg_ms": round(h.avg_latency_ms),
+                }
+            )
         return {
-            "mode":           "multi-llm",
-            "backends":       backends,
-            "local_loaded":   self._local_loaded,
-            "all_tags":       self.registry.all_tags(),
+            "mode": "multi-llm",
+            "backends": backends,
+            "local_loaded": self._local_loaded,
+            "all_tags": self.registry.all_tags(),
         }
 
     # ── SmartRouter compatibility (for Watchdog + existing code) ──

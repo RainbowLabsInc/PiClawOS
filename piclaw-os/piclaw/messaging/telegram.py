@@ -26,10 +26,10 @@ class TelegramAdapter(MessagingAdapter):
     name = "telegram"
 
     def __init__(self, token: str, chat_id: str):
-        self.token   = token
+        self.token = token
         self.chat_id = str(chat_id)
-        self._offset  = 0
-        self._stop    = asyncio.Event()
+        self._offset = 0
+        self._stop = asyncio.Event()
         self._session: aiohttp.ClientSession | None = None
 
     def is_configured(self) -> bool:
@@ -69,8 +69,11 @@ class TelegramAdapter(MessagingAdapter):
             try:
                 async with self._session.get(
                     self._url("getUpdates"),
-                    params={"offset": self._offset, "timeout": 20,
-                            "allowed_updates": ["message"]},
+                    params={
+                        "offset": self._offset,
+                        "timeout": 20,
+                        "allowed_updates": ["message"],
+                    },
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as resp:
                     data = await resp.json()
@@ -95,4 +98,4 @@ class TelegramAdapter(MessagingAdapter):
 
 
 def _split(text: str, size: int) -> list[str]:
-    return [text[i:i+size] for i in range(0, len(text), size)] if text else [""]
+    return [text[i : i + size] for i in range(0, len(text), size)] if text else [""]

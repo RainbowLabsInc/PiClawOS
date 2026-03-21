@@ -61,7 +61,9 @@ Type 'exit' or Ctrl+C to leave the agent chat.
 
 def _api_running(cfg) -> bool:
     """Prüft ob piclaw-api auf localhost läuft."""
-    import urllib.request, urllib.error
+    import urllib.request
+    import urllib.error
+
     try:
         url = f"http://127.0.0.1:{cfg.api.port}/health"
         urllib.request.urlopen(url, timeout=2)
@@ -75,8 +77,10 @@ def cmd_chat():
 
     async def _run_via_api(cfg):
         """Chat über WebSocket-API – Modell bleibt im Daemon-RAM."""
-        import websockets, json
+        import websockets
+        import json
         from piclaw.auth import get_token
+
         # Token aus auth-Modul (gesetzt beim API-Start) oder aus config
         token = get_token() or cfg.api.secret_key
         if not token:
@@ -84,14 +88,16 @@ def cmd_chat():
         url = f"ws://127.0.0.1:{cfg.api.port}/ws/chat?token={token}"
         print(BANNER)
         print(f"  {cfg.agent_name} ready. Type 'exit' to quit, 'help' for commands.")
-        print(f"  \033[2m(Verbunden mit laufendem Daemon – sofortige Antworten)\033[0m\n")
+        print(
+            "  \033[2m(Verbunden mit laufendem Daemon – sofortige Antworten)\033[0m\n"
+        )
         try:
             async with websockets.connect(
-                    url,
-                    ping_interval=30,   # keepalive alle 30s
-                    ping_timeout=120,   # 2 Min warten (Nemotron/grosse Modelle)
-                    open_timeout=15,
-                ) as ws:
+                url,
+                ping_interval=30,  # keepalive alle 30s
+                ping_timeout=120,  # 2 Min warten (Nemotron/grosse Modelle)
+                open_timeout=15,
+            ) as ws:
                 while True:
                     try:
                         text = input("\033[1;35m[you]\033[0m ").strip()
@@ -122,9 +128,11 @@ def cmd_chat():
                         elif msg["type"] == "reply":
                             if not reply_parts:
                                 print(" " * 20, end="\r")
-                                print(f"\033[1;36m[{cfg.agent_name}]\033[0m {msg['text']}\n")
+                                print(
+                                    f"\033[1;36m[{cfg.agent_name}]\033[0m {msg['text']}\n"
+                                )
                             else:
-                                print(f"\n")
+                                print("\n")
                             break
                         elif msg["type"] == "error":
                             print(f"\n\033[31m❌ {msg['text']}\033[0m\n")
@@ -136,11 +144,12 @@ def cmd_chat():
     async def _run_direct(cfg):
         """Fallback: direkter Agent-Start (lädt Modell neu)."""
         from piclaw.agent import Agent
+
         agent = Agent(cfg)
         await agent.boot()
         print(BANNER)
         print(f"  {cfg.agent_name} ready. Type 'exit' to quit, 'help' for commands.")
-        print(f"  \033[33m(Offline-Modus – API nicht erreichbar)\033[0m\n")
+        print("  \033[33m(Offline-Modus – API nicht erreichbar)\033[0m\n")
         history = []
         while True:
             try:
@@ -159,6 +168,7 @@ def cmd_chat():
             print("\033[2mThinking…\033[0m", end="\r", flush=True)
             reply = await agent.run(text, history=history)
             from piclaw.llm import Message as _Msg
+
             history.append(_Msg(role="user", content=text))
             history.append(_Msg(role="assistant", content=reply))
             print(f"\033[1;36m[{cfg.agent_name}]\033[0m {reply}\n")
@@ -177,16 +187,20 @@ def cmd_chat():
 
 
 def cmd_doctor():
-    import platform, asyncio
+    import platform
+    import asyncio
     from piclaw.config import load
 
     async def _check():
         cfg = load()
         from piclaw.agent import Agent
-        agent  = Agent(cfg)
-        ok     = await agent.llm.health_check()
-        import psutil, socket
-        mem  = psutil.virtual_memory()
+
+        agent = Agent(cfg)
+        ok = await agent.llm.health_check()
+        import psutil
+        import socket
+
+        mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
 
         print("\n🔍 PiClaw Doctor\n")
@@ -195,27 +209,47 @@ def cmd_doctor():
         _model_display = cfg.llm.model
         if cfg.llm.backend == "local":
             from pathlib import Path as _P
+
             _mp = _P(cfg.llm.model) if cfg.llm.model else None
             if _mp and _mp.exists():
                 _model_display = _mp.name
             else:
                 from piclaw.llm.local import DEFAULT_MODEL_PATH as _DMP
-                _model_display = _DMP.name if _DMP.exists() else f"{cfg.llm.model} (nicht gefunden)"
-        _health_str = "✅ OK" if ok else "❌ UNREACHABLE (check API key)" if cfg.llm.backend != "local" else "❌ Modell nicht gefunden – piclaw model download"
+
+                _model_display = (
+                    _DMP.name if _DMP.exists() else f"{cfg.llm.model} (nicht gefunden)"
+                )
+        _health_str = (
+            "✅ OK"
+            if ok
+            else "❌ UNREACHABLE (check API key)"
+            if cfg.llm.backend != "local"
+            else "❌ Modell nicht gefunden – piclaw model download"
+        )
         print(f"  LLM backend : {cfg.llm.backend} / {_model_display}")
         print(f"  LLM health  : {_health_str}")
         print(f"  Python      : {platform.python_version()}")
         print(f"  Platform    : {platform.platform()}")
         print(f"  Hostname    : {socket.gethostname()}")
-        print(f"  Memory      : {mem.used//1_048_576} / {mem.total//1_048_576} MB")
-        print(f"  Disk        : {disk.used//1_073_741_824:.1f} / {disk.total//1_073_741_824:.1f} GB")
+        print(f"  Memory      : {mem.used // 1_048_576} / {mem.total // 1_048_576} MB")
+        print(
+            f"  Disk        : {disk.used // 1_073_741_824:.1f} / {disk.total // 1_073_741_824:.1f} GB"
+        )
         try:
-            temp = int(open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8").read()) / 1000
+            temp = (
+                int(
+                    open(
+                        "/sys/class/thermal/thermal_zone0/temp", encoding="utf-8"
+                    ).read()
+                )
+                / 1000
+            )
             print(f"  CPU Temp    : {temp:.1f}°C")
         except OSError:
             pass  # thermal_zone0 not present on non-Pi
         # Soul
         from piclaw import soul as soul_mod
+
         soul_path = soul_mod.get_path()
         # API Token
         if cfg.api.secret_key:
@@ -229,23 +263,28 @@ def cmd_doctor():
             print("  Soul        : ⬜ Not created yet (will be on first boot)")
         # Sub-agents
         from piclaw.agents.sa_registry import SubAgentRegistry
-        reg    = SubAgentRegistry()
+
+        reg = SubAgentRegistry()
         agents = reg.list_all()
         if agents:
             running = sum(1 for a in agents if a.last_status == "running")
-            ok_n    = sum(1 for a in agents if a.last_status == "ok")
-            err_n   = sum(1 for a in agents if a.last_status == "error")
-            print(f"  Sub-Agents  : ✅ {len(agents)} defined  "
-                  f"(ok={ok_n}, error={err_n}, running={running})")
+            ok_n = sum(1 for a in agents if a.last_status == "ok")
+            err_n = sum(1 for a in agents if a.last_status == "error")
+            print(
+                f"  Sub-Agents  : ✅ {len(agents)} defined  "
+                f"(ok={ok_n}, error={err_n}, running={running})"
+            )
         else:
             print("  Sub-Agents  : ⬜ None defined")
         try:
             import aiohttp
+
             print("  aiohttp     : ✅")
         except ImportError:
             print("  aiohttp     : ❌")
         try:
             import fastapi
+
             print("  fastapi     : ✅")
         except ImportError:
             print("  fastapi     : ❌")
@@ -257,10 +296,11 @@ def cmd_doctor():
 def cmd_web():
     from piclaw.config import load
     import socket
+
     cfg = load()
     try:
         hostname = socket.gethostname()
-        ip       = socket.gethostbyname(hostname)
+        ip = socket.gethostbyname(hostname)
     except Exception:
         ip = "YOUR_PI_IP"
     print("\n  🌐 PiClaw Web UI")
@@ -270,12 +310,15 @@ def cmd_web():
 
 def cmd_config(args):
     from piclaw.config import load, save, CONFIG_FILE
+
     cfg = load()
     if not args or args[0] == "get":
         import tomllib
+
         print(f"\n  Config: {CONFIG_FILE}\n")
         with open(CONFIG_FILE, "rb") as f:
             import pprint
+
             pprint.pprint(tomllib.load(f))
         print()
     elif args[0] == "token":
@@ -287,10 +330,14 @@ def cmd_config(args):
             print("  Token not generated yet. Start the API service first.")
     elif args[0] == "set" and len(args) == 3:
         key, val = args[1], args[2]
-        if   key == "llm.api_key":    cfg.llm.api_key    = val
-        elif key == "llm.model":      cfg.llm.model      = val
-        elif key == "llm.backend":    cfg.llm.backend    = val
-        elif key == "agent_name":     cfg.agent_name     = val
+        if key == "llm.api_key":
+            cfg.llm.api_key = val
+        elif key == "llm.model":
+            cfg.llm.model = val
+        elif key == "llm.backend":
+            cfg.llm.backend = val
+        elif key == "agent_name":
+            cfg.agent_name = val
         else:
             print(f"Unknown config key: {key}")
             print("Supported: llm.api_key, llm.model, llm.backend, agent_name")
@@ -307,6 +354,7 @@ def cmd_service(action):
 
 def cmd_model(args):
     from piclaw.llm.model_manager import download_model, list_models, remove_model
+
     sub = args[0] if args else "list"
     if sub == "list":
         print(list_models())
@@ -320,6 +368,7 @@ def cmd_model(args):
         print(remove_model(mid))
     elif sub == "status":
         from piclaw.llm.local import DEFAULT_MODEL_PATH
+
         path = DEFAULT_MODEL_PATH
         if path.exists():
             mb = path.stat().st_size // 1_048_576
@@ -332,20 +381,33 @@ def cmd_model(args):
 
 def cmd_messaging(args):
     from piclaw.config import load
+
     sub = args[0] if args else "status"
     cfg = load()
 
     if sub == "status":
         print("\n📡 Messaging Adapters\n")
         adapters = [
-            ("Telegram",  bool(cfg.telegram.token and cfg.telegram.chat_id),
-             f"chat_id={cfg.telegram.chat_id or '(not set)'}"),
-            ("Discord",   bool(cfg.discord.token and cfg.discord.channel_id),
-             f"channel={cfg.discord.channel_id or '(not set)'}"),
-            ("Threema",   bool(cfg.threema.gateway_id and cfg.threema.api_secret),
-             f"gateway={cfg.threema.gateway_id or '(not set)'}"),
-            ("WhatsApp",  bool(cfg.whatsapp.access_token),
-             f"number={cfg.whatsapp.recipient or '(not set)'}"),
+            (
+                "Telegram",
+                bool(cfg.telegram.token and cfg.telegram.chat_id),
+                f"chat_id={cfg.telegram.chat_id or '(not set)'}",
+            ),
+            (
+                "Discord",
+                bool(cfg.discord.token and cfg.discord.channel_id),
+                f"channel={cfg.discord.channel_id or '(not set)'}",
+            ),
+            (
+                "Threema",
+                bool(cfg.threema.gateway_id and cfg.threema.api_secret),
+                f"gateway={cfg.threema.gateway_id or '(not set)'}",
+            ),
+            (
+                "WhatsApp",
+                bool(cfg.whatsapp.access_token),
+                f"number={cfg.whatsapp.recipient or '(not set)'}",
+            ),
         ]
         for name, ok, detail in adapters:
             icon = "✅" if ok else "⬜"
@@ -354,11 +416,14 @@ def cmd_messaging(args):
 
     elif sub == "test":
         print("Sending test message to all configured adapters…")
+
         async def _test():
             from piclaw.messaging import build_hub
+
             hub = build_hub(cfg)
             await hub.send_all("🧪 PiClaw test message – adapters working correctly.")
             print(f"  Sent to: {', '.join(hub.active_adapters()) or 'none configured'}")
+
         asyncio.run(_test())
 
     elif sub == "setup":
@@ -366,16 +431,18 @@ def cmd_messaging(args):
         _messaging_setup_wizard(cfg, sub2)
 
     else:
-        print("Usage: piclaw messaging [status|test|setup [telegram|discord|threema|whatsapp]]")
+        print(
+            "Usage: piclaw messaging [status|test|setup [telegram|discord|threema|whatsapp]]"
+        )
 
 
 def _messaging_setup_wizard(cfg, platform=None):
     """Interactive setup wizard for messaging adapters."""
     platforms = {
-        "telegram":  _setup_telegram,
-        "discord":   _setup_discord,
-        "threema":   _setup_threema,
-        "whatsapp":  _setup_whatsapp,
+        "telegram": _setup_telegram,
+        "discord": _setup_discord,
+        "threema": _setup_threema,
+        "whatsapp": _setup_whatsapp,
     }
 
     if platform and platform in platforms:
@@ -386,10 +453,10 @@ def _messaging_setup_wizard(cfg, platform=None):
     print("Welchen Adapter möchtest du einrichten?")
     for i, (name, _) in enumerate(platforms.items(), 1):
         current = {
-            "telegram":  bool(cfg.telegram.token),
-            "discord":   bool(cfg.discord.token),
-            "threema":   bool(cfg.threema.gateway_id),
-            "whatsapp":  bool(cfg.whatsapp.access_token),
+            "telegram": bool(cfg.telegram.token),
+            "discord": bool(cfg.discord.token),
+            "threema": bool(cfg.threema.gateway_id),
+            "whatsapp": bool(cfg.whatsapp.access_token),
         }[name]
         status = "✅" if current else "⬜"
         print(f"  {i}. {status} {name.capitalize()}")
@@ -397,8 +464,8 @@ def _messaging_setup_wizard(cfg, platform=None):
 
     choice = input("Auswahl [0-4]: ").strip()
     names = list(platforms.keys())
-    if choice in ("1","2","3","4"):
-        name = names[int(choice)-1]
+    if choice in ("1", "2", "3", "4"):
+        name = names[int(choice) - 1]
         platforms[name](cfg)
     else:
         print("Abgebrochen.")
@@ -406,6 +473,7 @@ def _messaging_setup_wizard(cfg, platform=None):
 
 def _setup_telegram(cfg):
     from piclaw.config import save
+
     print("\n📱 Telegram Setup\n")
     print("1. Gehe zu @BotFather in Telegram")
     print("2. Tippe /newbot und folge den Anweisungen")
@@ -421,7 +489,7 @@ def _setup_telegram(cfg):
     if not chat_id:
         print("Abgebrochen.")
         return
-    cfg.telegram.token   = token
+    cfg.telegram.token = token
     cfg.telegram.chat_id = chat_id
     save(cfg)
     print("\n✅ Telegram konfiguriert.")
@@ -430,6 +498,7 @@ def _setup_telegram(cfg):
 
 def _setup_discord(cfg):
     from piclaw.config import save
+
     print("\n🎮 Discord Setup\n")
     print("1. https://discord.com/developers/applications → New Application")
     print("2. Bot → Add Bot → 'Message Content Intent' aktivieren")
@@ -447,8 +516,8 @@ def _setup_discord(cfg):
         return
     user_ids_str = input("Deine User-ID (Enter = alle erlaubt): ").strip()
     allowed = [int(user_ids_str)] if user_ids_str.isdigit() else []
-    cfg.discord.token         = token
-    cfg.discord.channel_id    = int(channel_id_str)
+    cfg.discord.token = token
+    cfg.discord.channel_id = int(channel_id_str)
     cfg.discord.allowed_users = allowed
     save(cfg)
     print("\n✅ Discord konfiguriert.")
@@ -458,25 +527,28 @@ def _setup_discord(cfg):
 def _setup_threema(cfg):
     from piclaw.config import save
     from pathlib import Path
+
     print("\n🔒 Threema Gateway Setup\n")
     print("1. Registrierung: https://gateway.threema.ch")
     print("   → Gateway-ID beantragen (z.B. *PICLAW01)")
     print("   → E2E-Modus wählen\n")
     print("2. Schlüsselpaar generieren:")
-    print("   threema-gateway generate /etc/piclaw/threema-private.key /etc/piclaw/threema-public.key")
+    print(
+        "   threema-gateway generate /etc/piclaw/threema-private.key /etc/piclaw/threema-public.key"
+    )
     print("   Dann Public Key im Gateway-Portal hochladen\n")
     gw_id = input("Gateway-ID (z.B. *PICLAW01, Enter zum Überspringen): ").strip()
     if not gw_id:
         print("Übersprungen.")
         return
-    api_secret  = input("API-Secret: ").strip()
-    recipient   = input("Deine Threema-ID (8 Zeichen): ").strip()
-    key_file    = input(f"Private-Key-Datei [{cfg.threema.private_key_file}]: ").strip()
+    api_secret = input("API-Secret: ").strip()
+    recipient = input("Deine Threema-ID (8 Zeichen): ").strip()
+    key_file = input(f"Private-Key-Datei [{cfg.threema.private_key_file}]: ").strip()
     if not key_file:
         key_file = cfg.threema.private_key_file
-    cfg.threema.gateway_id       = gw_id
-    cfg.threema.api_secret       = api_secret
-    cfg.threema.recipient_id     = recipient
+    cfg.threema.gateway_id = gw_id
+    cfg.threema.api_secret = api_secret
+    cfg.threema.recipient_id = recipient
     cfg.threema.private_key_file = key_file
     save(cfg)
     print("\n✅ Threema konfiguriert.")
@@ -489,6 +561,7 @@ def _setup_threema(cfg):
 
 def _setup_whatsapp(cfg):
     from piclaw.config import save
+
     print("\n💬 WhatsApp Meta Cloud API Setup\n")
     print("⚠️  Voraussetzung: Öffentliche HTTPS-URL!")
     print("   Einfachste Lösung – Cloudflare Tunnel (kostenlos):")
@@ -497,21 +570,21 @@ def _setup_whatsapp(cfg):
     print("1. https://developers.facebook.com → App erstellen → WhatsApp")
     print("2. Temporären Access Token kopieren")
     print("3. Telefonnummer-ID kopieren\n")
-    access_token    = input("Access Token (EAA..., Enter zum Überspringen): ").strip()
+    access_token = input("Access Token (EAA..., Enter zum Überspringen): ").strip()
     if not access_token:
         print("Übersprungen.")
         return
     phone_number_id = input("Telefonnummer-ID: ").strip()
-    app_secret      = input("App Secret: ").strip()
-    recipient       = input("Deine WhatsApp-Nummer (+49...): ").strip()
-    verify_token    = input(f"Verify Token [{cfg.whatsapp.verify_token}]: ").strip()
+    app_secret = input("App Secret: ").strip()
+    recipient = input("Deine WhatsApp-Nummer (+49...): ").strip()
+    verify_token = input(f"Verify Token [{cfg.whatsapp.verify_token}]: ").strip()
     if not verify_token:
         verify_token = cfg.whatsapp.verify_token
-    cfg.whatsapp.access_token    = access_token
+    cfg.whatsapp.access_token = access_token
     cfg.whatsapp.phone_number_id = phone_number_id
-    cfg.whatsapp.app_secret      = app_secret
-    cfg.whatsapp.recipient       = recipient
-    cfg.whatsapp.verify_token    = verify_token
+    cfg.whatsapp.app_secret = app_secret
+    cfg.whatsapp.recipient = recipient
+    cfg.whatsapp.verify_token = verify_token
     save(cfg)
     print("\n✅ WhatsApp konfiguriert.")
     print("   Webhook-URL im Meta-Portal eintragen:")
@@ -523,17 +596,18 @@ def _setup_whatsapp(cfg):
 
 def cmd_soul(args):
     from piclaw import soul as soul_mod
+
     sub = args[0] if args else "show"
 
     if sub == "show":
         content = soul_mod.load()
-        path    = soul_mod.get_path()
+        path = soul_mod.get_path()
         print(f"\n📄 Soul file: {path}\n")
         print(content)
         print()
 
     elif sub == "edit":
-        path   = soul_mod.get_path()
+        path = soul_mod.get_path()
         # Ensure file exists before opening
         soul_mod.load()
         editor = os.environ.get("EDITOR", "nano")
@@ -542,9 +616,16 @@ def cmd_soul(args):
         print("  Soul updated. Changes take effect in the next conversation.")
 
     elif sub == "reset":
-        confirm = input("  ⚠️  Reset soul to default? This overwrites your customizations. [y/N] ").strip().lower()
+        confirm = (
+            input(
+                "  ⚠️  Reset soul to default? This overwrites your customizations. [y/N] "
+            )
+            .strip()
+            .lower()
+        )
         if confirm == "y":
             from piclaw.soul import DEFAULT_SOUL
+
             result = soul_mod.save(DEFAULT_SOUL)
             print(f"  ✅ {result}")
         else:
@@ -557,7 +638,7 @@ def cmd_soul(args):
 def cmd_agent(args):
     from piclaw.agents.sa_registry import SubAgentRegistry
 
-    sub  = args[0] if args else "list"
+    sub = args[0] if args else "list"
     name = args[1] if len(args) > 1 else None
 
     registry = SubAgentRegistry()
@@ -571,14 +652,21 @@ def cmd_agent(args):
         print(f"\n  Sub-Agents ({len(agents)}):\n")
         for a in agents:
             status_icon = {
-                "ok": "✅", "error": "❌", "timeout": "⏱️",
-                "running": "⚙️", None: "⬜",
+                "ok": "✅",
+                "error": "❌",
+                "timeout": "⏱️",
+                "running": "⚙️",
+                None: "⬜",
             }.get(a.last_status, "⬜")
             enabled_str = "" if a.enabled else "  [disabled]"
             print(f"  {status_icon} [{a.id}] {a.name}{enabled_str}")
             print(f"       {a.description}")
-            print(f"       schedule: {a.schedule}  |  tools: {', '.join(a.tools) if a.tools else 'all'}")
-            print(f"       last run: {a.last_run or 'never'}  |  status: {a.last_status or '—'}")
+            print(
+                f"       schedule: {a.schedule}  |  tools: {', '.join(a.tools) if a.tools else 'all'}"
+            )
+            print(
+                f"       last run: {a.last_run or 'never'}  |  status: {a.last_status or '—'}"
+            )
             print()
 
     elif sub == "start":
@@ -612,7 +700,11 @@ def cmd_agent(args):
         if not agent:
             print(f"  Sub-agent '{name}' not found.")
             return
-        confirm = input(f"  Delete '{agent.name}' ({agent.description})? [y/N] ").strip().lower()
+        confirm = (
+            input(f"  Delete '{agent.name}' ({agent.description})? [y/N] ")
+            .strip()
+            .lower()
+        )
         if confirm == "y":
             result = _api_call("DELETE", f"/api/subagents/{name}")
             if result:
@@ -640,14 +732,17 @@ def cmd_agent(args):
 
 def _api_call(method: str, path: str, body: dict = None) -> dict | None:
     """Simple synchronous HTTP call to local PiClaw API. Returns None if unreachable."""
-    import urllib.request, json as _json, logging as _log
+    import urllib.request
+    import json as _json
+    import logging as _log
     from piclaw.config import load
+
     cfg = load()
     url = f"http://127.0.0.1:{cfg.api.port}{path}"
     _logger = _log.getLogger("piclaw.cli.api")
     try:
         data = _json.dumps(body).encode() if body else None
-        req  = urllib.request.Request(url, data=data, method=method)
+        req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Content-Type", "application/json")
         if cfg.api.secret_key:
             req.add_header("Authorization", f"Bearer {cfg.api.secret_key}")
@@ -661,7 +756,6 @@ def _api_call(method: str, path: str, body: dict = None) -> dict | None:
         return None
 
 
-
 def cmd_setup():
     """
     Interaktiver Ersteinrichtungs-Wizard (SSH/Terminal).
@@ -669,16 +763,20 @@ def cmd_setup():
     Hardware und Soul – ohne Browser, ohne GUI.
     """
     from piclaw.wizard import run as wizard_run
+
     wizard_run()
 
 
 def _edit_soul_interactive():
     """Open SOUL.md in $EDITOR or guide inline input."""
-    import os, subprocess
+    import os
+    import subprocess
     from piclaw import soul
+
     editor = os.environ.get("EDITOR", "")
     if editor:
         import piclaw.soul as soul_mod
+
         soul_path = soul_mod.SOUL_FILE
         soul_path.parent.mkdir(parents=True, exist_ok=True)
         if not soul_path.exists():
@@ -702,14 +800,13 @@ def _edit_soul_interactive():
             print("  ⏩ Kein Inhalt – übersprungen.")
 
 
-
 def cmd_llm(args):
     """Manage LLM backends in the registry."""
     from piclaw.config import load
     from piclaw.llm.registry import LLMRegistry, BackendConfig
 
     sub = args[0] if args else "list"
-    cfg = load()
+    load()
 
     registry = LLMRegistry()
 
@@ -728,24 +825,26 @@ def cmd_llm(args):
             else:
                 i += 1
         required = ["name", "provider", "model"]
-        missing  = [r for r in required if r not in kw]
+        missing = [r for r in required if r not in kw]
         if missing:
             print(f"  Fehlende Parameter: {', '.join('--' + m for m in missing)}")
-            print("  Beispiel: piclaw llm add --name kimi --provider openai --model moonshotai/kimi-k2-instruct-0905 --api-key nvapi-... --base-url https://integrate.api.nvidia.com/v1 --priority 8")
+            print(
+                "  Beispiel: piclaw llm add --name kimi --provider openai --model moonshotai/kimi-k2-instruct-0905 --api-key nvapi-... --base-url https://integrate.api.nvidia.com/v1 --priority 8"
+            )
             return
         tags = [t.strip() for t in kw.pop("tags", "general").split(",")]
         bc = BackendConfig(
-            name        = kw.pop("name"),
-            provider    = kw.pop("provider"),
-            model       = kw.pop("model"),
-            api_key     = kw.pop("api_key", kw.pop("api-key", "")),
-            base_url    = kw.pop("base_url", kw.pop("base-url", "")),
-            priority    = int(kw.pop("priority", 5)),
-            temperature = float(kw.pop("temperature", 0.7)),
-            max_tokens  = int(kw.pop("max_tokens", 4096)),
-            timeout     = int(kw.pop("timeout", 60)),
-            tags        = tags,
-            notes       = kw.pop("notes", ""),
+            name=kw.pop("name"),
+            provider=kw.pop("provider"),
+            model=kw.pop("model"),
+            api_key=kw.pop("api_key", kw.pop("api-key", "")),
+            base_url=kw.pop("base_url", kw.pop("base-url", "")),
+            priority=int(kw.pop("priority", 5)),
+            temperature=float(kw.pop("temperature", 0.7)),
+            max_tokens=int(kw.pop("max_tokens", 4096)),
+            timeout=int(kw.pop("timeout", 60)),
+            tags=tags,
+            notes=kw.pop("notes", ""),
         )
         print(f"  {registry.add(bc)}")
 
@@ -787,135 +886,63 @@ def cmd_llm(args):
     else:
         print("Usage: piclaw llm [list|add|remove|update|enable|disable]")
         print("  piclaw llm list")
-        print("  piclaw llm add --name <n> --provider openai --model <m> --api-key <k> --base-url <u> --priority 8 --tags general,coding")
+        print(
+            "  piclaw llm add --name <n> --provider openai --model <m> --api-key <k> --base-url <u> --priority 8 --tags general,coding"
+        )
         print("  piclaw llm remove <name>")
         print("  piclaw llm update <name> --model <new-model>")
         print("  piclaw llm enable/disable <name>")
 
 
-def cmd_debug(args):
-    import asyncio
-    import os
-    import sys
-    from pathlib import Path
-    from piclaw.config import load
-
-    base_dir = Path(__file__).parent.parent
-    tests_dir = base_dir / "tests"
-
-    if not tests_dir.exists() or not tests_dir.is_dir():
-        print(f"\n  ❌ Test-Verzeichnis nicht gefunden: {tests_dir}\n")
-        return
-
-    # Beide Verzeichnisse: tests/ und tests/debug/
-    debug_dir = tests_dir / "debug"
-    scripts_map = {}  # name -> full_path
-    for f in sorted(tests_dir.glob("test_*.py")):
-        scripts_map[f"[test] {f.name}"] = f
-    if debug_dir.exists():
-        for f in sorted(debug_dir.glob("test_debug_*.py")):
-            scripts_map[f"[debug] {f.name}"] = f
-    scripts = list(scripts_map.keys())
-    if not scripts:
-        print("\n  ❌ Keine Testskripte (test_*.py) gefunden.\n")
-        return
-
-    print("\n🐛 PiClaw Debug - Test Scripts")
-    print("--------------------------------")
-
-    for i, script in enumerate(scripts, 1):
-        print(f"  {i}. {script}")
-
-    print("  0. Abbrechen")
-    print("  a. Alle Skripte ausführen\n")
-
-    choice = input("Auswahl [0, a, oder Nummern kommagetrennt]: ").strip().lower()
-
-    if choice == "0" or not choice:
-        print("  Abgebrochen.")
-        return
-
-    selected_scripts = []
-    if choice == "a":
-        selected_scripts = scripts
-    else:
-        try:
-            indices = [int(x.strip()) for x in choice.split(",")]
-            for idx in indices:
-                if 1 <= idx <= len(scripts):
-                    selected_scripts.append(scripts[idx-1])
-        except ValueError:
-            print("  ❌ Ungültige Eingabe.")
-            return
-
-    if not selected_scripts:
-        print("  ❌ Keine gültigen Skripte ausgewählt.")
-        return
-
-    print(f"\n  Gewählte Skripte: {', '.join(selected_scripts)}\n")
-
-    out_choice = input("Ausgabe in Datei speichern? [y/N]: ").strip().lower()
-    save_to_file = out_choice in ("y", "j", "yes", "ja")
-
-    async def _run():
-        valid_paths = [str(scripts_map[s]) for s in selected_scripts]
-        cmd = [sys.executable, "-m", "pytest"] + valid_paths
-
-        print("\n  ⚙️ Führe Tests aus...\n")
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=str(base_dir),
-            env={"PYTHONPATH": str(base_dir), **os.environ}
-        )
-
-        stdout, _ = await proc.communicate()
-        output = stdout.decode('utf-8') if stdout else ""
-
-        if save_to_file:
-            import datetime
-            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"debug_result_{ts}.txt"
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(output)
-            print(f"  ✅ Output gespeichert in: {filename}")
-        else:
-            print(output)
-
-        print(f"\n  ✅ Abgeschlossen (Exit Code: {proc.returncode})\n")
-
-    asyncio.run(_run())
-
 def main():
     import sys
+
     args = sys.argv[1:]
     if not args:
         cmd_chat()
         return
 
     cmd = args[0]
-    if   cmd in ("chat",  ""):            cmd_chat()
-    elif cmd == "doctor":                 cmd_doctor()
-    elif cmd == "debug":                  cmd_debug(args[1:])
-    elif cmd == "setup":                  cmd_setup()
-    elif cmd == "web":                    cmd_web()
-    elif cmd == "config":                 cmd_config(args[1:])
-    elif cmd == "model":                  cmd_model(args[1:])
-    elif cmd == "soul":                   cmd_soul(args[1:])
-    elif cmd == "agent":                  cmd_agent(args[1:])
-    elif cmd == "messaging":              cmd_messaging(args[1:])
-    elif cmd == "start":                  cmd_service("start")
-    elif cmd == "stop":                   cmd_service("stop")
-    elif cmd == "status":                 cmd_service("status")
-    elif cmd == "backup":                 cmd_backup(args[1:])
-    elif cmd == "metrics":                cmd_metrics(args[1:])
-    elif cmd == "camera":                 cmd_camera(args[1:])
-    elif cmd == "routine":                cmd_routine(args[1:])
-    elif cmd == "briefing":               cmd_briefing(args[1:])
-    elif cmd == "llm":                    cmd_llm(args[1:])
-    elif cmd == "update":                 cmd_update(args[1:])
-    elif cmd in ("help", "-h", "--help"): print(BANNER + HELP)
+    if cmd in ("chat", ""):
+        cmd_chat()
+    elif cmd == "doctor":
+        cmd_doctor()
+    elif cmd == "setup":
+        cmd_setup()
+    elif cmd == "web":
+        cmd_web()
+    elif cmd == "config":
+        cmd_config(args[1:])
+    elif cmd == "model":
+        cmd_model(args[1:])
+    elif cmd == "soul":
+        cmd_soul(args[1:])
+    elif cmd == "agent":
+        cmd_agent(args[1:])
+    elif cmd == "messaging":
+        cmd_messaging(args[1:])
+    elif cmd == "start":
+        cmd_service("start")
+    elif cmd == "stop":
+        cmd_service("stop")
+    elif cmd == "status":
+        cmd_service("status")
+    elif cmd == "backup":
+        cmd_backup(args[1:])
+    elif cmd == "metrics":
+        cmd_metrics(args[1:])
+    elif cmd == "camera":
+        cmd_camera(args[1:])
+    elif cmd == "routine":
+        cmd_routine(args[1:])
+    elif cmd == "briefing":
+        cmd_briefing(args[1:])
+    elif cmd == "llm":
+        cmd_llm(args[1:])
+    elif cmd == "update":
+        cmd_update(args[1:])
+    elif cmd in ("help", "-h", "--help"):
+        print(BANNER + HELP)
     else:
         print(f"Unknown command: {cmd}")
         print("Run 'piclaw help' for available commands.")
@@ -927,9 +954,15 @@ if __name__ == "__main__":
 
 # ── Backup ─────────────────────────────────────────────────────────
 
+
 def cmd_backup(args: list):
     import asyncio
-    from piclaw.backup import create_backup, list_backups, restore_backup, format_backup_list
+    from piclaw.backup import (
+        create_backup,
+        list_backups,
+        restore_backup,
+        format_backup_list,
+    )
 
     sub = args[0] if args else "create"
 
@@ -941,6 +974,7 @@ def cmd_backup(args: list):
         backup_path = None
         if len(args) > 1 and args[1] == "--file":
             from pathlib import Path
+
             backup_path = Path(args[2])
 
         print("  🔍 Backup-Inhalte prüfen (dry-run)…")
@@ -951,10 +985,10 @@ def cmd_backup(args: list):
 
         print(f"\n  Backup: {dry['backup']}  ({dry['backup_ts']})")
         print(f"  {len(dry['restored'])} Dateien werden wiederhergestellt:")
-        for f in dry['restored'][:10]:
+        for f in dry["restored"][:10]:
             print(f"    {f}")
-        if len(dry['restored']) > 10:
-            print(f"    … und {len(dry['restored'])-10} weitere")
+        if len(dry["restored"]) > 10:
+            print(f"    … und {len(dry['restored']) - 10} weitere")
 
         ans = input("\n  Wirklich wiederherstellen? [j/N]: ").strip().lower()
         if ans not in ("j", "y"):
@@ -975,6 +1009,7 @@ def cmd_backup(args: list):
         print("  📦 Backup wird erstellt…")
         path = asyncio.run(create_backup(include_metrics=inc_metrics, note=note))
         import os
+
         size_kb = round(os.path.getsize(path) / 1024, 1)
         print(f"\n  ✅ Backup erstellt: {path}")
         print(f"     Größe: {size_kb} KB")
@@ -984,6 +1019,7 @@ def cmd_backup(args: list):
 
 # ── Metriken ────────────────────────────────────────────────────────
 
+
 def cmd_metrics(args: list):
     from piclaw.metrics import get_db, _read_cpu_temp
     import psutil
@@ -992,21 +1028,22 @@ def cmd_metrics(args: list):
 
     if sub == "history":
         metric = args[1] if len(args) > 1 else "cpu_temp_c"
-        since  = int(args[2]) if len(args) > 2 else 3600
+        since = int(args[2]) if len(args) > 2 else 3600
 
         db = get_db()
         rows = db.query(metric, since_s=since, limit=20)
         if not rows:
-            print(f"  Keine Daten für '{metric}' in den letzten {since//60} Minuten.")
+            print(f"  Keine Daten für '{metric}' in den letzten {since // 60} Minuten.")
             print(f"  Bekannte Metriken: {', '.join(db.list_metrics())}")
             return
 
         unit = rows[0].get("unit", "")
-        print(f"\n  {metric} (letzte {len(rows)} Werte, {since//60}min):\n")
+        print(f"\n  {metric} (letzte {len(rows)} Werte, {since // 60}min):\n")
         for r in reversed(rows):
             import datetime
-            dt = datetime.datetime.fromtimestamp(r['ts']).strftime("%H:%M:%S")
-            bar_len = int(r['value'] / 2) if unit in ("%", "°C") else 10
+
+            dt = datetime.datetime.fromtimestamp(r["ts"]).strftime("%H:%M:%S")
+            bar_len = int(r["value"] / 2) if unit in ("%", "°C") else 10
             bar = "█" * min(bar_len, 50)
             print(f"  {dt}  {r['value']:>7.1f}{unit}  {bar}")
 
@@ -1016,6 +1053,7 @@ def cmd_metrics(args: list):
 
         print("\n  📊 Aktuelle Systemmetriken:\n")
         import psutil
+
         cpu = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
@@ -1024,20 +1062,27 @@ def cmd_metrics(args: list):
         def bar(pct, width=20):
             filled = int(pct / 100 * width)
             color = "\033[32m" if pct < 70 else "\033[33m" if pct < 85 else "\033[31m"
-            return f"{color}{'█'*filled}{'░'*(width-filled)}\033[0m"
+            return f"{color}{'█' * filled}{'░' * (width - filled)}\033[0m"
 
         print(f"  CPU Last  : {cpu:5.1f}%  {bar(cpu)}")
-        print(f"  RAM       : {mem.percent:5.1f}%  {bar(mem.percent)}  ({mem.used//1024//1024} / {mem.total//1024//1024} MB)")
-        print(f"  Disk      : {disk.percent:5.1f}%  {bar(disk.percent)}  ({disk.free//1024//1024//1024:.1f} GB frei)")
+        print(
+            f"  RAM       : {mem.percent:5.1f}%  {bar(mem.percent)}  ({mem.used // 1024 // 1024} / {mem.total // 1024 // 1024} MB)"
+        )
+        print(
+            f"  Disk      : {disk.percent:5.1f}%  {bar(disk.percent)}  ({disk.free // 1024 // 1024 // 1024:.1f} GB frei)"
+        )
         if temp:
-            print(f"  CPU Temp  : {temp:5.1f}°C  {bar(temp * 100/85)}")
+            print(f"  CPU Temp  : {temp:5.1f}°C  {bar(temp * 100 / 85)}")
 
-        print(f"\n  DB: {stats['total_points']} Messpunkte · {stats['distinct_metrics']} Metriken · {stats['size_kb']} KB")
+        print(
+            f"\n  DB: {stats['total_points']} Messpunkte · {stats['distinct_metrics']} Metriken · {stats['size_kb']} KB"
+        )
         print(f"  Metriken: {', '.join(db.list_metrics()[:8])}")
         print("\n  Verlauf: piclaw metrics history cpu_temp_c 3600")
 
 
 # ── Kamera ──────────────────────────────────────────────────────────
+
 
 def cmd_camera(args: list):
     import asyncio
@@ -1046,6 +1091,7 @@ def cmd_camera(args: list):
 
     if sub == "list":
         from piclaw.hardware.camera import detect_cameras
+
         cameras = detect_cameras()
         if not cameras:
             print("  Keine Kameras gefunden.")
@@ -1055,10 +1101,13 @@ def cmd_camera(args: list):
             print(f"\n  Gefundene Kameras ({len(cameras)}):\n")
             for cam in cameras:
                 print(f"  [{cam.index}] {cam.name}")
-                print(f"       Treiber: {cam.driver}  Auflösung: {cam.resolution[0]}x{cam.resolution[1]}")
+                print(
+                    f"       Treiber: {cam.driver}  Auflösung: {cam.resolution[0]}x{cam.resolution[1]}"
+                )
 
     elif sub == "describe":
         from piclaw.hardware.camera import capture_snapshot, describe_image
+
         prompt = " ".join(args[1:]) if len(args) > 1 else "Beschreibe was du siehst."
         print("  📸 Foto aufnehmen…")
         try:
@@ -1072,11 +1121,13 @@ def cmd_camera(args: list):
 
     else:  # snapshot
         from piclaw.hardware.camera import capture_snapshot
+
         filename = args[1] if len(args) > 1 else None
         print("  📸 Foto aufnehmen…")
         try:
             path = asyncio.run(capture_snapshot(filename=filename))
             import os
+
             size_kb = round(os.path.getsize(path) / 1024, 1)
             print(f"  ✅ Foto gespeichert: {path} ({size_kb} KB)")
         except Exception as e:
@@ -1085,6 +1136,7 @@ def cmd_camera(args: list):
 
 
 # ── Routinen CLI ──────────────────────────────────────────────────
+
 
 def cmd_routine(args: list):
     """piclaw routine [enable|disable|list] [name]"""
@@ -1098,8 +1150,8 @@ def cmd_routine(args: list):
         routines = registry.all()
         print("\nRoutinen:\n")
         for r in routines:
-            status  = "\033[32m[AN]\033[0m" if r.enabled else "\033[90m[AUS]\033[0m"
-            last    = f"  zuletzt: {r.last_run[:16]}" if r.last_run else ""
+            status = "\033[32m[AN]\033[0m" if r.enabled else "\033[90m[AUS]\033[0m"
+            last = f"  zuletzt: {r.last_run[:16]}" if r.last_run else ""
             print(f"  {status}  {r.name:<25}  {r.cron:<18}  {r.action}{last}")
         print()
         print("  piclaw routine enable <name>   – aktivieren")
@@ -1132,19 +1184,20 @@ def cmd_routine(args: list):
 
 # ── Briefing CLI ──────────────────────────────────────────────────
 
+
 def cmd_briefing(args: list):
     """piclaw briefing [send] [morning|evening|weekly|status]"""
     import asyncio
     from piclaw.config import load
     from piclaw.briefing import generate_briefing
 
-    sub  = args[0] if args else "print"
+    sub = args[0] if args else "print"
     kind = args[1] if len(args) > 1 else "status"
 
     # "piclaw briefing morning" (kein sub-cmd)
     if sub in ("morning", "evening", "weekly", "status"):
         kind = sub
-        sub  = "print"
+        sub = "print"
 
     cfg = load()
 
@@ -1154,6 +1207,7 @@ def cmd_briefing(args: list):
         if sub == "send":
             try:
                 from piclaw.messaging import build_hub
+
                 hub = build_hub(cfg)
                 await hub.send_all(msg)
                 print(f"\033[32m✓ Briefing gesendet ({kind})\033[0m\n")
@@ -1167,6 +1221,7 @@ def cmd_briefing(args: list):
 
 
 # ── Update ─────────────────────────────────────────────────────────
+
 
 def cmd_update(args: list):
     """piclaw update [check|piclaw|system]"""

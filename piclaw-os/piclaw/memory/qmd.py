@@ -15,11 +15,13 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
 
 from piclaw.memory.store import (
-    MEMORY_ROOT, MEMORY_MAIN, DAILY_DIR,
-    SESSIONS_DIR, WORKSPACE_DIR, CONTEXT_FILE,
+    MEMORY_ROOT,
+    MEMORY_MAIN,
+    DAILY_DIR,
+    SESSIONS_DIR,
+    WORKSPACE_DIR,
     ensure_dirs,
 )
 
@@ -27,27 +29,27 @@ log = logging.getLogger("piclaw.memory.qmd")
 
 # QMD XDG dirs – isolated per agent to avoid conflicts
 QMD_XDG_CONFIG = MEMORY_ROOT / "qmd" / "xdg-config"
-QMD_XDG_CACHE  = MEMORY_ROOT / "qmd" / "xdg-cache"
+QMD_XDG_CACHE = MEMORY_ROOT / "qmd" / "xdg-cache"
 
 QMD_ENV = {
     **os.environ,
     "XDG_CONFIG_HOME": str(QMD_XDG_CONFIG),
-    "XDG_CACHE_HOME":  str(QMD_XDG_CACHE),
+    "XDG_CACHE_HOME": str(QMD_XDG_CACHE),
 }
 
 # How many memory snippets to inject per query
-DEFAULT_TOP_K   = 5
+DEFAULT_TOP_K = 5
 # Search timeout (vector search can be slow on Pi)
-SEARCH_TIMEOUT  = 6   # kurz halten: Agent-Timeout ist 8s
+SEARCH_TIMEOUT = 6  # kurz halten: Agent-Timeout ist 8s
 # Embed timeout (model loading takes time on first run)
-EMBED_TIMEOUT   = 180
+EMBED_TIMEOUT = 180
 
 
 @dataclass
 class MemoryResult:
-    text:       str
-    source:     str
-    score:      float
+    text: str
+    source: str
+    score: float
     collection: str
 
 
@@ -124,30 +126,65 @@ class QMDBackend:
         # verwirrt das Modell bei unverwandten Anfragen (z.B. Marktplatz-Suche).
         # Loesung: memory-Collection nur auf MEMORY.md + memory/ beschraenken,
         # SOUL.md liegt im MEMORY_ROOT aber wird nicht mehr erfasst.
-        SOUL_FILENAME = "SOUL.md"
 
         # Register collections
         # memory-Collection: nur daily-Logs und MEMORY.md, NICHT SOUL.md
-        await self._qmd(["collection", "add", str(DAILY_DIR),
-                          "--name", "memory", "--mask", "*.md"])
+        await self._qmd(
+            ["collection", "add", str(DAILY_DIR), "--name", "memory", "--mask", "*.md"]
+        )
         # MEMORY.md explizit als einzelne Datei hinzufuegen
         if (MEMORY_MAIN).exists():
-            await self._qmd(["collection", "add", str(MEMORY_MAIN),
-                              "--name", "memory"])
-        await self._qmd(["collection", "add", str(SESSIONS_DIR),
-                          "--name", "sessions", "--mask", "*.jsonl"])
-        await self._qmd(["collection", "add", str(WORKSPACE_DIR),
-                          "--name", "workspace", "--mask", "**/*.md"])
+            await self._qmd(["collection", "add", str(MEMORY_MAIN), "--name", "memory"])
+        await self._qmd(
+            [
+                "collection",
+                "add",
+                str(SESSIONS_DIR),
+                "--name",
+                "sessions",
+                "--mask",
+                "*.jsonl",
+            ]
+        )
+        await self._qmd(
+            [
+                "collection",
+                "add",
+                str(WORKSPACE_DIR),
+                "--name",
+                "workspace",
+                "--mask",
+                "**/*.md",
+            ]
+        )
 
         # Add context descriptions (helps QMD understand what's what)
-        await self._qmd(["context", "add", str(DAILY_DIR),
-                          "PiClaw agent memory: facts, decisions, preferences, "
-                          "hardware config, installed skills, scheduled tasks, "
-                          "daily activity logs (SOUL.md is excluded)"])
-        await self._qmd(["context", "add", str(SESSIONS_DIR),
-                          "Conversation session history in JSONL format"])
-        await self._qmd(["context", "add", str(WORKSPACE_DIR),
-                          "Workspace documents, project notes, skill definitions"])
+        await self._qmd(
+            [
+                "context",
+                "add",
+                str(DAILY_DIR),
+                "PiClaw agent memory: facts, decisions, preferences, "
+                "hardware config, installed skills, scheduled tasks, "
+                "daily activity logs (SOUL.md is excluded)",
+            ]
+        )
+        await self._qmd(
+            [
+                "context",
+                "add",
+                str(SESSIONS_DIR),
+                "Conversation session history in JSONL format",
+            ]
+        )
+        await self._qmd(
+            [
+                "context",
+                "add",
+                str(WORKSPACE_DIR),
+                "Workspace documents, project notes, skill definitions",
+            ]
+        )
 
         # Initial index
         log.info("Running qmd update (indexing)…")
@@ -163,7 +200,9 @@ class QMDBackend:
         """
         if not self.is_available():
             return
-        log.info("Building QMD vector embeddings (may take several minutes on first run)…")
+        log.info(
+            "Building QMD vector embeddings (may take several minutes on first run)…"
+        )
         await self._qmd(["embed"], timeout=EMBED_TIMEOUT)
         log.info("QMD embeddings ready.")
 
@@ -213,18 +252,18 @@ class QMDBackend:
             items = data if isinstance(data, list) else data.get("results", [])
             for item in items:
                 text = (
-                    item.get("content") or
-                    item.get("text") or
-                    item.get("snippet") or ""
+                    item.get("content") or item.get("text") or item.get("snippet") or ""
                 ).strip()
                 if not text:
                     continue
-                results.append(MemoryResult(
-                    text=text,
-                    source=item.get("path", item.get("file", "")),
-                    score=float(item.get("score", 0.0)),
-                    collection=item.get("collection", ""),
-                ))
+                results.append(
+                    MemoryResult(
+                        text=text,
+                        source=item.get("path", item.get("file", "")),
+                        score=float(item.get("score", 0.0)),
+                        collection=item.get("collection", ""),
+                    )
+                )
         except Exception as e:
             log.debug("QMD result parse error: %s. Raw: %.200s", e, raw)
         return results
@@ -234,13 +273,12 @@ class QMDBackend:
     async def _grep_fallback(self, query: str, top_k: int) -> list[MemoryResult]:
         """Simple grep across markdown files as fallback."""
         results = []
-        terms   = query.lower().split()
+        terms = query.lower().split()
         # SOUL.md explizit ausschliessen – sie gehoert nicht ins Memory-Recall
         _soul_name = "SOUL.md"
-        files   = (
-            ([MEMORY_MAIN] if MEMORY_MAIN.exists() else []) +
-            [f for f in DAILY_DIR.glob("*.md") if f.name != _soul_name]
-        )
+        files = ([MEMORY_MAIN] if MEMORY_MAIN.exists() else []) + [
+            f for f in DAILY_DIR.glob("*.md") if f.name != _soul_name
+        ]
 
         for f in files:
             if not f.exists():
@@ -254,14 +292,16 @@ class QMDBackend:
                 if any(t in ll for t in terms):
                     # Include surrounding context (2 lines before/after)
                     start = max(0, i - 2)
-                    end   = min(len(lines), i + 3)
+                    end = min(len(lines), i + 3)
                     snippet = "\n".join(lines[start:end]).strip()
-                    results.append(MemoryResult(
-                        text=snippet,
-                        source=str(f),
-                        score=sum(1 for t in terms if t in ll) / len(terms),
-                        collection="memory",
-                    ))
+                    results.append(
+                        MemoryResult(
+                            text=snippet,
+                            source=str(f),
+                            score=sum(1 for t in terms if t in ll) / len(terms),
+                            collection="memory",
+                        )
+                    )
                     if len(results) >= top_k * 3:
                         break
 
@@ -284,7 +324,7 @@ class QMDBackend:
         except (json.JSONDecodeError, ValueError):
             data = {"raw": raw.strip()}
         return {
-            "qmd_available":      self.is_available(),
-            "collections_ready":  self._collections_ready,
+            "qmd_available": self.is_available(),
+            "collections_ready": self._collections_ready,
             **data,
         }

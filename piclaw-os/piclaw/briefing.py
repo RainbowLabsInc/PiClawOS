@@ -14,6 +14,7 @@ Quellen:
 
 Das Briefing wird vom LLM zu einer natürlichen Nachricht zusammengefasst.
 """
+
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -27,47 +28,58 @@ log = logging.getLogger("piclaw.briefing")
 
 # ── Kontext-Sammler ───────────────────────────────────────────────
 
+
 async def _gather_pi_status() -> dict[str, Any]:
     """Pi-Hardware-Status."""
     try:
         import psutil
         import subprocess
+
         cpu_temp = None
         global _BOOT_TIME
         try:
             loop = asyncio.get_running_loop()
+
             def _vcgencmd():
                 r = subprocess.run(
                     ["vcgencmd", "measure_temp"],
-                    capture_output=True, text=True, timeout=3
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
                 )
                 if r.returncode == 0:
-                    return float(r.stdout.strip().replace("temp=", "").replace("'C", ""))
+                    return float(
+                        r.stdout.strip().replace("temp=", "").replace("'C", "")
+                    )
                 return None
+
             cpu_temp = await loop.run_in_executor(None, _vcgencmd)
         except Exception:
-            temps = psutil.sensors_temperatures()
-            for key in ("cpu_thermal", "coretemp", "k10temp"):
-                if key in temps and temps[key]:
-                    cpu_temp = temps[key][0].current
-                    break
+            try:
+                temps = await loop.run_in_executor(None, psutil.sensors_temperatures)
+                for key in ("cpu_thermal", "coretemp", "k10temp"):
+                    if key in temps and temps[key]:
+                        cpu_temp = temps[key][0].current
+                        break
+            except Exception:
+                pass
 
-        mem   = psutil.virtual_memory()
-        disk  = psutil.disk_usage("/")
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage("/")
         if _BOOT_TIME is None:
             _BOOT_TIME = psutil.boot_time()
-        boot  = datetime.fromtimestamp(_BOOT_TIME, tz=timezone.utc)
-        now   = datetime.now(tz=timezone.utc)
+        boot = datetime.fromtimestamp(_BOOT_TIME, tz=timezone.utc)
+        now = datetime.now(tz=timezone.utc)
         uptime_h = round((now - boot).total_seconds() / 3600, 1)
 
         return {
-            "cpu_temp_c":    round(cpu_temp, 1) if cpu_temp else None,
-            "ram_used_pct":  round(mem.percent, 1),
-            "ram_used_mb":   round(mem.used / 1024**2),
-            "ram_total_mb":  round(mem.total / 1024**2),
+            "cpu_temp_c": round(cpu_temp, 1) if cpu_temp else None,
+            "ram_used_pct": round(mem.percent, 1),
+            "ram_used_mb": round(mem.used / 1024**2),
+            "ram_total_mb": round(mem.total / 1024**2),
             "disk_used_pct": round(disk.percent, 1),
-            "disk_free_gb":  round(disk.free / 1024**3, 1),
-            "uptime_h":      uptime_h,
+            "disk_free_gb": round(disk.free / 1024**3, 1),
+            "uptime_h": uptime_h,
         }
     except Exception as e:
         log.debug("Pi-Status Fehler: %s", e)
@@ -81,6 +93,7 @@ async def _gather_weather(lat: float, lon: float) -> dict[str, Any]:
     """
     try:
         import aiohttp
+
         url = (
             "https://api.open-meteo.com/v1/forecast"
             f"?latitude={lat}&longitude={lon}"
@@ -97,45 +110,56 @@ async def _gather_weather(lat: float, lon: float) -> dict[str, Any]:
                 data = await r.json()
 
         current = data.get("current", {})
-        daily   = data.get("daily", {})
+        daily = data.get("daily", {})
 
         # WMO Weather Code -> Beschreibung
         wmo_codes = {
-            0: "klar", 1: "überwiegend klar", 2: "teilweise bewölkt",
-            3: "bedeckt", 45: "neblig", 48: "gefrierender Nebel",
-            51: "leichter Nieselregen", 53: "Nieselregen", 55: "starker Nieselregen",
-            61: "leichter Regen", 63: "Regen", 65: "starker Regen",
-            71: "leichter Schnee", 73: "Schnee", 75: "starker Schnee",
-            80: "leichte Schauer", 81: "Schauer", 82: "starke Schauer",
-            95: "Gewitter", 99: "starkes Gewitter",
+            0: "klar",
+            1: "überwiegend klar",
+            2: "teilweise bewölkt",
+            3: "bedeckt",
+            45: "neblig",
+            48: "gefrierender Nebel",
+            51: "leichter Nieselregen",
+            53: "Nieselregen",
+            55: "starker Nieselregen",
+            61: "leichter Regen",
+            63: "Regen",
+            65: "starker Regen",
+            71: "leichter Schnee",
+            73: "Schnee",
+            75: "starker Schnee",
+            80: "leichte Schauer",
+            81: "Schauer",
+            82: "starke Schauer",
+            95: "Gewitter",
+            99: "starkes Gewitter",
         }
         code = current.get("weather_code", -1)
         desc = wmo_codes.get(code, f"Code {code}")
 
         result: dict[str, Any] = {
-            "temp_c":        current.get("temperature_2m"),
-            "feels_like_c":  current.get("apparent_temperature"),
-            "humidity_pct":  current.get("relative_humidity_2m"),
+            "temp_c": current.get("temperature_2m"),
+            "feels_like_c": current.get("apparent_temperature"),
+            "humidity_pct": current.get("relative_humidity_2m"),
             "precipitation": current.get("precipitation", 0),
-            "wind_kmh":      current.get("wind_speed_10m"),
-            "description":   desc,
+            "wind_kmh": current.get("wind_speed_10m"),
+            "description": desc,
         }
 
         # Tages-Vorhersage
         if daily.get("temperature_2m_max"):
-            result["today_max_c"]   = daily["temperature_2m_max"][0]
-            result["today_min_c"]   = daily["temperature_2m_min"][0]
+            result["today_max_c"] = daily["temperature_2m_max"][0]
+            result["today_min_c"] = daily["temperature_2m_min"][0]
             result["today_rain_mm"] = daily["precipitation_sum"][0]
-            today_code              = daily["weather_code"][0]
-            result["today_desc"]    = wmo_codes.get(today_code, f"Code {today_code}")
+            today_code = daily["weather_code"][0]
+            result["today_desc"] = wmo_codes.get(today_code, f"Code {today_code}")
 
         # Morgen
         if daily.get("temperature_2m_max") and len(daily["temperature_2m_max"]) > 1:
             result["tomorrow_max_c"] = daily["temperature_2m_max"][1]
             result["tomorrow_min_c"] = daily["temperature_2m_min"][1]
-            result["tomorrow_desc"]  = wmo_codes.get(
-                daily["weather_code"][1], ""
-            )
+            result["tomorrow_desc"] = wmo_codes.get(daily["weather_code"][1], "")
 
         return result
 
@@ -148,6 +172,7 @@ async def _gather_ha_snapshot() -> dict[str, Any]:
     """Schnappschuss relevanter HA-Entitäten."""
     try:
         from piclaw.tools.homeassistant import get_client
+
         client = get_client()
         if not client:
             return {}
@@ -163,28 +188,25 @@ async def _gather_ha_snapshot() -> dict[str, Any]:
         climates = await client.get_states(domain="climate")
         result["thermostats"] = [
             {
-                "name":    e.name,
+                "name": e.name,
                 "current": e.attributes.get("current_temperature"),
-                "target":  e.attributes.get("temperature"),
-                "mode":    e.attributes.get("hvac_mode", e.state),
+                "target": e.attributes.get("temperature"),
+                "mode": e.attributes.get("hvac_mode", e.state),
             }
             for e in climates
         ]
 
         # Alarme
         alarms = await client.get_states(domain="alarm_control_panel")
-        result["alarms"] = [
-            {"name": e.name, "state": e.state}
-            for e in alarms
-        ]
+        result["alarms"] = [{"name": e.name, "state": e.state} for e in alarms]
 
         # Offene Türen/Fenster
         doors = await client.get_states(domain="binary_sensor")
         open_doors = [
-            e.name for e in doors
-            if e.state == "on" and any(
-                k in e.entity_id for k in ("door", "window", "tuer", "fenster")
-            )
+            e.name
+            for e in doors
+            if e.state == "on"
+            and any(k in e.entity_id for k in ("door", "window", "tuer", "fenster"))
         ]
         result["open_doors"] = open_doors
 
@@ -198,12 +220,12 @@ async def _gather_metrics_trends() -> dict[str, Any]:
     """Trends aus der Metriken-Datenbank (letzte 24h)."""
     try:
         from piclaw.metrics import get_db
-        db  = get_db()
+
+        db = get_db()
         result: dict[str, Any] = {}
 
         summary = db.query_summary(
-            names=["cpu_temp_c", "cpu_percent", "ram_percent"],
-            since_s=_SECS_PER_DAY
+            names=["cpu_temp_c", "cpu_percent", "ram_percent"], since_s=_SECS_PER_DAY
         )
 
         for metric, stats in summary.items():
@@ -218,12 +240,13 @@ async def _gather_metrics_trends() -> dict[str, Any]:
 
 # ── Briefing zusammenstellen ──────────────────────────────────────
 
+
 async def gather_context(cfg=None) -> dict[str, Any]:
     """Sammelt alle verfügbaren Kontext-Daten parallel."""
 
     tasks = {
-        "pi":      _gather_pi_status(),
-        "ha":      _gather_ha_snapshot(),
+        "pi": _gather_pi_status(),
+        "ha": _gather_ha_snapshot(),
         "metrics": _gather_metrics_trends(),
     }
 
@@ -233,7 +256,7 @@ async def gather_context(cfg=None) -> dict[str, Any]:
         try:
             loc = getattr(cfg, "location", None)
             if loc:
-                lat = getattr(loc, "latitude",  None)
+                lat = getattr(loc, "latitude", None)
                 lon = getattr(loc, "longitude", None)
         except Exception as _e:
             log.debug("location config read: %s", _e)
@@ -244,8 +267,15 @@ async def gather_context(cfg=None) -> dict[str, Any]:
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
     context: dict[str, Any] = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "weekday":   ["Montag", "Dienstag", "Mittwoch", "Donnerstag",
-                      "Freitag", "Samstag", "Sonntag"][datetime.now().weekday()],
+        "weekday": [
+            "Montag",
+            "Dienstag",
+            "Mittwoch",
+            "Donnerstag",
+            "Freitag",
+            "Samstag",
+            "Sonntag",
+        ][datetime.now().weekday()],
     }
     for key, result in zip(tasks.keys(), results):
         if isinstance(result, Exception):
@@ -270,8 +300,12 @@ def _format_context_for_llm(ctx: dict) -> str:
         if pi.get("cpu_temp_c"):
             warn = " (!)" if pi["cpu_temp_c"] > 75 else ""
             lines.append(f"CPU Temperatur: {pi['cpu_temp_c']}°C{warn}")
-        lines.append(f"RAM: {pi.get('ram_used_pct', '?')}% belegt ({pi.get('ram_used_mb', '?')} MB)")
-        lines.append(f"Disk: {pi.get('disk_used_pct', '?')}% belegt ({pi.get('disk_free_gb', '?')} GB frei)")
+        lines.append(
+            f"RAM: {pi.get('ram_used_pct', '?')}% belegt ({pi.get('ram_used_mb', '?')} MB)"
+        )
+        lines.append(
+            f"Disk: {pi.get('disk_used_pct', '?')}% belegt ({pi.get('disk_free_gb', '?')} GB frei)"
+        )
         lines.append(f"Uptime: {pi.get('uptime_h', '?')}h")
         lines.append("")
 
@@ -279,15 +313,21 @@ def _format_context_for_llm(ctx: dict) -> str:
     weather = ctx.get("weather", {})
     if weather:
         lines.append("=== Wetter ===")
-        lines.append(f"Aktuell: {weather.get('temp_c', '?')}°C, {weather.get('description', '')}")
+        lines.append(
+            f"Aktuell: {weather.get('temp_c', '?')}°C, {weather.get('description', '')}"
+        )
         if weather.get("feels_like_c"):
             lines.append(f"Gefühlt: {weather['feels_like_c']}°C")
         if weather.get("today_max_c"):
-            lines.append(f"Heute: {weather['today_min_c']}–{weather['today_max_c']}°C, {weather.get('today_desc', '')}")
+            lines.append(
+                f"Heute: {weather['today_min_c']}–{weather['today_max_c']}°C, {weather.get('today_desc', '')}"
+            )
         if weather.get("today_rain_mm", 0) > 0:
             lines.append(f"Niederschlag heute: {weather['today_rain_mm']} mm")
         if weather.get("tomorrow_max_c"):
-            lines.append(f"Morgen: bis {weather['tomorrow_max_c']}°C, {weather.get('tomorrow_desc', '')}")
+            lines.append(
+                f"Morgen: bis {weather['tomorrow_max_c']}°C, {weather.get('tomorrow_desc', '')}"
+            )
         lines.append("")
 
     # Home Assistant
@@ -321,7 +361,9 @@ def _format_context_for_llm(ctx: dict) -> str:
     if metrics:
         lines.append("=== 24h Trends ===")
         if metrics.get("cpu_temp_c_avg24h"):
-            lines.append(f"CPU Temp: Ø {metrics.get('cpu_temp_c_avg24h')}°C, Max {metrics.get('cpu_temp_c_max24h', '?')}°C")
+            lines.append(
+                f"CPU Temp: Ø {metrics.get('cpu_temp_c_avg24h')}°C, Max {metrics.get('cpu_temp_c_max24h', '?')}°C"
+            )
         if metrics.get("cpu_percent_avg24h"):
             lines.append(f"CPU Last: Ø {metrics.get('cpu_percent_avg24h')}%")
         if metrics.get("ram_percent_avg24h"):
@@ -409,9 +451,9 @@ def _template_briefing(briefing_type: str, ctx: dict) -> str:
     weekday = ctx["weekday"]
     lines: list[str] = []
 
-    pi    = ctx.get("pi", {})
-    wthr  = ctx.get("weather", {})
-    ha    = ctx.get("ha", {})
+    pi = ctx.get("pi", {})
+    wthr = ctx.get("weather", {})
+    ha = ctx.get("ha", {})
 
     if briefing_type == "morning":
         lines.append(f"Guten Morgen! Es ist {weekday}, {now}.")
@@ -439,7 +481,9 @@ def _template_briefing(briefing_type: str, ctx: dict) -> str:
         lines.append(f"Wochenbericht – {now}:")
         metrics = ctx.get("metrics", {})
         if metrics.get("cpu_temp_c_max24h", 0) > 80:
-            lines.append(f"⚠ Hohe Temperaturen diese Woche (Max: {metrics['cpu_temp_c_max24h']}°C).")
+            lines.append(
+                f"⚠ Hohe Temperaturen diese Woche (Max: {metrics['cpu_temp_c_max24h']}°C)."
+            )
         if pi.get("disk_used_pct", 0) > 80:
             lines.append(f"⚠ Disk fast voll: {pi['disk_used_pct']}% belegt.")
         lines.append("System läuft stabil.")
@@ -447,6 +491,8 @@ def _template_briefing(briefing_type: str, ctx: dict) -> str:
     else:
         lines.append(f"PiClaw Status – {now}")
         if pi:
-            lines.append(f"Temp: {pi.get('cpu_temp_c', '?')}°C | RAM: {pi.get('ram_used_pct', '?')}% | Disk: {pi.get('disk_used_pct', '?')}%")
+            lines.append(
+                f"Temp: {pi.get('cpu_temp_c', '?')}°C | RAM: {pi.get('ram_used_pct', '?')}% | Disk: {pi.get('disk_used_pct', '?')}%"
+            )
 
     return "\n".join(lines) or "Alles in Ordnung."

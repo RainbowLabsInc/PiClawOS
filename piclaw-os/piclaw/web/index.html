@@ -148,7 +148,6 @@
     <button class="tab"        onclick="showPanel('hardware',this)">Hardware</button>
     <button class="tab"        onclick="showPanel('metrics',this)">📊 Metriken</button>
     <button class="tab"        onclick="showPanel('camera',this)">📷 Kamera</button>
-    <button class="tab"        onclick="showPanel('debug',this)">🐛 Debug</button>
     <button class="tab"        onclick="showPanel('chat',this)">Chat</button>
   </div>
 </header>
@@ -442,35 +441,6 @@ Frag mich alles über diesen Raspberry Pi – Hardware, Services, WLAN, GPIO, Su
   </div>
 </div>
 
-<!-- Debug -->
-<div class="panel" id="debug">
-  <div style="padding:20px;overflow-y:auto;width:100%;height:100%">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
-      <h2 style="font-size:15px;color:var(--accent)">🐛 Debug Test Scripts</h2>
-      <button class="btn btn-ghost" onclick="loadDebugScripts()">↻ Refresh</button>
-    </div>
-
-    <!-- Scripts List -->
-    <div class="card" style="padding:16px;margin-bottom:20px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:12px">Verfügbare Testskripte</div>
-      <div id="debug-scripts-list" style="display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto;margin-bottom:12px">
-        <div style="color:var(--text2);font-size:12px">Lade…</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px">
-        <button class="btn btn-primary" onclick="runDebugScripts()" id="debug-run-btn">▶ Ausgewählte ausführen</button>
-        <button class="btn btn-ghost" onclick="downloadDebugResult()" id="debug-dl-btn" style="display:none">📥 Ergebnis herunterladen</button>
-        <span id="debug-status" style="font-size:12px;color:var(--text2)"></span>
-      </div>
-    </div>
-
-    <!-- Result Output -->
-    <div class="card" style="padding:16px;display:none" id="debug-result-box">
-      <div style="font-size:13px;font-weight:600;margin-bottom:12px">Output</div>
-      <pre id="debug-result-out" style="background:var(--bg3);padding:12px;border-radius:6px;font-family:var(--font);font-size:12px;color:var(--text);overflow-x:auto;white-space:pre-wrap;max-height:400px;overflow-y:auto;margin:0"></pre>
-    </div>
-  </div>
-</div>
-
 <!-- Kamera -->
 <div class="panel" id="camera">
   <div style="padding:20px;overflow-y:auto;width:100%">
@@ -531,7 +501,6 @@ function showPanel(name,tabEl){
   if(name==='metrics') loadMetrics();
   if(name==='camera')  loadCameraList();
   if(name==='memory')refreshMemoryStats();
-  if(name==='debug')loadDebugScripts();
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────
@@ -1074,89 +1043,6 @@ function showSnapshotImage(filename, size_kb){
   result.style.display='block';
   img.src = `/api/camera/image/${filename}?token=${window.PICLAW_TOKEN||''}`;
   if(info) info.textContent = `${filename} · ${size_kb} KB · ${new Date().toLocaleTimeString()}`;
-}
-
-// ── Debug ─────────────────────────────────────────────────────────
-async function loadDebugScripts(){
-  const list = document.getElementById('debug-scripts-list');
-  try{
-    const r = await authFetch('/api/debug/scripts');
-    const d = await r.json();
-    if(d.error) throw new Error(d.error);
-    if(!d.scripts || !d.scripts.length) {
-      list.innerHTML = '<div style="color:var(--text2);font-size:12px">Keine Testskripte in piclaw-os/tests/ gefunden.</div>';
-      return;
-    }
-    list.innerHTML = d.scripts.map(s => `
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
-        <input type="checkbox" class="debug-script-cb" value="${s.filename}">
-        <span style="font-family:monospace">${s.filename}</span>
-      </label>
-    `).join('');
-  }catch(e){
-    list.innerHTML = `<div style="color:var(--red);font-size:12px">Fehler beim Laden: ${e.message}</div>`;
-  }
-}
-
-async function runDebugScripts() {
-  const cbs = document.querySelectorAll('.debug-script-cb:checked');
-  const scripts = Array.from(cbs).map(cb => cb.value);
-  if(!scripts.length) {
-    alert("Bitte wähle mindestens ein Skript aus.");
-    return;
-  }
-
-  const btn = document.getElementById('debug-run-btn');
-  const dlBtn = document.getElementById('debug-dl-btn');
-  const status = document.getElementById('debug-status');
-  const resultBox = document.getElementById('debug-result-box');
-  const resultOut = document.getElementById('debug-result-out');
-
-  btn.disabled = true;
-  dlBtn.style.display = 'none';
-  status.textContent = '⚙️ Führe Tests aus... dies kann einen Moment dauern.';
-  resultBox.style.display = 'block';
-  resultOut.textContent = 'Läuft...\n';
-
-  try {
-    const r = await authFetch('/api/debug/run', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({scripts})
-    });
-    const d = await r.json();
-
-    if(d.detail) throw new Error(d.detail);
-
-    resultOut.textContent = d.output || 'Kein Output.';
-    status.textContent = d.ok ? '✅ Erfolgreich' : '❌ Tests fehlgeschlagen';
-    status.style.color = d.ok ? 'var(--green)' : 'var(--red)';
-    dlBtn.style.display = 'inline-block';
-
-    // Auto-scroll to bottom of output if large
-    resultOut.scrollTop = resultOut.scrollHeight;
-
-  } catch(e) {
-    status.textContent = '❌ Fehler';
-    status.style.color = 'var(--red)';
-    resultOut.textContent += `\nFehler bei Ausführung: ${e.message}`;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-function downloadDebugResult() {
-  const text = document.getElementById('debug-result-out').textContent;
-  if(!text) return;
-  const blob = new Blob([text], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `debug_result_${new Date().toISOString().replace(/[:.]/g,'-')}.txt`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 // ── Init ──────────────────────────────────────────────────────────

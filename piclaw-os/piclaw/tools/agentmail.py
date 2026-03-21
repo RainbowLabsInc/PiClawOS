@@ -4,8 +4,7 @@ Provides email capabilities for AI agents using the AgentMail service.
 """
 
 import logging
-import asyncio
-from typing import Optional, List
+from typing import List
 
 from piclaw.config import AgentMailConfig
 from piclaw.llm.base import ToolDefinition
@@ -19,8 +18,14 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "display_name": {"type": "string", "description": "Optional name to display on sent emails."},
-                "username": {"type": "string", "description": "Preferred username (e.g. 'my-agent' for my-agent@agentmail.to)."},
+                "display_name": {
+                    "type": "string",
+                    "description": "Optional name to display on sent emails.",
+                },
+                "username": {
+                    "type": "string",
+                    "description": "Preferred username (e.g. 'my-agent' for my-agent@agentmail.to).",
+                },
             },
         },
     ),
@@ -35,11 +40,27 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "inbox_id": {"type": "string", "description": "The ID or email address of the sending inbox."},
-                "to": {"type": "array", "items": {"type": "string"}, "description": "Recipient email address(es)."},
-                "subject": {"type": "string", "description": "The subject line of the email."},
-                "text": {"type": "string", "description": "Plain text body of the email."},
-                "html": {"type": "string", "description": "Optional HTML version of the email body."},
+                "inbox_id": {
+                    "type": "string",
+                    "description": "The ID or email address of the sending inbox.",
+                },
+                "to": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Recipient email address(es).",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "The subject line of the email.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Plain text body of the email.",
+                },
+                "html": {
+                    "type": "string",
+                    "description": "Optional HTML version of the email body.",
+                },
             },
             "required": ["inbox_id", "to", "subject", "text"],
         },
@@ -50,8 +71,15 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "inbox_id": {"type": "string", "description": "The ID or email address of the inbox to check."},
-                "limit": {"type": "integer", "description": "Maximum number of messages to return (default: 10).", "default": 10},
+                "inbox_id": {
+                    "type": "string",
+                    "description": "The ID or email address of the inbox to check.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of messages to return (default: 10).",
+                    "default": 10,
+                },
             },
             "required": ["inbox_id"],
         },
@@ -62,21 +90,27 @@ TOOL_DEFS = [
 async def _get_client(cfg: AgentMailConfig):
     """Lazy imports and initializes the AsyncAgentMail client."""
     if not cfg.api_key:
-        raise ValueError("AgentMail API key is not configured. Ask the user to set 'agentmail.api_key'.")
+        raise ValueError(
+            "AgentMail API key is not configured. Ask the user to set 'agentmail.api_key'."
+        )
 
     try:
         from agentmail import AsyncAgentMail
+
         return AsyncAgentMail(api_key=cfg.api_key)
     except ImportError:
-        raise ImportError("The 'agentmail' library is not installed. Please run 'pip install agentmail'.")
+        raise ImportError(
+            "The 'agentmail' library is not installed. Please run 'pip install agentmail'."
+        )
 
 
-async def agentmail_create_inbox(cfg: AgentMailConfig, display_name: str = None, username: str = None) -> str:
+async def agentmail_create_inbox(
+    cfg: AgentMailConfig, display_name: str = None, username: str = None
+) -> str:
     try:
         client = await _get_client(cfg)
         inbox = await client.inboxes.create(
-            display_name=display_name,
-            username=username
+            display_name=display_name, username=username
         )
         return (
             f"✅ Inbox created successfully.\n"
@@ -105,7 +139,12 @@ async def agentmail_list_inboxes(cfg: AgentMailConfig) -> str:
 
 
 async def agentmail_send_email(
-    cfg: AgentMailConfig, inbox_id: str, to: List[str], subject: str, text: str, html: str = None
+    cfg: AgentMailConfig,
+    inbox_id: str,
+    to: List[str],
+    subject: str,
+    text: str,
+    html: str = None,
 ) -> str:
     try:
         client = await _get_client(cfg)
@@ -114,11 +153,7 @@ async def agentmail_send_email(
             to = [to]
 
         await client.inboxes.messages.send(
-            inbox_id=inbox_id,
-            to=to,
-            subject=subject,
-            text=text,
-            html=html
+            inbox_id=inbox_id, to=to, subject=subject, text=text, html=html
         )
         return f"✅ Email sent successfully from {inbox_id} to {', '.join(to)}."
     except Exception as e:
@@ -126,7 +161,9 @@ async def agentmail_send_email(
         return f"❌ Error sending email: {e}"
 
 
-async def agentmail_list_messages(cfg: AgentMailConfig, inbox_id: str, limit: int = 10) -> str:
+async def agentmail_list_messages(
+    cfg: AgentMailConfig, inbox_id: str, limit: int = 10
+) -> str:
     try:
         client = await _get_client(cfg)
         msgs_res = await client.inboxes.messages.list(inbox_id=inbox_id, limit=limit)
@@ -152,6 +189,6 @@ def build_handlers(cfg: AgentMailConfig) -> dict:
     return {
         "agentmail_create_inbox": lambda **kw: agentmail_create_inbox(cfg=cfg, **kw),
         "agentmail_list_inboxes": lambda **kw: agentmail_list_inboxes(cfg=cfg, **kw),
-        "agentmail_send_email":   lambda **kw: agentmail_send_email(cfg=cfg, **kw),
+        "agentmail_send_email": lambda **kw: agentmail_send_email(cfg=cfg, **kw),
         "agentmail_list_messages": lambda **kw: agentmail_list_messages(cfg=cfg, **kw),
     }

@@ -48,7 +48,6 @@ WhatsApp can be disabled by leaving access_token empty.
 import asyncio
 import hashlib
 import hmac
-import json
 import logging
 from typing import Optional
 
@@ -64,18 +63,20 @@ META_API_BASE = "https://graph.facebook.com/v19.0"
 class WhatsAppAdapter(MessagingAdapter):
     name = "whatsapp"
 
-    def __init__(self,
-                 access_token: str,
-                 phone_number_id: str,
-                 app_secret: str,
-                 verify_token: str,
-                 recipient: str):
-        self.access_token    = access_token
+    def __init__(
+        self,
+        access_token: str,
+        phone_number_id: str,
+        app_secret: str,
+        verify_token: str,
+        recipient: str,
+    ):
+        self.access_token = access_token
         self.phone_number_id = phone_number_id
-        self.app_secret      = app_secret
-        self.verify_token    = verify_token
-        self.recipient       = recipient   # E.164 format: +49...
-        self._stop           = asyncio.Event()
+        self.app_secret = app_secret
+        self.verify_token = verify_token
+        self.recipient = recipient  # E.164 format: +49...
+        self._stop = asyncio.Event()
         self._session: Optional[aiohttp.ClientSession] = None
         self._message_handler: Optional[MessageHandler] = None
 
@@ -83,7 +84,7 @@ class WhatsAppAdapter(MessagingAdapter):
         return bool(self.access_token and self.phone_number_id and self.recipient)
 
     async def start(self, on_message: MessageHandler):
-        self._session         = aiohttp.ClientSession()
+        self._session = aiohttp.ClientSession()
         self._message_handler = on_message
         log.info("WhatsApp adapter started (webhook mode).")
         # Send startup notification
@@ -100,22 +101,24 @@ class WhatsAppAdapter(MessagingAdapter):
         recipient = chat_id or self.recipient
         if not self._session or self._session.closed:
             self._session = aiohttp.ClientSession()
-        url     = f"{META_API_BASE}/{self.phone_number_id}/messages"
+        url = f"{META_API_BASE}/{self.phone_number_id}/messages"
         headers = {
             "Authorization": f"Bearer {self.access_token}",
-            "Content-Type":  "application/json",
+            "Content-Type": "application/json",
         }
         # WhatsApp has a ~4096 char message limit
-        for chunk in [text[i:i+4000] for i in range(0, len(text), 4000)]:
+        for chunk in [text[i : i + 4000] for i in range(0, len(text), 4000)]:
             payload = {
                 "messaging_product": "whatsapp",
-                "to":                recipient,
-                "type":              "text",
-                "text":              {"body": chunk},
+                "to": recipient,
+                "type": "text",
+                "text": {"body": chunk},
             }
             try:
                 async with self._session.post(
-                    url, json=payload, headers=headers,
+                    url,
+                    json=payload,
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as resp:
                     if resp.status not in (200, 201):
@@ -126,8 +129,7 @@ class WhatsAppAdapter(MessagingAdapter):
 
     # ── Webhook handlers (called from api.py) ─────────────────────
 
-    async def verify_webhook(self, mode: str, token: str,
-                             challenge: str) -> str | None:
+    async def verify_webhook(self, mode: str, token: str, challenge: str) -> str | None:
         """Handles GET /webhook/whatsapp for Meta's verification handshake."""
         if mode == "subscribe" and token == self.verify_token:
             log.info("WhatsApp webhook verified.")
@@ -139,11 +141,14 @@ class WhatsAppAdapter(MessagingAdapter):
         """Verify X-Hub-Signature-256 header."""
         if not self.app_secret:
             return True  # skip if no secret configured
-        expected = "sha256=" + hmac.new(
-            self.app_secret.encode(),
-            payload,
-            hashlib.sha256,
-        ).hexdigest()
+        expected = (
+            "sha256="
+            + hmac.new(
+                self.app_secret.encode(),
+                payload,
+                hashlib.sha256,
+            ).hexdigest()
+        )
         return hmac.compare_digest(expected, signature)
 
     async def handle_webhook(self, payload: dict):
@@ -156,17 +161,19 @@ class WhatsAppAdapter(MessagingAdapter):
                         if msg.get("type") != "text":
                             continue
                         sender = msg.get("from", "")
-                        text   = msg.get("text", {}).get("body", "").strip()
+                        text = msg.get("text", {}).get("body", "").strip()
                         if not text or not sender:
                             continue
                         # Only accept from configured recipient number
-                        clean_sender    = sender.lstrip("+")
+                        clean_sender = sender.lstrip("+")
                         clean_recipient = self.recipient.lstrip("+")
-                        if clean_sender not in clean_recipient and \
-                           clean_recipient not in clean_sender:
+                        if (
+                            clean_sender not in clean_recipient
+                            and clean_recipient not in clean_sender
+                        ):
                             log.warning("WhatsApp: ignored message from %s", sender)
                             continue
-                        inc   = IncomingMessage(
+                        inc = IncomingMessage(
                             platform="whatsapp",
                             sender_id=sender,
                             text=text,

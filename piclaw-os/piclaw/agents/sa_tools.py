@@ -10,9 +10,9 @@ Example interactions:
   "Lösche den Test-Agenten"
 """
 
-from piclaw.llm.base            import ToolDefinition
-from piclaw.agents.sa_registry  import SubAgentDef, SubAgentRegistry
-from piclaw.agents.runner       import SubAgentRunner
+from piclaw.llm.base import ToolDefinition
+from piclaw.agents.sa_registry import SubAgentDef, SubAgentRegistry
+from piclaw.agents.runner import SubAgentRunner
 
 TOOL_DEFS = [
     ToolDefinition(
@@ -39,54 +39,54 @@ TOOL_DEFS = [
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "Short unique name, e.g. 'TempMonitor', 'DailyBriefing'"
+                    "description": "Short unique name, e.g. 'TempMonitor', 'DailyBriefing'",
                 },
                 "description": {
                     "type": "string",
-                    "description": "One-sentence description of what this agent does"
+                    "description": "One-sentence description of what this agent does",
                 },
                 "mission": {
                     "type": "string",
                     "description": (
                         "Detailed system prompt / task description for the agent. "
                         "Be specific: what to check, what to do, what to report."
-                    )
+                    ),
                 },
                 "tools": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Allowed tool names. Empty list = all tools available."
+                    "description": "Allowed tool names. Empty list = all tools available.",
                 },
                 "schedule": {
                     "type": "string",
                     "description": "When to run: once | interval:<sec> | cron:<expr> | continuous",
-                    "default": "once"
+                    "default": "once",
                 },
                 "llm_tags": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Preferred LLM capability tags, e.g. ['coding'] or ['german']",
-                    "default": []
+                    "default": [],
                 },
                 "notify": {
                     "type": "boolean",
                     "description": "Send result via messaging hub when done",
-                    "default": True
+                    "default": True,
                 },
                 "max_steps": {
                     "type": "integer",
                     "description": "Maximum agentic loop steps (default 10)",
-                    "default": 10
+                    "default": 10,
                 },
                 "timeout": {
                     "type": "integer",
                     "description": "Maximum runtime in seconds (default 300)",
-                    "default": 300
+                    "default": 300,
                 },
                 "start_now": {
                     "type": "boolean",
                     "description": "Start the agent immediately after creation",
-                    "default": False
+                    "default": False,
                 },
             },
             "required": ["name", "description", "mission"],
@@ -131,14 +131,14 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "name":        {"type": "string"},
-                "mission":     {"type": "string"},
+                "name": {"type": "string"},
+                "mission": {"type": "string"},
                 "description": {"type": "string"},
-                "schedule":    {"type": "string"},
-                "tools":       {"type": "array", "items": {"type": "string"}},
-                "enabled":     {"type": "boolean"},
-                "notify":      {"type": "boolean"},
-                "llm_tags":    {"type": "array", "items": {"type": "string"}},
+                "schedule": {"type": "string"},
+                "tools": {"type": "array", "items": {"type": "string"}},
+                "enabled": {"type": "boolean"},
+                "notify": {"type": "boolean"},
+                "llm_tags": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["name"],
         },
@@ -170,9 +170,12 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         lines = [f"Sub-Agents ({len(agents)}):\n"]
         for a in agents:
             running_icon = "⚙️ RUNNING" if a["running"] else ""
-            status_icon  = {
-                "ok": "✅", "error": "❌", "timeout": "⏱️",
-                "running": "⚙️", None: "⬜"
+            status_icon = {
+                "ok": "✅",
+                "error": "❌",
+                "timeout": "⏱️",
+                "running": "⚙️",
+                None: "⬜",
             }.get(a["last_status"], "⬜")
             enabled = "" if a["enabled"] else " [disabled]"
             lines.append(
@@ -185,12 +188,17 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         return "\n\n".join(lines)
 
     async def agent_create(
-        name: str, description: str, mission: str,
-        tools: list = None, schedule: str = "once",
-        llm_tags: list = None, notify: bool = True,
-        max_steps: int = 10, timeout: int = 300,
+        name: str,
+        description: str,
+        mission: str,
+        tools: list = None,
+        schedule: str = "once",
+        llm_tags: list = None,
+        notify: bool = True,
+        max_steps: int = 10,
+        timeout: int = 300,
         start_now: bool = False,
-        **_
+        **_,
     ) -> str:
         # Check for name collision
         if registry.get(name):
@@ -252,18 +260,19 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
             return f"Sub-agent '{name}' not found."
         # Run as a one-off task without touching the schedule
         import asyncio
-        task = asyncio.create_task(
+
+        asyncio.create_task(
             runner._execute(agent),
             name=f"subagent-oneoff-{agent.id}",
         )
         return f"Sub-agent '{name}' triggered for immediate execution."
 
     return {
-        "agent_list":    lambda **kw: agent_list(**kw),
-        "agent_create":  lambda **kw: agent_create(**kw),
-        "agent_start":   lambda **kw: agent_start(**kw),
-        "agent_stop":    lambda **kw: agent_stop(**kw),
-        "agent_remove":  lambda **kw: agent_remove(**kw),
-        "agent_update":  lambda **kw: agent_update(**kw),
+        "agent_list": lambda **kw: agent_list(**kw),
+        "agent_create": lambda **kw: agent_create(**kw),
+        "agent_start": lambda **kw: agent_start(**kw),
+        "agent_stop": lambda **kw: agent_stop(**kw),
+        "agent_remove": lambda **kw: agent_remove(**kw),
+        "agent_update": lambda **kw: agent_update(**kw),
         "agent_run_now": lambda **kw: agent_run_now(**kw),
     }

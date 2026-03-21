@@ -4,6 +4,7 @@ PiClaw OS – QMD stündlicher Update-Job
 Wird via systemd timer aufgerufen, nicht direkt vom Agent.
 Läuft mit niedrigster Priorität (nice 19) um den Pi nicht zu blockieren.
 """
+
 import asyncio
 import logging
 import os
@@ -18,6 +19,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [QMD-UPDATE] %(messa
 
 async def main():
     from piclaw.memory.qmd import QMDBackend
+
     qmd = QMDBackend()
 
     if not qmd.is_available():

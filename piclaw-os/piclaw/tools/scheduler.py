@@ -9,7 +9,6 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from piclaw.config import SCHEDULE_DB
@@ -17,7 +16,7 @@ from piclaw.llm.base import ToolDefinition
 from piclaw.taskutils import create_background_task
 
 if TYPE_CHECKING:
-    from piclaw.agent import Agent
+    pass
 
 log = logging.getLogger("piclaw.scheduler")
 
@@ -31,10 +30,16 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "name":        {"type": "string", "description": "Human-readable task name"},
-                "prompt":      {"type": "string", "description": "What the agent should do"},
-                "cron":        {"type": "string", "description": "Cron expression e.g. '0 8 * * *' (daily 08:00)"},
-                "interval_sec":{"type": "integer","description": "Alternatively: run every N seconds"},
+                "name": {"type": "string", "description": "Human-readable task name"},
+                "prompt": {"type": "string", "description": "What the agent should do"},
+                "cron": {
+                    "type": "string",
+                    "description": "Cron expression e.g. '0 8 * * *' (daily 08:00)",
+                },
+                "interval_sec": {
+                    "type": "integer",
+                    "description": "Alternatively: run every N seconds",
+                },
             },
             "required": ["name", "prompt"],
         },
@@ -61,7 +66,7 @@ TOOL_DEFS = [
 class Scheduler:
     def __init__(self):
         self._schedules: dict[str, dict] = {}
-        self._tasks:     dict[str, asyncio.Task] = {}
+        self._tasks: dict[str, asyncio.Task] = {}
         self._agent = None
         self._load()
 
@@ -79,20 +84,24 @@ class Scheduler:
 
     def _save(self):
         from piclaw.fileutils import safe_write_json
+
         safe_write_json(SCHEDULE_DB, self._schedules, label="schedules")
 
     # ── Public API ──────────────────────────────────────────────
 
-    def add(self, name: str, prompt: str,
-            cron: str = "", interval_sec: int = 0) -> str:
+    def add(self, name: str, prompt: str, cron: str = "", interval_sec: int = 0) -> str:
         if not cron and not interval_sec:
             return "Specify either a cron expression or interval_sec."
         sid = str(uuid.uuid4())[:8]
         self._schedules[sid] = {
-            "id": sid, "name": name, "prompt": prompt,
-            "cron": cron, "interval_sec": interval_sec,
+            "id": sid,
+            "name": name,
+            "prompt": prompt,
+            "cron": cron,
+            "interval_sec": interval_sec,
             "created": datetime.now().isoformat(),
-            "last_run": None, "run_count": 0,
+            "last_run": None,
+            "run_count": 0,
         }
         self._save()
         if interval_sec:
@@ -120,7 +129,7 @@ class Scheduler:
             return "No scheduled tasks."
         lines = []
         for s in self._schedules.values():
-            trigger = f"every {s['interval_sec']}s" if s['interval_sec'] else s['cron']
+            trigger = f"every {s['interval_sec']}s" if s["interval_sec"] else s["cron"]
             lines.append(
                 f"  [{s['id']}] {s['name']}\n"
                 f"    Trigger : {trigger}\n"
@@ -156,21 +165,20 @@ class Scheduler:
         s = self._schedules.get(sid)
         if not s or not self._agent:
             return
-        log.info("[scheduler] Running task '%s' (%s)", s['name'], sid)
+        log.info("[scheduler] Running task '%s' (%s)", s["name"], sid)
         try:
             await self._agent.run(s["prompt"])
             self._schedules[sid]["last_run"] = datetime.now().isoformat()
             self._schedules[sid]["run_count"] += 1
             self._save()
         except Exception as e:
-            log.error("[scheduler] Task '%s' failed: %s", s['name'], e)
+            log.error("[scheduler] Task '%s' failed: %s", s["name"], e)
 
     # ── Tool handlers ───────────────────────────────────────────
 
     def build_handlers(self) -> dict:
         return {
-            "schedule_add":    lambda **kw: asyncio.coroutine(
-                lambda: self.add(**kw))(),
-            "schedule_list":   lambda **_: self.list_all(),
+            "schedule_add": lambda **kw: asyncio.coroutine(lambda: self.add(**kw))(),
+            "schedule_list": lambda **_: self.list_all(),
             "schedule_remove": lambda **kw: self.remove(**kw),
         }

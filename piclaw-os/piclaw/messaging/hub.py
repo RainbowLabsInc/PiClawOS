@@ -28,10 +28,10 @@ log = logging.getLogger("piclaw.messaging")
 
 @dataclass
 class IncomingMessage:
-    platform:  str          # "telegram" | "discord" | "threema" | "whatsapp"
-    sender_id: str          # platform-specific user/chat ID
-    text:      str
-    raw:       dict = None  # original payload for advanced use
+    platform: str  # "telegram" | "discord" | "threema" | "whatsapp"
+    sender_id: str  # platform-specific user/chat ID
+    text: str
+    raw: dict = None  # original payload for advanced use
 
 
 MessageHandler = Callable[[IncomingMessage], Awaitable[str]]
@@ -39,6 +39,7 @@ MessageHandler = Callable[[IncomingMessage], Awaitable[str]]
 
 class MessagingAdapter(ABC):
     """Base class for all messaging adapters."""
+
     name: str = "base"
 
     @abstractmethod
@@ -72,9 +73,9 @@ class MessagingHub:
     """
 
     def __init__(self):
-        self._adapters:   list[MessagingAdapter] = []
-        self._on_message: MessageHandler | None  = None
-        self._tasks:      list[asyncio.Task]     = []
+        self._adapters: list[MessagingAdapter] = []
+        self._on_message: MessageHandler | None = None
+        self._tasks: list[asyncio.Task] = []
 
     def register(self, adapter: MessagingAdapter):
         if adapter.is_configured():

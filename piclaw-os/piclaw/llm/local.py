@@ -11,7 +11,7 @@ import threading
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, ToolCall, LLMResponse
 
@@ -35,6 +35,7 @@ def _suppress_stderr():
             os.dup2(save_fd, 2)
             os.close(null_fd)
             os.close(save_fd)
+
 
 # Default model path – can be overridden in config
 DEFAULT_MODEL_PATH = Path("/etc/piclaw/models/gemma-2b-q4.gguf")
@@ -155,20 +156,23 @@ def _simple_tool_parse(text: str, tools: list[ToolDefinition]) -> list[ToolCall]
     We use a lightweight prompt trick and parse JSON blocks.
     """
     import re
+
     calls = []
     # Look for ```json blocks containing tool calls
-    pattern = r'```json\s*(\{.*?\})\s*```'
+    pattern = r"```json\s*(\{.*?\})\s*```"
     for match in re.finditer(pattern, text, re.DOTALL):
         try:
             obj = json.loads(match.group(1))
             if "tool" in obj and "arguments" in obj:
                 name = obj["tool"]
                 if any(t.name == name for t in (tools or [])):
-                    calls.append(ToolCall(
-                        id=f"local_{len(calls)}",
-                        name=name,
-                        arguments=obj["arguments"],
-                    ))
+                    calls.append(
+                        ToolCall(
+                            id=f"local_{len(calls)}",
+                            name=name,
+                            arguments=obj["arguments"],
+                        )
+                    )
         except Exception:
             continue
     return calls
@@ -190,17 +194,22 @@ class LocalBackend(LLMBackend):
     Loads lazily on first use, unloads via .unload().
     """
 
-    def __init__(self, model_path: Path = DEFAULT_MODEL_PATH,
-                 n_ctx: int = 4096, n_threads: int = 4,
-                 max_tokens: int = 1024, temperature: float = 0.7):
-        self.model_path  = Path(model_path)
-        self.n_ctx       = n_ctx
-        self.n_threads   = n_threads
-        self.max_tokens  = max_tokens
+    def __init__(
+        self,
+        model_path: Path = DEFAULT_MODEL_PATH,
+        n_ctx: int = 4096,
+        n_threads: int = 4,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ):
+        self.model_path = Path(model_path)
+        self.n_ctx = n_ctx
+        self.n_threads = n_threads
+        self.max_tokens = max_tokens
         self.temperature = temperature
-        self._llm        = None
-        self._lock       = threading.Lock()
-        self._loaded     = False
+        self._llm = None
+        self._lock = threading.Lock()
+        self._loaded = False
 
     # ── Load / Unload ────────────────────────────────────────────
 
@@ -223,17 +232,22 @@ class LocalBackend(LLMBackend):
                 "Bitte lade das Standard-Modell herunter mit: piclaw model download"
             )
 
-        log.info("Loading local model: %s " "(n_ctx=%s, threads=%s)", self.model_path, self.n_ctx, self.n_threads)
+        log.info(
+            "Loading local model: %s (n_ctx=%s, threads=%s)",
+            self.model_path,
+            self.n_ctx,
+            self.n_threads,
+        )
 
         with _suppress_stderr():
             self._llm = Llama(
                 model_path=str(self.model_path),
                 n_ctx=self.n_ctx,
                 n_threads=self.n_threads,
-                n_gpu_layers=0,       # CPU-only on Pi
+                n_gpu_layers=0,  # CPU-only on Pi
                 verbose=False,
-                use_mmap=True,        # memory-map for faster load
-                use_mlock=False,      # don't lock RAM pages
+                use_mmap=True,  # memory-map for faster load
+                use_mlock=False,  # don't lock RAM pages
             )
         self._loaded = True
         log.info("Local model loaded ✅")
@@ -243,9 +257,11 @@ class LocalBackend(LLMBackend):
         with self._lock:
             if self._llm is not None:
                 del self._llm
-                self._llm    = None
+                self._llm = None
                 self._loaded = False
-                import gc; gc.collect()
+                import gc
+
+                gc.collect()
                 log.info("Local model unloaded – RAM freed.")
 
     def is_loaded(self) -> bool:
@@ -267,13 +283,11 @@ class LocalBackend(LLMBackend):
 
         # Inject tool-calling instructions if tools provided
         if tools:
-            tool_desc = "\n".join(
-                f"- {t.name}: {t.description}" for t in tools
-            )
+            tool_desc = "\n".join(f"- {t.name}: {t.description}" for t in tools)
             prompt = prompt.replace(
                 "<|assistant|>",
-                f"<|system|>\nAvailable tools (respond with ```json {{\"tool\": \"name\", "
-                f"\"arguments\": {{...}}}}``` to call one):\n{tool_desc}<|end|>\n<|assistant|>",
+                f'<|system|>\nAvailable tools (respond with ```json {{"tool": "name", '
+                f'"arguments": {{...}}}}``` to call one):\n{tool_desc}<|end|>\n<|assistant|>',
                 1,
             )
 
@@ -291,13 +305,14 @@ class LocalBackend(LLMBackend):
                     raise ValueError(f"llama.cpp returned no choices: {result}")
                 return (choices[0].get("text") or "").strip()
 
-        text       = await loop.run_in_executor(None, _infer)
+        text = await loop.run_in_executor(None, _infer)
         tool_calls = _simple_tool_parse(text, tools) if tools else []
 
         # Strip JSON tool call blocks from visible text
         if tool_calls:
             import re
-            text = re.sub(r'```json.*?```', '', text, flags=re.DOTALL).strip()
+
+            text = re.sub(r"```json.*?```", "", text, flags=re.DOTALL).strip()
 
         finish = "tool_calls" if tool_calls else "stop"
         return LLMResponse(content=text, tool_calls=tool_calls, finish_reason=finish)
@@ -307,7 +322,7 @@ class LocalBackend(LLMBackend):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
     ) -> AsyncIterator[str]:
-        loop   = asyncio.get_running_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._load)
         prompt = _build_prompt(messages, self.model_path)
 

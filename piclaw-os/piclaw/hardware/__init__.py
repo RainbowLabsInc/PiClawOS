@@ -9,7 +9,7 @@ Provides Pi-specific hardware abstraction:
 """
 
 from .sensors import SensorRegistry
-from .tools   import TOOL_DEFS, HANDLERS
+from .tools import TOOL_DEFS, HANDLERS
 
 # Global sensor registry singleton
 _sensor_registry = None
