@@ -6,8 +6,6 @@ bei Stromausfall, vollem Speicher oder Kernel-Panik.
 
 Strategie: write temp → fsync → rename (atomar auf POSIX/Linux)
 """
-from __future__ import annotations
-
 import json
 import logging
 import os
