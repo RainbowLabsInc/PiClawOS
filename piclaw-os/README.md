@@ -1,137 +1,99 @@
 # PiClaw OS
 
-**An AI operating system for Raspberry Pi 5**
+**KI-Betriebssystem für den Raspberry Pi 5**
 
-PiClaw OS turns a Raspberry Pi into an always-on autonomous AI assistant. The agent runs 24/7, handles messages across multiple channels, controls smart home devices, searches marketplaces for new listings, and monitors hardware — all from a small, low-power device on your local network.
-
----
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Multi-LLM Routing** | Anthropic Claude, OpenAI, NVIDIA NIM (Kimi K2, Nemotron), Ollama, local models (Gemma 2B, Phi-3, TinyLlama) with automatic thermal and availability fallback |
-| **Messaging Hub** | Telegram, Discord, Threema, WhatsApp, MQTT |
-| **Home Assistant** | REST + WebSocket, 11 tools, real-time push events |
-| **Marketplace Crawler** | Kleinanzeigen.de, eBay.de, web search — reports only new listings since last check |
-| **Proactive Agent** | Morning briefings, evening check-ins, threshold alerts (CPU temp, disk, RAM) |
-| **Hybrid Memory** | BM25 + vector search via QMD, persistent facts across conversations |
-| **Watchdog** | Service monitoring, heartbeat check, hardware alerts via Telegram |
-| **Web Dashboard** | 8 tabs: Dashboard · Memory · Agents · Soul · Hardware · Metrics · Camera · Chat |
-| **Camera** | Pi Camera v2/v3 + USB webcams, AI-powered image description |
-| **Network Monitor** | LAN device scanning via nmap, new device detection and alerts |
-| **Installer Sub-Agent** | Dameon can autonomously install software from trusted sources with user confirmation |
+PiClaw OS verwandelt einen Raspberry Pi 5 in einen autonomen KI-Agenten namens **Dameon**. Er läuft vollständig lokal, unterstützt Cloud-APIs als optionale Backends und kann per Terminal, Telegram oder Web-Dashboard gesteuert werden.
 
 ---
 
-## Quick Start
+## ✨ Features
 
-### Requirements
+- 🤖 **KI-Agent "Dameon"** – Natürlichsprachliche Steuerung des Pi
+- 🛒 **Marketplace-Suche** – Kleinanzeigen.de mit PLZ und Radius
+- 📡 **Multi-LLM-Router** – Automatisches Routing zwischen lokalen und Cloud-Modellen
+- 🌡️ **Thermisches Routing** – Wechselt bei Überhitzung automatisch zum sparsamsten Modell
+- 📱 **Telegram-Integration** – Nachrichten und Benachrichtigungen
+- 🏠 **Home Assistant** – Smart Home Steuerung per Sprache
+- 📊 **Web-Dashboard** – Systemstatus auf Port 7842
+- 🔍 **Netzwerk-Monitoring** – Neue Geräte erkennen
+- 🔧 **`piclaw debug`** – Integrierte Diagnose-Tools
 
-- Raspberry Pi 5 (recommended) or Pi 4
-- Raspberry Pi OS Lite 64-bit (Bookworm or Trixie)
-- SD card ≥ 16 GB
-- Internet connection
+---
 
-### Installation
+## 🚀 Installation
 
-**Option A — Clone from GitHub (recommended):**
+### Online (empfohlen)
 
 ```bash
-git clone https://github.com/RainbowLabsInc/PiClawOS.git
-cd PiClawOS/piclaw-os
-sudo bash install.sh
+T="DEIN_GITHUB_TOKEN" && curl \
+  -H "Authorization: token $T" \
+  -H "Accept: application/vnd.github.v3.raw" \
+  -sL "https://api.github.com/repos/RainbowLabsInc/PiClawOS/contents/piclaw-os/boot/piclaw/install.sh" \
+  | sudo GITHUB_TOKEN="$T" bash
 ```
 
-**Option B — SD card (offline):**
-
-1. Copy the `piclaw/` folder to the `bootfs` partition of the SD card
-2. Edit `piclaw/piclaw.conf` and add your API key (optional)
-3. Insert SD card, boot the Pi, wait 60 seconds
-4. Connect via SSH (the `-t` flag is required):
-   ```bash
-   ssh -t pi@piclaw.local
-   ```
-5. Run the installer:
-   ```bash
-   # Raspberry Pi 5:
-   sudo bash /boot/firmware/piclaw/install.sh
-
-   # Raspberry Pi 4:
-   sudo bash /boot/piclaw/install.sh
-   ```
-
-### First-time setup
+### Nach der Installation
 
 ```bash
-piclaw setup   # Interactive configuration wizard
-piclaw doctor  # Verify everything is working
-piclaw         # Start chatting with Dameon
+piclaw setup    # LLM-Key, Telegram, Home Assistant konfigurieren
+piclaw doctor   # Systemcheck
+piclaw          # Chat starten
 ```
 
 ---
 
-## Supported LLM Providers
+## 🔑 Unterstützte LLM-Provider
 
-| Provider | Key Format | Notes |
-|----------|------------|-------|
-| Anthropic Claude | `sk-ant-...` | Recommended cloud |
-| OpenAI GPT | `sk-...` | Alternative cloud |
-| NVIDIA NIM (Kimi K2, Nemotron) | `nvapi-...` | High-quality, free tier |
-| Google Gemini | `AIza...` | Alternative cloud |
-| Ollama | no key | Self-hosted, local server |
-| Gemma 2B / Phi-3 / TinyLlama | no key | Fully offline, on-device |
+Key einfach eingeben – Provider wird automatisch erkannt:
 
-Multiple backends can be registered and the router selects the best one based on task type, availability, and Pi temperature.
+| Key-Präfix | Provider | Standard-Modell |
+|---|---|---|
+| `sk-ant-` | Anthropic | Claude Sonnet 4 |
+| `nvapi-` | NVIDIA NIM | Nemotron 70B |
+| `AIza` | Google Gemini | Gemini 2.0 Flash |
+| `fw-` | Fireworks AI | Llama 3.1 70B |
+| `sk-` | OpenAI / Mistral | GPT-4o |
+| *(leer)* | Lokal | Gemma 2B (offline) |
 
 ---
 
-## Local Models
+## 📋 Befehle
 
-```bash
-piclaw model download               # Gemma 2B Q4 (default, ~1.6 GB)
-piclaw model download phi3-mini-q4  # Phi-3 Mini (~2.2 GB)
-piclaw model download tinyllama-q4  # TinyLlama (~0.7 GB, fastest)
+```
+piclaw              Chat starten
+piclaw setup        Konfiguration
+piclaw doctor       Systemcheck
+piclaw update       Software aktualisieren
+piclaw debug        Diagnose-Scripts ausführen
+piclaw status       Service-Status
+piclaw model        Modell-Verwaltung
+piclaw llm          LLM-Registry verwalten
+piclaw briefing     Tagesbriefing generieren
 ```
 
 ---
 
-## CLI Reference
+## 🏗️ Architektur
 
-```bash
-piclaw                      # Chat with the agent
-piclaw setup                # Configuration wizard
-piclaw doctor               # System health check
-piclaw start / stop         # Control services
-piclaw model download [id]  # Download a local model
-piclaw llm list             # Show registered LLM backends
-piclaw llm add --name ...   # Register a new backend
-piclaw briefing send morning
-piclaw agent list
+```
+piclaw-os/
+├── piclaw/          # Python-Paket (Quellcode)
+│   ├── agent.py     # Haupt-Agent (Dameon)
+│   ├── api.py       # FastAPI REST + WebSocket
+│   ├── cli.py       # Kommandozeile
+│   ├── llm/         # Multi-LLM-Router
+│   ├── agents/      # Sub-Agenten (Watchdog, Crawler, ...)
+│   ├── memory/      # QMD Memory System
+│   ├── tools/       # Marketplace, Shell, GPIO, ...
+│   └── messaging/   # Telegram, Discord, ...
+├── tests/           # Automatisierte Tests
+│   └── debug/       # Diagnose-Scripts
+├── boot/piclaw/     # Installer (SD-Karte)
+└── docs/            # Handbücher DE + EN
 ```
 
 ---
 
-## System Services
+## 📄 Lizenz
 
-| Service | Purpose |
-|---------|---------|
-| `piclaw-api` | REST API + Web Dashboard (port 7842) |
-| `piclaw-agent` | Main agent daemon |
-| `piclaw-watchdog` | Hardware and service monitoring |
-| `piclaw-crawler` | Background web crawler sub-agent |
-
----
-
-## Version
-
-**v0.15** — March 2026
-
-Full changelog: [CHANGELOG.md](CHANGELOG.md)
-Roadmap: [ROADMAP.md](ROADMAP.md)
-
----
-
-## License
-
-MIT License
+MIT – Rainbow Labs Inc.
