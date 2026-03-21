@@ -2,8 +2,74 @@
 
 import json
 import aiohttp
+import asyncio
 from typing import AsyncIterator
 from .base import LLMBackend, ToolCall, LLMResponse
+
+
+async def detect_provider_and_model(api_key: str) -> tuple[str, str, str]:
+    """
+    Auto-detects the provider, base URL, and a suitable default model based on the given API key.
+
+    Returns:
+        tuple: (provider, base_url, model)
+    """
+    api_key = api_key.strip()
+
+    # 1. Check Anthropic by prefix
+    if api_key.startswith("sk-ant-"):
+        # We assume if it's Anthropic, the key is likely valid.
+        return "anthropic", "https://api.anthropic.com", "claude-3-5-sonnet-20241022"
+
+    # 2. Check NVIDIA NIM by prefix
+    if api_key.startswith("nvapi-"):
+        return "openai", "https://integrate.api.nvidia.com/v1", "nvidia/llama-3.1-nemotron-70b-instruct"
+
+    # 3. Fallback logic: check OpenAI vs Anthropic by trying the API endpoints
+    # Anthropic models don't have a standard format other than the sk-ant- prefix,
+    # but OpenAI models often start with 'sk-proj-' or just 'sk-'.
+
+    # Let's verify OpenAI first, as it's the most common
+    timeout = aiohttp.ClientTimeout(total=5)
+
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # Try OpenAI /v1/models endpoint
+            headers = {"Authorization": f"Bearer {api_key}"}
+            async with session.get("https://api.openai.com/v1/models", headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    models = [m["id"] for m in data.get("data", [])]
+                    if "gpt-4o" in models:
+                        return "openai", "https://api.openai.com/v1", "gpt-4o"
+                    elif "gpt-4-turbo" in models:
+                        return "openai", "https://api.openai.com/v1", "gpt-4-turbo"
+                    else:
+                        return "openai", "https://api.openai.com/v1", "gpt-3.5-turbo"
+    except Exception:
+        pass
+
+    # Try Anthropic anyway if OpenAI failed (in case prefix changed)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            headers = {
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01"
+            }
+            # Send a minimal request to check validity
+            payload = {
+                "model": "claude-3-haiku-20240307",
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": "hi"}]
+            }
+            async with session.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload) as resp:
+                if resp.status == 200:
+                    return "anthropic", "https://api.anthropic.com", "claude-3-5-sonnet-20241022"
+    except Exception:
+        pass
+
+    # If all else fails, assume standard OpenAI with GPT-4o
+    return "openai", "https://api.openai.com/v1", "gpt-4o"
 
 
 class AnthropicBackend(LLMBackend):
@@ -177,10 +243,10 @@ class OpenAIBackend(LLMBackend):
                 }
                 for t in tools
             ]
-            # NVIDIA NIM / Kimi K2: tool_choice=required erzwingt Tool-Aufruf
-            # "auto" reicht nicht -- Kimi K2 beschreibt Tools statt sie aufzurufen
+            # NVIDIA NIM / Kimi K2: explizites tool_choice=auto
+            # 'required' fuehrt bei Llama 3.1 NIM zu Error 400
             if self._is_nim:
-                payload["tool_choice"] = "required"
+                payload["tool_choice"] = "auto"
                 payload["parallel_tool_calls"] = False
             else:
                 payload["tool_choice"] = "auto"

@@ -463,10 +463,9 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
     provider = _choice(
         "Welchen Anbieter möchtest du verwenden?",
         [
-            ("1", "Anthropic Claude", "claude-sonnet-4-20250514 · Empfohlen"),
-            ("2", "OpenAI GPT", "gpt-4o · Alternative"),
-            ("3", "Ollama (lokal)", "eigener Server · kein API-Key"),
-            ("4", "Gemma 2B (Pi)", "offline · ~1.5 GB RAM · schnell"),  # Standard
+            ("1", "API-Key (Auto-Detect)", "Anthropic / OpenAI / NVIDIA NIM erkennen"),
+            ("2", "Ollama (lokal)", "eigener Server · kein API-Key"),
+            ("3", "Gemma 2B (Pi)", "offline · ~1.5 GB RAM · schnell"),  # Standard
             ("e", "Behalten", f"aktuell: {cfg.llm.backend}"),
         ],
         default="e",
@@ -474,92 +473,56 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
 
     if provider == "1":
         _w()
-        print(f"  {FG_GRAY}API-Key erstellen: {UL}console.anthropic.com/keys{R}")
-        key = _prompt("Anthropic API-Key (sk-ant-…)", secret=True)
+        print(f"  {FG_GRAY}API-Key eingeben (z.B. sk-ant-..., sk-..., nvapi-...){R}")
+        key = _prompt("API-Key", secret=True)
         if not key:
             _skip("Übersprungen")
             return
-        if not key.startswith("sk-ant-"):
-            _warn("Key sieht nicht wie ein Anthropic-Key aus (erwartet: sk-ant-…)")
-            if input("    Trotzdem speichern? [j/N]: ").strip().lower() != "j":
-                _skip("Nicht gespeichert")
-                return
 
-        model = (
-            _prompt("Modell", default="claude-sonnet-4-20250514")
-            or "claude-sonnet-4-20250514"
-        )
+        from piclaw.llm.api import detect_provider_and_model
+
+        _spinner("API-Key wird geprueft (Auto-Detect)...")
+        try:
+            loop = asyncio.new_event_loop()
+            detected_backend, base_url, model = loop.run_until_complete(detect_provider_and_model(key))
+        except Exception as e:
+            _clear_line()
+            _err(f"Auto-Detect fehlgeschlagen: {e}")
+            _skip("Nicht gespeichert")
+            return
+        finally:
+            loop.close()
+        _clear_line()
+
+        _ok(f"Erkannt: {detected_backend} / {model}")
 
         _spinner("Verbindung testen")
         ok, msg = _test_async(
-            _validate_llm("anthropic", key, model, "https://api.anthropic.com")
+            _validate_llm(detected_backend, key, model, base_url)
         )
         _clear_line()
+
         if ok:
             _ok(f"Verbindung erfolgreich: {FG_GRAY}{msg[:60]}{R}")
-            cfg.llm.backend = "anthropic"
+            cfg.llm.backend = detected_backend
             cfg.llm.api_key = key
             cfg.llm.model = model
-            cfg.llm.base_url = "https://api.anthropic.com"
-            state.mark(f"llm -> anthropic/{model}")
+            cfg.llm.base_url = base_url
+            state.mark(f"llm -> {detected_backend}/{model}")
             state.restart_needed = True
         else:
             _err(f"Verbindung fehlgeschlagen: {msg}")
             if input("    Trotzdem speichern? [j/N]: ").strip().lower() == "j":
-                cfg.llm.backend = "anthropic"
+                cfg.llm.backend = detected_backend
                 cfg.llm.api_key = key
                 cfg.llm.model = model
-                state.mark(f"llm -> anthropic/{model} (ungetestet)")
+                cfg.llm.base_url = base_url
+                state.mark(f"llm -> {detected_backend}/{model} (ungetestet)")
                 state.restart_needed = True
             else:
                 _skip("Nicht gespeichert")
 
     elif provider == "2":
-        _w()
-        print(f"  {FG_GRAY}API-Key erstellen: {UL}platform.openai.com/api-keys{R}")
-        print(
-            f"  {FG_GRAY}Fuer NVIDIA NIM: {UL}integrate.api.nvidia.com{R} (nvapi-...){R}"
-        )
-        key = _prompt("API-Key (sk-… oder nvapi-…)", secret=True)
-        if not key:
-            _skip("Übersprungen")
-            return
-        # Base-URL: NVIDIA NIM oder Standard OpenAI
-        default_base = (
-            "https://integrate.api.nvidia.com/v1"
-            if key.startswith("nvapi-")
-            else "https://api.openai.com/v1"
-        )
-        base_url = _prompt("Base URL", default=default_base) or default_base
-        default_model = (
-            "moonshotai/kimi-k2-instruct-0905" if "nvidia" in base_url else "gpt-4o"
-        )
-        model = _prompt("Modell", default=default_model) or default_model
-
-        _spinner("Verbindung testen")
-        ok, msg = _test_async(_validate_llm("openai", key, model, base_url))
-        _clear_line()
-        if ok:
-            _ok("Verbindung erfolgreich")
-            cfg.llm.backend = "openai"
-            cfg.llm.api_key = key
-            cfg.llm.model = model
-            cfg.llm.base_url = base_url
-            state.mark(f"llm -> openai/{model}")
-            state.restart_needed = True
-        else:
-            _err(f"Test fehlgeschlagen: {msg}")
-            if input("    Trotzdem speichern? [j/N]: ").strip().lower() == "j":
-                cfg.llm.backend = "openai"
-                cfg.llm.api_key = key
-                cfg.llm.model = model
-                cfg.llm.base_url = base_url
-                state.mark(f"llm -> openai/{model} (ungetestet)")
-                state.restart_needed = True
-            else:
-                _skip("Nicht gespeichert")
-
-    elif provider == "3":
         default_url = getattr(cfg.llm, "base_url", "") or "http://localhost:11434"
         url = _prompt("Ollama-URL", default=default_url) or default_url
         model = (
@@ -584,7 +547,7 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
         state.restart_needed = True
         _ok(f"Ollama konfiguriert: {url} / {model}")
 
-    elif provider == "4":
+    elif provider == "3":
         cfg.llm.backend = "local"
         cfg.llm.api_key = ""
         cfg.llm.model = "/etc/piclaw/models/gemma-2b-q4.gguf"
