@@ -444,19 +444,15 @@ class Watchdog:
             crits = sum(1 for a in recent if a["severity"] == AlertSeverity.CRITICAL)
             warns = sum(1 for a in recent if a["severity"] == AlertSeverity.WARNING)
 
-            mem = psutil.virtual_memory()
-            disk = psutil.disk_usage("/")
-            load = psutil.getloadavg()
+            mem = await asyncio.to_thread(psutil.virtual_memory)
+            disk = await asyncio.to_thread(psutil.disk_usage, "/")
+            load = await asyncio.to_thread(psutil.getloadavg)
             temp = None
             try:
-                temp = (
-                    int(
-                        open(
-                            "/sys/class/thermal/thermal_zone0/temp", encoding="utf-8"
-                        ).read()
-                    )
-                    / 1000
-                )
+                def _read_temp():
+                    with open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8") as f:
+                        return int(f.read()) / 1000
+                temp = await asyncio.to_thread(_read_temp)
             except OSError:
                 pass  # thermal_zone0 not present on non-Pi
 

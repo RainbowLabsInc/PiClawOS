@@ -64,10 +64,10 @@ async def _gather_pi_status() -> dict[str, Any]:
             except Exception:
                 pass
 
-        mem = psutil.virtual_memory()
-        disk = psutil.disk_usage("/")
+        mem = await asyncio.to_thread(psutil.virtual_memory)
+        disk = await asyncio.to_thread(psutil.disk_usage, "/")
         if _BOOT_TIME is None:
-            _BOOT_TIME = psutil.boot_time()
+            _BOOT_TIME = await asyncio.to_thread(psutil.boot_time)
         boot = datetime.fromtimestamp(_BOOT_TIME, tz=timezone.utc)
         now = datetime.now(tz=timezone.utc)
         uptime_h = round((now - boot).total_seconds() / 3600, 1)
