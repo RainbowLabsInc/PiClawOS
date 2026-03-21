@@ -17,7 +17,7 @@ from piclaw.config import UpdaterConfig
 log = logging.getLogger("piclaw.updater")
 
 INSTALL_DIR = Path("/opt/piclaw")
-VENV_PIP    = INSTALL_DIR / ".venv" / "bin" / "pip"
+VENV_PIP = INSTALL_DIR / ".venv" / "bin" / "pip"
 
 TOOL_DEFS = [
     ToolDefinition(
@@ -68,7 +68,9 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
         if not out.strip() or "(up to date)" in out:
             return "✅ PiClaw ist aktuell."
         lines = out.strip().splitlines()
-        return f"🔄 {len(lines)} Update(s) verfügbar:\n" + "\n".join(f"  {l}" for l in lines)
+        return f"🔄 {len(lines)} Update(s) verfügbar:\n" + "\n".join(
+            f"  {l}" for l in lines
+        )
 
     elif target == "piclaw":
         log.info("PiClaw update via git pull...")
@@ -91,9 +93,7 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
             results.append(f"pip: {out2[:200]}")
 
         # 3. sudo systemctl restart
-        rc3, out3 = await _run(
-            "sudo systemctl restart piclaw-api piclaw-agent 2>&1"
-        )
+        rc3, out3 = await _run("sudo systemctl restart piclaw-api piclaw-agent 2>&1")
         if rc3 == 0:
             results.append("✅ Services neu gestartet")
         else:

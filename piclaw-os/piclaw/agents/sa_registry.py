@@ -24,7 +24,6 @@ import logging
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from piclaw.config import CONFIG_DIR
@@ -68,23 +67,25 @@ WICHTIG:
 
 @dataclass
 class SubAgentDef:
-    name:        str
+    name: str
     description: str
-    mission:     str               # system prompt / task description
-    tools:       list[str]         # allowed tool names, [] = all
-    schedule:    str  = "once"     # once | cron:<expr> | interval:<sec> | continuous
-    llm_tags:    list[str] = field(default_factory=list)
-    enabled:     bool = True
-    max_steps:   int  = 10
-    timeout:     int  = 300
-    notify:      bool = True       # send result to messaging hub
-    trusted:     bool = False      # if True, tier-2 restricted tools allowed when explicitly listed
-    privileged:  bool = False      # if True, root shell access allowed
-    created_by:  str  = "mainagent"
-    id:          str  = field(default_factory=lambda: str(uuid.uuid4())[:8])
-    created_at:  str  = field(default_factory=lambda: datetime.now().isoformat())
-    last_run:    Optional[str] = None
-    last_status: Optional[str] = None   # ok | error | running | timeout
+    mission: str  # system prompt / task description
+    tools: list[str]  # allowed tool names, [] = all
+    schedule: str = "once"  # once | cron:<expr> | interval:<sec> | continuous
+    llm_tags: list[str] = field(default_factory=list)
+    enabled: bool = True
+    max_steps: int = 10
+    timeout: int = 300
+    notify: bool = True  # send result to messaging hub
+    trusted: bool = (
+        False  # if True, tier-2 restricted tools allowed when explicitly listed
+    )
+    privileged: bool = False  # if True, root shell access allowed
+    created_by: str = "mainagent"
+    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    last_run: Optional[str] = None
+    last_status: Optional[str] = None  # ok | error | running | timeout
 
 
 class SubAgentRegistry:
@@ -110,6 +111,7 @@ class SubAgentRegistry:
         SA_REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
         data = {k: asdict(v) for k, v in self._agents.items()}
         from piclaw.fileutils import safe_write_json
+
         safe_write_json(SA_REGISTRY_FILE, data, label="sa_registry")
 
     # ── CRUD ──────────────────────────────────────────────────────
@@ -168,9 +170,11 @@ class SubAgentRegistry:
         lines = [f"Sub-Agents ({len(agents)}):\n"]
         for a in agents:
             status_icon = {
-                "ok":      "✅", "error":   "❌",
-                "running": "⚙️", "timeout": "⏱️",
-                None:      "⬜",
+                "ok": "✅",
+                "error": "❌",
+                "running": "⚙️",
+                "timeout": "⏱️",
+                None: "⬜",
             }.get(a.last_status, "⬜")
             enabled_icon = "" if a.enabled else " ⏸"
             lines.append(

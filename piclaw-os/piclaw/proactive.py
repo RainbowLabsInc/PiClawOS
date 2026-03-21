@@ -25,24 +25,28 @@ class ProactiveRunner:
     """
 
     def __init__(self, cfg, hub, llm, agent=None):
-        self.cfg   = cfg
-        self.hub   = hub        # Messaging Hub (Telegram, Discord, ...)
-        self.llm   = llm        # LLM-Backend für Briefing-Generierung
-        self.agent = agent      # Agent-Instanz für agent_prompt-Aktionen
+        self.cfg = cfg
+        self.hub = hub  # Messaging Hub (Telegram, Discord, ...)
+        self.llm = llm  # LLM-Backend für Briefing-Generierung
+        self.agent = agent  # Agent-Instanz für agent_prompt-Aktionen
 
         from piclaw.config import CONFIG_DIR
         from piclaw.routines import RoutineRegistry
+
         routines_file = CONFIG_DIR / "routines.json"
-        self.registry  = RoutineRegistry(routines_file)
-        self._stop     = asyncio.Event()
+        self.registry = RoutineRegistry(routines_file)
+        self._stop = asyncio.Event()
         self._last_threshold_alert: dict[str, datetime] = {}
 
     # ── Haupt-Loop ────────────────────────────────────────────────
 
     async def run(self) -> None:
         """Startet den proaktiven Loop. Blockiert bis stop() aufgerufen wird."""
-        log.info("Proaktiver Agent gestartet (%d Routinen, %d aktiv)",
-                 len(self.registry.all()), len(self.registry.enabled()))
+        log.info(
+            "Proaktiver Agent gestartet (%d Routinen, %d aktiv)",
+            len(self.registry.all()),
+            len(self.registry.enabled()),
+        )
 
         # Tasks parallel starten
         await asyncio.gather(
@@ -78,8 +82,8 @@ class ProactiveRunner:
 
         while not self._stop.is_set():
             try:
-                now     = datetime.now()
-                minute  = now.strftime("%Y-%m-%d %H:%M")
+                now = datetime.now()
+                minute = now.strftime("%Y-%m-%d %H:%M")
 
                 if minute != last_minute:
                     last_minute = minute
@@ -90,12 +94,15 @@ class ProactiveRunner:
                             # get_prev() gibt letzten Fälligkeitszeitpunkt zurück
                             prev = cron.get_prev(datetime)
                             delta_s = (now - prev).total_seconds()
-                            already_ran = (
-                                routine.last_run and
-                                routine.last_run[:16] == now.strftime("%Y-%m-%d %H:%M")
-                            )
+                            already_ran = routine.last_run and routine.last_run[
+                                :16
+                            ] == now.strftime("%Y-%m-%d %H:%M")
                             if delta_s < 60 and not already_ran:
-                                log.info("Routine fällig: %s (vor %.0fs)", routine.name, delta_s)
+                                log.info(
+                                    "Routine fällig: %s (vor %.0fs)",
+                                    routine.name,
+                                    delta_s,
+                                )
                                 await asyncio.sleep(0)  # yield to event loop
                                 create_background_task(
                                     self._run_routine_safe(routine),
@@ -145,6 +152,7 @@ class ProactiveRunner:
     async def _check_thresholds(self, cooldown_minutes: int) -> None:
         """Prüft Schwellwerte und sendet Warnungen bei Überschreitung."""
         import psutil
+
         now = datetime.now()
 
         def _cooldown_ok(key: str) -> bool:
@@ -158,18 +166,18 @@ class ProactiveRunner:
 
         # Proaktive-Config lesen
         pcfg = getattr(self.cfg, "proactive", None)
-        temp_warn  = getattr(pcfg, "temp_warn_c",   80) if pcfg else 80
-        disk_warn  = getattr(pcfg, "disk_warn_pct",  85) if pcfg else 85
-        ram_warn   = getattr(pcfg, "ram_warn_pct",   90) if pcfg else 90
+        temp_warn = getattr(pcfg, "temp_warn_c", 80) if pcfg else 80
+        disk_warn = getattr(pcfg, "disk_warn_pct", 85) if pcfg else 85
+        ram_warn = getattr(pcfg, "ram_warn_pct", 90) if pcfg else 90
 
         warnings: list[str] = []
 
         # CPU-Temperatur
         try:
             import subprocess
+
             r = subprocess.run(
-                ["vcgencmd", "measure_temp"],
-                capture_output=True, text=True, timeout=3
+                ["vcgencmd", "measure_temp"], capture_output=True, text=True, timeout=3
             )
             if r.returncode == 0:
                 temp = float(r.stdout.strip().replace("temp=", "").replace("'C", ""))
@@ -222,6 +230,7 @@ class ProactiveRunner:
 
         if action == "briefing":
             from piclaw.briefing import generate_briefing
+
             briefing_type = params.get("type", "status")
             result = await generate_briefing(briefing_type, self.cfg, self.llm)
 
@@ -254,6 +263,7 @@ class ProactiveRunner:
             if scene:
                 try:
                     from piclaw.tools.homeassistant import get_client
+
                     client = get_client()
                     if client:
                         ok = await client.call_service("scene", "turn_on", scene)
@@ -280,14 +290,31 @@ class ProactiveRunner:
 def _looks_ok(text: str) -> bool:
     """Prüft ob eine Antwort 'alles in Ordnung' bedeutet (für silent_on_ok)."""
     ok_phrases = [
-        "alles", "normal", "in ordnung", "keine warnung", "kein problem",
-        "stabil", "optimal", "gut", "ok", "temperature", "within",
+        "alles",
+        "normal",
+        "in ordnung",
+        "keine warnung",
+        "kein problem",
+        "stabil",
+        "optimal",
+        "gut",
+        "ok",
+        "temperature",
+        "within",
     ]
     text_lower = text.lower()
     # Wenn keine Warnsignale UND mindestens ein OK-Ausdruck
-    warn_phrases = ["warn", "kritisch", "hoch", "voll", "fehler", "problem", "überhitzt"]
+    warn_phrases = [
+        "warn",
+        "kritisch",
+        "hoch",
+        "voll",
+        "fehler",
+        "problem",
+        "überhitzt",
+    ]
     has_warning = any(w in text_lower for w in warn_phrases)
-    has_ok      = any(o in text_lower for o in ok_phrases)
+    has_ok = any(o in text_lower for o in ok_phrases)
     return has_ok and not has_warning
 
 

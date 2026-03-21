@@ -31,27 +31,27 @@ log = logging.getLogger("piclaw.hardware.pi_info")
 # vcgencmd get_throttled returns a bitmask. Each bit has a meaning.
 # https://www.raspberrypi.com/documentation/computers/os.html#get_throttled
 THROTTLE_FLAGS = {
-    0:  "Under-voltage detected",
-    1:  "ARM frequency capped",
-    2:  "Currently throttled",
-    3:  "Soft temperature limit reached",
+    0: "Under-voltage detected",
+    1: "ARM frequency capped",
+    2: "Currently throttled",
+    3: "Soft temperature limit reached",
     16: "Under-voltage occurred (since boot)",
     17: "ARM frequency capping occurred (since boot)",
     18: "Throttling occurred (since boot)",
     19: "Soft temperature limit occurred (since boot)",
 }
 
-THROTTLE_CURRENT_MASK = 0x000F   # bits 0–3: current state
+THROTTLE_CURRENT_MASK = 0x000F  # bits 0–3: current state
 THROTTLE_HISTORIC_MASK = 0x000F0000  # bits 16–19: since-boot events
 
 
 @dataclass
 class ThrottleStatus:
-    raw_hex:     str
-    raw_int:     int
-    current:     list[str] = field(default_factory=list)   # active right now
-    historic:    list[str] = field(default_factory=list)   # occurred since boot
-    healthy:     bool = True                                # no current issues
+    raw_hex: str
+    raw_int: int
+    current: list[str] = field(default_factory=list)  # active right now
+    historic: list[str] = field(default_factory=list)  # occurred since boot
+    healthy: bool = True  # no current issues
 
     @property
     def summary(self) -> str:
@@ -67,18 +67,18 @@ class ThrottleStatus:
 
 @dataclass
 class PiClocks:
-    arm_mhz:  Optional[float] = None   # CPU clock
-    core_mhz: Optional[float] = None   # GPU/VideoCore clock
-    h264_mhz: Optional[float] = None   # H264 block
-    isp_mhz:  Optional[float] = None   # ISP
-    v3d_mhz:  Optional[float] = None   # 3D engine
-    uart_hz:  Optional[float] = None   # UART
-    pwm_hz:   Optional[float] = None   # PWM
+    arm_mhz: Optional[float] = None  # CPU clock
+    core_mhz: Optional[float] = None  # GPU/VideoCore clock
+    h264_mhz: Optional[float] = None  # H264 block
+    isp_mhz: Optional[float] = None  # ISP
+    v3d_mhz: Optional[float] = None  # 3D engine
+    uart_hz: Optional[float] = None  # UART
+    pwm_hz: Optional[float] = None  # PWM
 
 
 @dataclass
 class PiVoltages:
-    core_v:   Optional[float] = None   # GPU/SoC core
+    core_v: Optional[float] = None  # GPU/SoC core
     sdram_c_v: Optional[float] = None  # SDRAM controller
     sdram_i_v: Optional[float] = None  # SDRAM I/O
     sdram_p_v: Optional[float] = None  # SDRAM phy
@@ -86,34 +86,34 @@ class PiVoltages:
 
 @dataclass
 class PiInfo:
-    model:         str  = "Unknown"
-    revision:      str  = ""
-    serial:        str  = ""
-    ram_mb:        int  = 0
-    simulated:     bool = False         # True if vcgencmd not available
+    model: str = "Unknown"
+    revision: str = ""
+    serial: str = ""
+    ram_mb: int = 0
+    simulated: bool = False  # True if vcgencmd not available
 
-    temp_celsius:  Optional[float] = None
-    temp_gpu_c:    Optional[float] = None
+    temp_celsius: Optional[float] = None
+    temp_gpu_c: Optional[float] = None
     under_voltage: bool = False
-    throttled:     Optional[ThrottleStatus] = None
-    clocks:        Optional[PiClocks]    = None
-    voltages:      Optional[PiVoltages]  = None
-    gpu_mem_mb:    Optional[int]         = None
+    throttled: Optional[ThrottleStatus] = None
+    clocks: Optional[PiClocks] = None
+    voltages: Optional[PiVoltages] = None
+    gpu_mem_mb: Optional[int] = None
 
     def to_dict(self) -> dict:
         d = {
-            "model":         self.model,
-            "revision":      self.revision,
-            "serial":        self.serial,
-            "ram_mb":        self.ram_mb,
-            "simulated":     self.simulated,
-            "temp_celsius":  self.temp_celsius,
-            "temp_gpu_c":    self.temp_gpu_c,
+            "model": self.model,
+            "revision": self.revision,
+            "serial": self.serial,
+            "ram_mb": self.ram_mb,
+            "simulated": self.simulated,
+            "temp_celsius": self.temp_celsius,
+            "temp_gpu_c": self.temp_gpu_c,
             "under_voltage": self.under_voltage,
         }
         if self.throttled:
             d["throttle"] = {
-                "raw":     self.throttled.raw_hex,
+                "raw": self.throttled.raw_hex,
                 "current": self.throttled.current,
                 "history": self.throttled.historic,
                 "healthy": self.throttled.healthy,
@@ -121,18 +121,22 @@ class PiInfo:
             }
         if self.clocks:
             d["clocks_mhz"] = {
-                k: v for k, v in {
-                    "arm":   self.clocks.arm_mhz,
-                    "core":  self.clocks.core_mhz,
-                    "v3d":   self.clocks.v3d_mhz,
-                }.items() if v is not None
+                k: v
+                for k, v in {
+                    "arm": self.clocks.arm_mhz,
+                    "core": self.clocks.core_mhz,
+                    "v3d": self.clocks.v3d_mhz,
+                }.items()
+                if v is not None
             }
         if self.voltages:
             d["voltages_v"] = {
-                k: v for k, v in {
-                    "core":    self.voltages.core_v,
+                k: v
+                for k, v in {
+                    "core": self.voltages.core_v,
                     "sdram_c": self.voltages.sdram_c_v,
-                }.items() if v is not None
+                }.items()
+                if v is not None
             }
         if self.gpu_mem_mb is not None:
             d["gpu_mem_mb"] = self.gpu_mem_mb
@@ -159,12 +163,12 @@ class PiInfo:
 
 # ── vcgencmd helpers ──────────────────────────────────────────────
 
+
 def _vcgencmd(cmd: str) -> Optional[str]:
     """Run vcgencmd synchronously. Returns stdout or None."""
     try:
         result = subprocess.run(
-            ["vcgencmd"] + cmd.split(),
-            capture_output=True, text=True, timeout=3
+            ["vcgencmd"] + cmd.split(), capture_output=True, text=True, timeout=3
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -201,14 +205,18 @@ def _parse_throttle(raw: Optional[str]) -> Optional[ThrottleStatus]:
     if not m:
         return None
     val = int(m.group(1), 16)
-    current  = [msg for bit, msg in THROTTLE_FLAGS.items() if bit < 16 and (val >> bit) & 1]
-    historic = [msg for bit, msg in THROTTLE_FLAGS.items() if bit >= 16 and (val >> bit) & 1]
+    current = [
+        msg for bit, msg in THROTTLE_FLAGS.items() if bit < 16 and (val >> bit) & 1
+    ]
+    historic = [
+        msg for bit, msg in THROTTLE_FLAGS.items() if bit >= 16 and (val >> bit) & 1
+    ]
     return ThrottleStatus(
-        raw_hex  = "0x" + m.group(1),
-        raw_int  = val,
-        current  = current,
-        historic = historic,
-        healthy  = len(current) == 0,
+        raw_hex="0x" + m.group(1),
+        raw_int=val,
+        current=current,
+        historic=historic,
+        healthy=len(current) == 0,
     )
 
 
@@ -235,9 +243,9 @@ def _read_model_info() -> tuple[str, str, str, int]:
             if line.startswith("Model"):
                 model_str = line.split(":", 1)[1].strip()
             elif line.startswith("Revision"):
-                revision  = line.split(":", 1)[1].strip()
+                revision = line.split(":", 1)[1].strip()
             elif line.startswith("Serial"):
-                serial    = line.split(":", 1)[1].strip()
+                serial = line.split(":", 1)[1].strip()
     except Exception as _e:
         log.debug("pi_info cpuinfo parse: %s", _e)
 
@@ -263,6 +271,7 @@ def _read_model_info() -> tuple[str, str, str, int]:
 
 # ── CPU Temperature (works without vcgencmd) ──────────────────────
 
+
 def _read_cpu_temp() -> Optional[float]:
     """Read CPU temperature in Celsius from /sys."""
     paths = [
@@ -280,6 +289,7 @@ def _read_cpu_temp() -> Optional[float]:
 
 
 # ── Main async read ───────────────────────────────────────────────
+
 
 async def read_pi_info() -> PiInfo:
     """
@@ -299,12 +309,12 @@ async def read_pi_info() -> PiInfo:
         return {
             "throttle": _vcgencmd("get_throttled"),
             "temp_gpu": _vcgencmd("measure_temp"),
-            "clock_arm":  _vcgencmd("measure_clock arm"),
+            "clock_arm": _vcgencmd("measure_clock arm"),
             "clock_core": _vcgencmd("measure_clock core"),
-            "clock_v3d":  _vcgencmd("measure_clock v3d"),
-            "volt_core":  _vcgencmd("measure_volts core"),
+            "clock_v3d": _vcgencmd("measure_clock v3d"),
+            "volt_core": _vcgencmd("measure_volts core"),
             "volt_sdram": _vcgencmd("measure_volts sdram_c"),
-            "gpu_mem":    _vcgencmd("get_mem gpu"),
+            "gpu_mem": _vcgencmd("get_mem gpu"),
         }
 
     vc = await loop.run_in_executor(None, _fetch_vcgencmd)
@@ -326,15 +336,15 @@ async def read_pi_info() -> PiInfo:
 
     # Clocks
     clocks = PiClocks(
-        arm_mhz  = _parse_measure(vc["clock_arm"]),
-        core_mhz = _parse_measure(vc["clock_core"]),
-        v3d_mhz  = _parse_measure(vc["clock_v3d"]),
+        arm_mhz=_parse_measure(vc["clock_arm"]),
+        core_mhz=_parse_measure(vc["clock_core"]),
+        v3d_mhz=_parse_measure(vc["clock_v3d"]),
     )
 
     # Voltages
     voltages = PiVoltages(
-        core_v   = _parse_volt(vc["volt_core"]),
-        sdram_c_v = _parse_volt(vc["volt_sdram"]),
+        core_v=_parse_volt(vc["volt_core"]),
+        sdram_c_v=_parse_volt(vc["volt_sdram"]),
     )
 
     # GPU memory
@@ -347,24 +357,27 @@ async def read_pi_info() -> PiInfo:
     # Simulated fallback values
     if simulated:
         model_str = model_str or "Raspberry Pi 5 Model B [SIM]"
-        ram_mb    = ram_mb or 4096
+        ram_mb = ram_mb or 4096
         if cpu_temp is None:
             cpu_temp = 45.0
 
     return PiInfo(
-        model         = model_str,
-        revision      = revision,
-        serial        = serial,
-        ram_mb        = ram_mb,
-        simulated     = simulated,
-        temp_celsius  = cpu_temp,
-        temp_gpu_c    = gpu_temp,
-        under_voltage = bool(throttle and throttle.current and
-                            "Under-voltage" in " ".join(throttle.current)),
-        throttled     = throttle,
-        clocks        = clocks,
-        voltages      = voltages,
-        gpu_mem_mb    = gpu_mem,
+        model=model_str,
+        revision=revision,
+        serial=serial,
+        ram_mb=ram_mb,
+        simulated=simulated,
+        temp_celsius=cpu_temp,
+        temp_gpu_c=gpu_temp,
+        under_voltage=bool(
+            throttle
+            and throttle.current
+            and "Under-voltage" in " ".join(throttle.current)
+        ),
+        throttled=throttle,
+        clocks=clocks,
+        voltages=voltages,
+        gpu_mem_mb=gpu_mem,
     )
 
 

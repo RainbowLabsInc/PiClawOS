@@ -44,25 +44,29 @@ log = logging.getLogger("piclaw.messaging.threema")
 class ThreemaAdapter(MessagingAdapter):
     name = "threema"
 
-    def __init__(self,
-                 gateway_id: str,
-                 api_secret: str,
-                 private_key_file: str,
-                 recipient_id: str,
-                 webhook_path: str = ""):
-        self.gateway_id       = gateway_id
-        self.api_secret       = api_secret
+    def __init__(
+        self,
+        gateway_id: str,
+        api_secret: str,
+        private_key_file: str,
+        recipient_id: str,
+        webhook_path: str = "",
+    ):
+        self.gateway_id = gateway_id
+        self.api_secret = api_secret
         self.private_key_file = private_key_file
-        self.recipient_id     = recipient_id
-        self.webhook_path     = webhook_path
-        self._stop            = asyncio.Event()
-        self._connection      = None
+        self.recipient_id = recipient_id
+        self.webhook_path = webhook_path
+        self._stop = asyncio.Event()
+        self._connection = None
 
     def is_configured(self) -> bool:
         return bool(
-            self.gateway_id and self.api_secret and
-            self.private_key_file and self.recipient_id and
-            Path(self.private_key_file).exists()
+            self.gateway_id
+            and self.api_secret
+            and self.private_key_file
+            and self.recipient_id
+            and Path(self.private_key_file).exists()
         )
 
     async def _get_connection(self):
@@ -70,6 +74,7 @@ class ThreemaAdapter(MessagingAdapter):
             return self._connection
         try:
             from threema.gateway import Connection
+
             self._connection = Connection(
                 identity=self.gateway_id,
                 secret=self.api_secret,
@@ -78,8 +83,7 @@ class ThreemaAdapter(MessagingAdapter):
             return self._connection
         except ImportError:
             raise RuntimeError(
-                "threema.gateway not installed. "
-                "Run: pip install threema.gateway[e2e]"
+                "threema.gateway not installed. Run: pip install threema.gateway[e2e]"
             )
 
     async def start(self, on_message: MessageHandler):
@@ -106,10 +110,10 @@ class ThreemaAdapter(MessagingAdapter):
     async def send(self, text: str, chat_id: str | None = None):
         recipient = chat_id or self.recipient_id
         try:
-            from threema.gateway import Connection
             from threema.gateway.e2e import TextMessage
+
             conn = await self._get_connection()
-            msg  = await TextMessage.create(
+            msg = await TextMessage.create(
                 connection=conn,
                 to_id=recipient,
                 text=text[:3500],  # Threema message size limit
@@ -126,17 +130,16 @@ class ThreemaAdapter(MessagingAdapter):
           POST /webhook/threema
         """
         try:
-            from threema.gateway.e2e import DeliveryReceipt
             msg_type = payload.get("type")
             if msg_type != "text":
                 return  # Ignore delivery receipts, images, etc.
 
-            sender  = payload.get("from", "")
-            text    = payload.get("text", "").strip()
+            sender = payload.get("from", "")
+            text = payload.get("text", "").strip()
             if not text:
                 return
 
-            inc   = IncomingMessage(
+            inc = IncomingMessage(
                 platform="threema",
                 sender_id=sender,
                 text=text,

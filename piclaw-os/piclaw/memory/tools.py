@@ -3,9 +3,8 @@ PiClaw OS – Memory Tools
 Agent-callable tools for searching, reading, and writing memory.
 """
 
-import asyncio
 from piclaw.llm.base import ToolDefinition
-from piclaw.memory   import store, qmd as qmd_module
+from piclaw.memory import store, qmd as qmd_module
 
 TOOL_DEFS = [
     ToolDefinition(
@@ -18,7 +17,7 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "query":      {"type": "string", "description": "What to search for"},
+                "query": {"type": "string", "description": "What to search for"},
                 "collection": {
                     "type": "string",
                     "enum": ["memory", "daily", "sessions", "workspace", "all"],
@@ -44,11 +43,21 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "content":  {"type": "string", "description": "The fact or note to save"},
+                "content": {
+                    "type": "string",
+                    "description": "The fact or note to save",
+                },
                 "category": {
                     "type": "string",
-                    "enum": ["fact", "decision", "preference", "config",
-                             "error", "skill", "note"],
+                    "enum": [
+                        "fact",
+                        "decision",
+                        "preference",
+                        "config",
+                        "error",
+                        "skill",
+                        "note",
+                    ],
                     "default": "fact",
                 },
                 "tags": {
@@ -81,24 +90,23 @@ TOOL_DEFS = [
 
 def build_handlers(qmd: qmd_module.QMDBackend) -> dict:
 
-    async def memory_search(query: str, collection: str = "all",
-                            mode: str = "query") -> str:
+    async def memory_search(
+        query: str, collection: str = "all", mode: str = "query"
+    ) -> str:
         col = None if collection == "all" else collection
         results = await qmd.search(query, top_k=6, collection=col, mode=mode)
         if not results:
             return f"No memories found for: '{query}'"
         lines = [f"Found {len(results)} result(s) for '{query}':\n"]
         for i, r in enumerate(results, 1):
-            src  = r.source.split("/")[-1] if r.source else "?"
+            src = r.source.split("/")[-1] if r.source else "?"
             score = f"{r.score:.2f}" if r.score else "?"
-            lines.append(
-                f"[{i}] ({src}, score={score})\n"
-                f"{r.text[:400]}"
-            )
+            lines.append(f"[{i}] ({src}, score={score})\n{r.text[:400]}")
         return "\n\n".join(lines)
 
-    async def memory_write(content: str, category: str = "fact",
-                           tags: list | None = None) -> str:
+    async def memory_write(
+        content: str, category: str = "fact", tags: list | None = None
+    ) -> str:
         result = store.write_fact(content, category=category, tags=tags or [])
         await qmd.update()
         return result
@@ -109,7 +117,7 @@ def build_handlers(qmd: qmd_module.QMDBackend) -> dict:
         return result
 
     async def memory_stats() -> str:
-        s      = store.memory_stats()
+        s = store.memory_stats()
         status = await qmd.status()
         return (
             f"Memory files : {s['files']}\n"
@@ -123,7 +131,7 @@ def build_handlers(qmd: qmd_module.QMDBackend) -> dict:
 
     return {
         "memory_search": lambda **kw: memory_search(**kw),
-        "memory_write":  lambda **kw: memory_write(**kw),
-        "memory_log":    lambda **kw: memory_log(**kw),
-        "memory_stats":  lambda **_:  memory_stats(),
+        "memory_write": lambda **kw: memory_write(**kw),
+        "memory_log": lambda **kw: memory_log(**kw),
+        "memory_stats": lambda **_: memory_stats(),
     }

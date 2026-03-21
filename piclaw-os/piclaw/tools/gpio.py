@@ -4,7 +4,6 @@ Hardware control via gpiozero (safe, Pi 5 compatible)
 Falls back gracefully if not running on real hardware.
 """
 
-import asyncio
 import logging
 from piclaw.llm.base import ToolDefinition
 
@@ -28,7 +27,7 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "pin":   {"type": "integer", "description": "BCM pin number"},
+                "pin": {"type": "integer", "description": "BCM pin number"},
                 "state": {"type": "boolean", "description": "true=HIGH, false=LOW"},
             },
             "required": ["pin", "state"],
@@ -40,9 +39,12 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "pin":        {"type": "integer", "description": "BCM pin number"},
-                "duty_cycle": {"type": "number",  "description": "Duty cycle 0–100"},
-                "frequency":  {"type": "number",  "description": "Frequency Hz (default 100)"},
+                "pin": {"type": "integer", "description": "BCM pin number"},
+                "duty_cycle": {"type": "number", "description": "Duty cycle 0–100"},
+                "frequency": {
+                    "type": "number",
+                    "description": "Frequency Hz (default 100)",
+                },
             },
             "required": ["pin", "duty_cycle"],
         },
@@ -61,6 +63,7 @@ _pins: dict[int, object] = {}
 def _gpiozero():
     try:
         import gpiozero
+
         return gpiozero
     except ImportError:
         return None
@@ -72,6 +75,7 @@ async def gpio_read(pin: int) -> str:
         return f"[SIMULATED] Pin {pin}: LOW (gpiozero not available on this host)"
     try:
         from gpiozero import Button
+
         btn = Button(pin, pull_up=False)
         state = "HIGH" if btn.is_pressed else "LOW"
         btn.close()
@@ -86,6 +90,7 @@ async def gpio_write(pin: int, state: bool) -> str:
         return f"[SIMULATED] Pin {pin} set to {'HIGH' if state else 'LOW'}"
     try:
         from gpiozero import LED
+
         if pin not in _pins:
             _pins[pin] = LED(pin)
         led = _pins[pin]
@@ -101,6 +106,7 @@ async def gpio_pwm(pin: int, duty_cycle: float, frequency: float = 100.0) -> str
         return f"[SIMULATED] Pin {pin} PWM: {duty_cycle:.1f}% @ {frequency:.0f}Hz"
     try:
         from gpiozero import PWMLED
+
         if pin not in _pins:
             _pins[pin] = PWMLED(pin)
         pwm = _pins[pin]
@@ -124,8 +130,8 @@ async def gpio_status() -> str:
 
 
 HANDLERS = {
-    "gpio_read":   lambda **kw: gpio_read(**kw),
-    "gpio_write":  lambda **kw: gpio_write(**kw),
-    "gpio_pwm":    lambda **kw: gpio_pwm(**kw),
-    "gpio_status": lambda **_:  gpio_status(),
+    "gpio_read": lambda **kw: gpio_read(**kw),
+    "gpio_write": lambda **kw: gpio_write(**kw),
+    "gpio_pwm": lambda **kw: gpio_pwm(**kw),
+    "gpio_status": lambda **_: gpio_status(),
 }

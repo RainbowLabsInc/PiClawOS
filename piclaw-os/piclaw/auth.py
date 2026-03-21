@@ -58,6 +58,7 @@ def verify(candidate: str) -> bool:
 
 # ── FastAPI dependencies ──────────────────────────────────────────
 
+
 async def require_auth(
     credentials: HTTPAuthorizationCredentials | None = Security(_security),
     token_param: str | None = Query(default=None, alias="token"),

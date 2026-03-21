@@ -8,7 +8,6 @@ import asyncio
 import json
 import logging
 import re
-from pathlib import Path
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
@@ -19,6 +18,7 @@ logger = logging.getLogger("piclaw.tools.network_monitor")
 
 KNOWN_DEVICES_FILE = CONFIG_DIR / "known_devices.json"
 
+
 @dataclass
 class NetworkDevice:
     ip: str
@@ -27,6 +27,7 @@ class NetworkDevice:
     vendor: str = "unknown"
     last_seen: str = ""
 
+
 TOOL_DEFS = [
     ToolDefinition(
         name="network_scan",
@@ -34,9 +35,12 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "range": {"type": "string", "description": "IP range to scan (e.g. 192.168.1.0/24). If empty, tries to autodetect."}
-            }
-        }
+                "range": {
+                    "type": "string",
+                    "description": "IP range to scan (e.g. 192.168.1.0/24). If empty, tries to autodetect.",
+                }
+            },
+        },
     ),
     ToolDefinition(
         name="port_scan",
@@ -45,15 +49,19 @@ TOOL_DEFS = [
             "type": "object",
             "properties": {
                 "ip": {"type": "string", "description": "IP address to scan."},
-                "fast": {"type": "boolean", "description": "Only scan top 100 ports.", "default": True}
+                "fast": {
+                    "type": "boolean",
+                    "description": "Only scan top 100 ports.",
+                    "default": True,
+                },
             },
-            "required": ["ip"]
-        }
+            "required": ["ip"],
+        },
     ),
     ToolDefinition(
         name="check_new_devices",
         description="Scans the network and returns only devices not seen before.",
-        parameters={"type": "object", "properties": {}}
+        parameters={"type": "object", "properties": {}},
     ),
     ToolDefinition(
         name="ping_host",
@@ -61,20 +69,25 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "host": {"type": "string", "description": "Hostname or IP address to ping."}
+                "host": {
+                    "type": "string",
+                    "description": "Hostname or IP address to ping.",
+                }
             },
-            "required": ["host"]
-        }
-    )
+            "required": ["host"],
+        },
+    ),
 ]
+
 
 async def _run_nmap(args: list[str]) -> str:
     """Helper to run nmap and return output."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            "nmap", *args,
+            "nmap",
+            *args,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
         if proc.returncode != 0:
@@ -85,12 +98,13 @@ async def _run_nmap(args: list[str]) -> str:
     except Exception as e:
         return f"[ERROR] Network scan failed: {e}"
 
+
 async def _get_local_range() -> str:
     """Attempts to find the local network range (default fallback: 192.168.1.0/24)."""
     try:
         proc = await asyncio.create_subprocess_shell(
             "ip -4 route show default | awk '{print $3}'",
-            stdout=asyncio.subprocess.PIPE
+            stdout=asyncio.subprocess.PIPE,
         )
         out, _ = await proc.communicate()
         gateway = out.decode().strip()
@@ -101,6 +115,7 @@ async def _get_local_range() -> str:
     except Exception:
         pass
     return "192.168.1.0/24"
+
 
 async def scan_devices(ip_range: str = "") -> list[NetworkDevice]:
     if not ip_range:
@@ -120,7 +135,9 @@ async def scan_devices(ip_range: str = "") -> list[NetworkDevice]:
         # Nmap scan report for router.local (192.168.1.1)
         m_host = re.search(r"Nmap scan report for (?:(.+) \()?([\d\.]+)\)?", line)
         if m_host:
-            current_dev = NetworkDevice(ip=m_host.group(2), hostname=m_host.group(1) or "unknown")
+            current_dev = NetworkDevice(
+                ip=m_host.group(2), hostname=m_host.group(1) or "unknown"
+            )
             current_dev.last_seen = datetime.now().isoformat()
             devices.append(current_dev)
             continue
@@ -132,9 +149,11 @@ async def scan_devices(ip_range: str = "") -> list[NetworkDevice]:
 
     return devices
 
+
 async def port_scan(ip: str, fast: bool = True) -> str:
     args = ["-F", ip] if fast else [ip]
     return await _run_nmap(args)
+
 
 def load_known_devices() -> dict[str, dict]:
     if not KNOWN_DEVICES_FILE.exists():
@@ -144,9 +163,11 @@ def load_known_devices() -> dict[str, dict]:
     except Exception:
         return {}
 
+
 def save_known_devices(devices: dict[str, dict]):
     KNOWN_DEVICES_FILE.parent.mkdir(parents=True, exist_ok=True)
     KNOWN_DEVICES_FILE.write_text(json.dumps(devices, indent=2))
+
 
 async def check_new_devices() -> list[NetworkDevice]:
     current_list = await scan_devices()
@@ -166,16 +187,17 @@ async def check_new_devices() -> list[NetworkDevice]:
 
     return new_devices
 
+
 async def ping_host(host: str) -> bool:
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ping", "-c", "1", "-W", "2", host,
-            stdout=asyncio.subprocess.DEVNULL
+            "ping", "-c", "1", "-W", "2", host, stdout=asyncio.subprocess.DEVNULL
         )
         await proc.wait()
         return proc.returncode == 0
     except Exception:
         return False
+
 
 def build_handlers():
     return {

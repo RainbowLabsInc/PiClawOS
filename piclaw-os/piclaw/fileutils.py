@@ -6,6 +6,7 @@ bei Stromausfall, vollem Speicher oder Kernel-Panik.
 
 Strategie: write temp → fsync → rename (atomar auf POSIX/Linux)
 """
+
 import json
 import logging
 import os
@@ -30,8 +31,8 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None
         with os.fdopen(fd, "w", encoding=encoding) as f:
             f.write(content)
             f.flush()
-            os.fsync(f.fileno())          # Sicherstellen dass Kernel-Buffer geflusht
-        os.replace(tmp_path, path)        # Atomar: altes File wird direkt ersetzt
+            os.fsync(f.fileno())  # Sicherstellen dass Kernel-Buffer geflusht
+        os.replace(tmp_path, path)  # Atomar: altes File wird direkt ersetzt
     except Exception:
         # Aufräumen falls rename fehlschlug
         try:

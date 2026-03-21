@@ -25,54 +25,53 @@ Usage:
 """
 
 import logging
-from typing import TYPE_CHECKING
 
 log = logging.getLogger("piclaw.agents.sandbox")
 
 # ── Tier 1: Always blocked, no override possible ──────────────────
 # These can cause irreversible harm or compromise security.
-BLOCKED_ALWAYS: frozenset[str] = frozenset({
-    # Filesystem wipe / recursive deletion
-    "shell",             # raw shell access – use specific tools instead (unless privileged)
-    "shell_exec",
-    "rm_recursive",
-
-    # System integrity
-    "service_disable",   # disabling systemd services
-    "system_reboot",     # rebooting without user confirmation
-    "system_powerof",
-    "system_halt",
-
-    # Watchdog tampering
-    "watchdog_stop",
-    "watchdog_disable",
-
-    # Self-modification
-    "updater_apply",     # applying OS updates without confirmation
-
-    # Security
-    "config_write_raw",  # writing raw config (may expose API keys)
-})
+BLOCKED_ALWAYS: frozenset[str] = frozenset(
+    {
+        # Filesystem wipe / recursive deletion
+        "shell",  # raw shell access – use specific tools instead (unless privileged)
+        "shell_exec",
+        "rm_recursive",
+        # System integrity
+        "service_disable",  # disabling systemd services
+        "system_reboot",  # rebooting without user confirmation
+        "system_powerof",
+        "system_halt",
+        # Watchdog tampering
+        "watchdog_stop",
+        "watchdog_disable",
+        # Self-modification
+        "updater_apply",  # applying OS updates without confirmation
+        # Security
+        "config_write_raw",  # writing raw config (may expose API keys)
+    }
+)
 
 # ── Tier 2: Blocked by default, requires trusted=True + explicit allowlist ──
 # Powerful but legitimate tools that need explicit opt-in.
-BLOCKED_BY_DEFAULT: frozenset[str] = frozenset({
-    "service_stop",      # stopping a managed service
-    "service_restart",   # restarting services
-    "gpio_write",        # writing to GPIO pins (hardware risk)
-    "network_set",       # changing network config
-    "scheduler_remove",  # removing scheduled tasks
-})
+BLOCKED_BY_DEFAULT: frozenset[str] = frozenset(
+    {
+        "service_stop",  # stopping a managed service
+        "service_restart",  # restarting services
+        "gpio_write",  # writing to GPIO pins (hardware risk)
+        "network_set",  # changing network config
+        "scheduler_remove",  # removing scheduled tasks
+    }
+)
 
 # All known dangerous categories – for display/docs
 ALL_RESTRICTED = BLOCKED_ALWAYS | BLOCKED_BY_DEFAULT
 
 
 def filter_tools_for_subagent(
-    all_tool_defs:   list,           # list[ToolDefinition]
-    agent_allowlist: list[str],      # agent.tools ([] = all non-blocked)
-    trusted:         bool = False,   # agent.trusted flag
-    privileged:      bool = False,   # bypasses shell block
+    all_tool_defs: list,  # list[ToolDefinition]
+    agent_allowlist: list[str],  # agent.tools ([] = all non-blocked)
+    trusted: bool = False,  # agent.trusted flag
+    privileged: bool = False,  # bypasses shell block
 ) -> list:
     """
     Return the subset of tool_defs a sub-agent is allowed to use.
@@ -115,18 +114,24 @@ def filter_tools_for_subagent(
 
         # Tier 2: blocked by default unless trusted
         if name_lower in BLOCKED_BY_DEFAULT:
-            if trusted and agent_allowlist and name_lower in {t.lower() for t in agent_allowlist}:
+            if (
+                trusted
+                and agent_allowlist
+                and name_lower in {t.lower() for t in agent_allowlist}
+            ):
                 # Explicitly requested + trusted = allowed
                 filtered.append(td)
             else:
-                reason = "tier-2: blocked by default" + ("" if not trusted else ", not in allowlist")
+                reason = "tier-2: blocked by default" + (
+                    "" if not trusted else ", not in allowlist"
+                )
                 blocked_log.append(f"{td.name} ({reason})")
             continue
 
         filtered.append(td)
 
     if blocked_log:
-        log.debug("Sandbox blocked tools: %s", ', '.join(blocked_log))
+        log.debug("Sandbox blocked tools: %s", ", ".join(blocked_log))
 
     return filtered
 
@@ -152,7 +157,9 @@ def explain_restrictions(tool_name: str, trusted: bool = False) -> str:
     return f"'{tool_name}' is unrestricted and available to all sub-agents."
 
 
-def audit_agent_tools(agent_name: str, requested: list[str], trusted: bool = False) -> str:
+def audit_agent_tools(
+    agent_name: str, requested: list[str], trusted: bool = False
+) -> str:
     """
     Return a formatted audit summary of which tools are/aren't available.
     Useful for debug logging and the 'piclaw agent inspect' CLI command.

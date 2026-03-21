@@ -3,7 +3,7 @@ PiClaw OS – LLM Management Tools
 Agent-callable tools for managing the LLM registry at runtime.
 """
 
-from piclaw.llm.base     import ToolDefinition
+from piclaw.llm.base import ToolDefinition
 from piclaw.llm.registry import LLMRegistry, BackendConfig
 
 TOOL_DEFS = [
@@ -22,17 +22,42 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "name":        {"type": "string", "description": "Unique name, e.g. 'gpt4o-coding'"},
-                "provider":    {"type": "string", "enum": ["anthropic", "openai", "ollama", "local"]},
-                "model":       {"type": "string", "description": "Model string, e.g. 'gpt-4o'"},
-                "tags":        {"type": "array", "items": {"type": "string"},
-                                "description": "Capability tags this backend is best at"},
-                "priority":    {"type": "integer", "description": "1–10, higher = preferred when tied", "default": 5},
-                "api_key":     {"type": "string", "description": "API key (leave empty to use global key)"},
-                "base_url":    {"type": "string", "description": "Override API endpoint URL"},
+                "name": {
+                    "type": "string",
+                    "description": "Unique name, e.g. 'gpt4o-coding'",
+                },
+                "provider": {
+                    "type": "string",
+                    "enum": ["anthropic", "openai", "ollama", "local"],
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Model string, e.g. 'gpt-4o'",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Capability tags this backend is best at",
+                },
+                "priority": {
+                    "type": "integer",
+                    "description": "1–10, higher = preferred when tied",
+                    "default": 5,
+                },
+                "api_key": {
+                    "type": "string",
+                    "description": "API key (leave empty to use global key)",
+                },
+                "base_url": {
+                    "type": "string",
+                    "description": "Override API endpoint URL",
+                },
                 "temperature": {"type": "number", "default": 0.7},
-                "max_tokens":  {"type": "integer", "default": 4096},
-                "notes":       {"type": "string", "description": "Human-readable description"},
+                "max_tokens": {"type": "integer", "default": 4096},
+                "notes": {
+                    "type": "string",
+                    "description": "Human-readable description",
+                },
             },
             "required": ["name", "provider", "model", "tags"],
         },
@@ -43,11 +68,11 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "name":        {"type": "string"},
-                "tags":        {"type": "array", "items": {"type": "string"}},
-                "priority":    {"type": "integer"},
-                "enabled":     {"type": "boolean"},
-                "notes":       {"type": "string"},
+                "name": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "priority": {"type": "integer"},
+                "enabled": {"type": "boolean"},
+                "notes": {"type": "string"},
                 "temperature": {"type": "number"},
             },
             "required": ["name"],
@@ -68,8 +93,12 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "name":   {"type": "string", "description": "Backend name to test"},
-                "prompt": {"type": "string", "description": "Test prompt", "default": "Reply with OK."},
+                "name": {"type": "string", "description": "Backend name to test"},
+                "prompt": {
+                    "type": "string",
+                    "description": "Test prompt",
+                    "default": "Reply with OK.",
+                },
             },
             "required": ["name"],
         },
@@ -98,9 +127,12 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
         lines = [f"LLM Backends ({len(backends)}):\n"]
         for b in backends:
             icons = []
-            if b["enabled"]:  icons.append("✅")
-            else:             icons.append("⏸")
-            if b["degraded"]: icons.append("⚠️")
+            if b["enabled"]:
+                icons.append("✅")
+            else:
+                icons.append("⏸")
+            if b["degraded"]:
+                icons.append("⚠️")
             lines.append(
                 f"  {''.join(icons)} [{b['priority']:2}] {b['name']}\n"
                 f"       {b['provider']}/{b['model']}\n"
@@ -110,24 +142,41 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
         lines.append(f"\nAll tags in use: {', '.join(status.get('all_tags', []))}")
         return "\n\n".join(lines)
 
-    async def llm_add(name: str, provider: str, model: str, tags: list,
-                      priority: int = 5, api_key: str = "",
-                      base_url: str = "", temperature: float = 0.7,
-                      max_tokens: int = 4096, notes: str = "") -> str:
+    async def llm_add(
+        name: str,
+        provider: str,
+        model: str,
+        tags: list,
+        priority: int = 5,
+        api_key: str = "",
+        base_url: str = "",
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+        notes: str = "",
+    ) -> str:
         cfg = BackendConfig(
-            name=name, provider=provider, model=model,
-            tags=tags, priority=priority, api_key=api_key,
-            base_url=base_url, temperature=temperature,
-            max_tokens=max_tokens, notes=notes,
+            name=name,
+            provider=provider,
+            model=model,
+            tags=tags,
+            priority=priority,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            notes=notes,
         )
         result = registry.add(cfg)
         # Register health tracker
         from piclaw.llm.multirouter import BackendHealth
+
         router._health[name] = BackendHealth(name=name)
         return result + f"\nTags assigned: {', '.join(tags)}"
 
     async def llm_update(name: str, **kwargs) -> str:
-        return registry.update(name, **{k: v for k, v in kwargs.items() if v is not None})
+        return registry.update(
+            name, **{k: v for k, v in kwargs.items() if v is not None}
+        )
 
     async def llm_remove(name: str) -> str:
         result = registry.remove(name)
@@ -137,19 +186,18 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
 
     async def llm_test(name: str, prompt: str = "Reply with OK.") -> str:
         import time
+
         cfg = registry.get(name)
         if not cfg:
             return f"Backend '{name}' not found."
         try:
             from piclaw.llm.base import Message
+
             instance = router._get_instance(cfg)
             t = time.time()
             resp = await instance.chat([Message(role="user", content=prompt)])
             ms = int((time.time() - t) * 1000)
-            return (
-                f"✅ Backend '{name}' responded in {ms}ms:\n"
-                f"{resp.content[:500]}"
-            )
+            return f"✅ Backend '{name}' responded in {ms}ms:\n{resp.content[:500]}"
         except Exception as e:
             return f"❌ Backend '{name}' failed: {e}"
 
@@ -157,7 +205,7 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
         result = await router._classifier.classify(message)
         matches = registry.find_by_tags(result.tags, min_overlap=1)
         lines = [
-            f"Message: \"{message[:80]}\"",
+            f'Message: "{message[:80]}"',
             f"Detected tags: {', '.join(result.tags)}",
             f"Confidence: {result.confidence:.0%} (method: {result.method})",
             "",
@@ -176,10 +224,10 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
         return "\n".join(lines)
 
     return {
-        "llm_list":     lambda **_:  llm_list(),
-        "llm_add":      lambda **kw: llm_add(**kw),
-        "llm_update":   lambda **kw: llm_update(**kw),
-        "llm_remove":   lambda **kw: llm_remove(**kw),
-        "llm_test":     lambda **kw: llm_test(**kw),
+        "llm_list": lambda **_: llm_list(),
+        "llm_add": lambda **kw: llm_add(**kw),
+        "llm_update": lambda **kw: llm_update(**kw),
+        "llm_remove": lambda **kw: llm_remove(**kw),
+        "llm_test": lambda **kw: llm_test(**kw),
         "llm_classify": lambda **kw: llm_classify(**kw),
     }

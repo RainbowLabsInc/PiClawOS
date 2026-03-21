@@ -21,12 +21,12 @@ Konfiguration in config.toml:
 Long-Lived Token in HA erstellen:
   Profil → Sicherheit → Langlebige Zugriffstoken → Token erstellen
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Awaitable
 
@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 # ── Konfiguration ─────────────────────────────────────────────────
 
+
 @dataclass
 class HAConfig:
     url: str = "http://homeassistant.local:8123"
@@ -45,18 +46,21 @@ class HAConfig:
     verify_ssl: bool = False
     timeout: int = 10
     # Welche Event-Typen sollen als Push-Nachricht weitergeleitet werden
-    notify_on_events: list[str] = field(default_factory=lambda: [
-        "motion_detected",
-        "door_opened",
-        "alarm_triggered",
-        "smoke_detected",
-        "flood_detected",
-    ])
+    notify_on_events: list[str] = field(
+        default_factory=lambda: [
+            "motion_detected",
+            "door_opened",
+            "alarm_triggered",
+            "smoke_detected",
+            "flood_detected",
+        ]
+    )
     # Bereiche/Räume für schnelle Zuweisung
     area_aliases: dict[str, str] = field(default_factory=dict)
 
 
 # ── Datenmodelle ──────────────────────────────────────────────────
+
 
 @dataclass
 class HAEntity:
@@ -87,13 +91,13 @@ class HAEntity:
             if self.state == "on":
                 bri = self.attributes.get("brightness")
                 if bri:
-                    extra.append(f"Helligkeit {round(bri/255*100)}%")
+                    extra.append(f"Helligkeit {round(bri / 255 * 100)}%")
                 color = self.attributes.get("rgb_color")
                 if color:
                     extra.append(f"Farbe RGB{tuple(color)}")
         elif self.domain == "climate":
             current = self.attributes.get("current_temperature")
-            target  = self.attributes.get("temperature")
+            target = self.attributes.get("temperature")
             if current:
                 extra.append(f"Ist: {current}°C")
             if target:
@@ -108,6 +112,7 @@ class HAEntity:
 
 
 # ── REST API Client ───────────────────────────────────────────────
+
 
 class HomeAssistantClient:
     """Async HTTP-Client für die HA REST API."""
@@ -124,7 +129,9 @@ class HomeAssistantClient:
 
     async def _session_(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            connector = aiohttp.TCPConnector(ssl=False if not self.cfg.verify_ssl else None)
+            connector = aiohttp.TCPConnector(
+                ssl=False if not self.cfg.verify_ssl else None
+            )
             self._session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=aiohttp.ClientTimeout(total=self.cfg.timeout),
@@ -211,7 +218,8 @@ class HomeAssistantClient:
                 # HA speichert area_id im Attribut, alternativ nach Namensmuster filtern
                 area_lower = area.lower()
                 entities = [
-                    e for e in entities
+                    e
+                    for e in entities
                     if area_lower in e.name.lower()
                     or area_lower in e.entity_id.lower()
                     or area_lower in str(e.attributes.get("area_id", "")).lower()
@@ -249,10 +257,18 @@ class HomeAssistantClient:
                 json=payload,
             ) as r:
                 if r.status in (200, 201):
-                    logger.info("HA service %s.%s -> %s: OK", domain, service, entity_id)
+                    logger.info(
+                        "HA service %s.%s -> %s: OK", domain, service, entity_id
+                    )
                     return True
                 text = await r.text()
-                logger.warning("HA service %s.%s Fehler %s: %s", domain, service, r.status, text[:200])
+                logger.warning(
+                    "HA service %s.%s Fehler %s: %s",
+                    domain,
+                    service,
+                    r.status,
+                    text[:200],
+                )
                 return False
         except Exception as e:
             logger.error("call_service(%s.%s) Fehler: %s", domain, service, e)
@@ -272,7 +288,9 @@ class HomeAssistantClient:
         domain = entity_id.split(".")[0]
         return await self.call_service(domain, "toggle", entity_id)
 
-    async def set_temperature(self, entity_id: str, temperature: float, hvac_mode: str | None = None) -> bool:
+    async def set_temperature(
+        self, entity_id: str, temperature: float, hvac_mode: str | None = None
+    ) -> bool:
         data: dict[str, Any] = {"temperature": temperature}
         if hvac_mode:
             data["hvac_mode"] = hvac_mode
@@ -280,21 +298,29 @@ class HomeAssistantClient:
 
     async def set_brightness(self, entity_id: str, brightness_pct: int) -> bool:
         return await self.call_service(
-            "light", "turn_on", entity_id,
-            {"brightness_pct": max(0, min(100, brightness_pct))}
+            "light",
+            "turn_on",
+            entity_id,
+            {"brightness_pct": max(0, min(100, brightness_pct))},
         )
 
     async def media_command(self, entity_id: str, command: str) -> bool:
         """command: play_pause | next_track | previous_track | volume_up | volume_down"""
         return await self.call_service("media_player", command, entity_id)
 
-    async def notify(self, message: str, title: str = "PiClaw", target: str | None = None) -> bool:
+    async def notify(
+        self, message: str, title: str = "PiClaw", target: str | None = None
+    ) -> bool:
         """Sendet eine Nachricht über HA-Notify (z.B. HA-App auf dem Handy)."""
         service = target or "notify"
-        return await self.call_service("notify", service, data={
-            "message": message,
-            "title": title,
-        })
+        return await self.call_service(
+            "notify",
+            service,
+            data={
+                "message": message,
+                "title": title,
+            },
+        )
 
     async def trigger_automation(self, automation_id: str) -> bool:
         return await self.call_service("automation", "trigger", automation_id)
@@ -306,8 +332,15 @@ class HomeAssistantClient:
 
     async def summary(self, domains: list[str] | None = None) -> str:
         """Erstellt eine kompakte Übersicht aller relevanten Entitäten."""
-        watch_domains = domains or ["light", "switch", "climate", "sensor",
-                                     "binary_sensor", "media_player", "cover"]
+        watch_domains = domains or [
+            "light",
+            "switch",
+            "climate",
+            "sensor",
+            "binary_sensor",
+            "media_player",
+            "cover",
+        ]
         lines: list[str] = ["Home Assistant – Übersicht:\n"]
 
         for domain in watch_domains:
@@ -315,10 +348,13 @@ class HomeAssistantClient:
             if not entities:
                 continue
             label = {
-                "light": "💡 Lichter", "switch": "🔌 Schalter",
-                "climate": "🌡 Klima", "sensor": "📊 Sensoren",
+                "light": "💡 Lichter",
+                "switch": "🔌 Schalter",
+                "climate": "🌡 Klima",
+                "sensor": "📊 Sensoren",
                 "binary_sensor": "🚪 Binär-Sensoren",
-                "media_player": "🔊 Medien", "cover": "🪟 Rollos",
+                "media_player": "🔊 Medien",
+                "cover": "🪟 Rollos",
             }.get(domain, domain)
             lines.append(f"  {label}:")
             for e in entities[:8]:
@@ -338,6 +374,7 @@ class HomeAssistantClient:
 
 
 # ── WebSocket Event-Listener ──────────────────────────────────────
+
 
 class HAEventListener:
     """
@@ -363,12 +400,14 @@ class HAEventListener:
         while not self._stop.is_set():
             try:
                 await self._connect()
-                delay = 5.0   # reset on successful connect
+                delay = 5.0  # reset on successful connect
                 retries = 0
             except Exception as e:
                 retries += 1
                 log_fn = logger.warning if retries <= 3 else logger.debug
-                log_fn("HA WebSocket Fehler #%d: %s – Retry in %.0fs", retries, e, delay)
+                log_fn(
+                    "HA WebSocket Fehler #%d: %s – Retry in %.0fs", retries, e, delay
+                )
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=delay)
                 except asyncio.TimeoutError:
@@ -380,7 +419,9 @@ class HAEventListener:
         ws_url = f"{ws_url}/api/websocket"
 
         async with aiohttp.ClientSession() as session:
-            async with session.ws_connect(ws_url, ssl=None if self.cfg.verify_ssl else False) as ws:
+            async with session.ws_connect(
+                ws_url, ssl=None if self.cfg.verify_ssl else False
+            ) as ws:
                 self._ws = ws
                 logger.info("HA WebSocket verbunden: %s", ws_url)
 
@@ -394,14 +435,19 @@ class HAEventListener:
                 if auth_ok.get("type") != "auth_ok":
                     raise PermissionError(f"HA Auth fehlgeschlagen: {auth_ok}")
 
-                logger.info("HA WebSocket authentifiziert (HA v%s)", auth_ok.get("ha_version", "?"))
+                logger.info(
+                    "HA WebSocket authentifiziert (HA v%s)",
+                    auth_ok.get("ha_version", "?"),
+                )
 
                 # State-Change Events abonnieren
-                await ws.send_json({
-                    "id": self._msg_id,
-                    "type": "subscribe_events",
-                    "event_type": "state_changed",
-                })
+                await ws.send_json(
+                    {
+                        "id": self._msg_id,
+                        "type": "subscribe_events",
+                        "event_type": "state_changed",
+                    }
+                )
                 self._msg_id += 1
 
                 # Events empfangen
@@ -415,7 +461,10 @@ class HAEventListener:
                                 await self._handle_event(data["event"])
                         except Exception as e:
                             logger.debug("HA WS Parse-Fehler: %s", e)
-                    elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                    elif msg.type in (
+                        aiohttp.WSMsgType.CLOSED,
+                        aiohttp.WSMsgType.ERROR,
+                    ):
                         break
 
     async def _handle_event(self, event: dict) -> None:
@@ -423,10 +472,10 @@ class HAEventListener:
         if event.get("event_type") != "state_changed":
             return
 
-        data    = event.get("data", {})
-        entity  = data.get("entity_id", "")
-        new_st  = data.get("new_state") or {}
-        old_st  = data.get("old_state") or {}
+        data = event.get("data", {})
+        entity = data.get("entity_id", "")
+        new_st = data.get("new_state") or {}
+        old_st = data.get("old_state") or {}
         new_val = new_st.get("state", "")
         old_val = old_st.get("state", "")
 
@@ -435,46 +484,56 @@ class HAEventListener:
 
         # Prüfe ob dieses Event eine Push-Nachricht auslösen soll
         should_notify = False
-        event_type    = ""
+        event_type = ""
 
         # Bewegungsmelder
         if entity.startswith("binary_sensor.") and "motion" in entity:
             if new_val == "on" and "motion_detected" in self.cfg.notify_on_events:
                 should_notify = True
-                event_type    = "motion_detected"
+                event_type = "motion_detected"
 
         # Türsensor
-        elif entity.startswith("binary_sensor.") and any(k in entity for k in ("door", "window", "tuer", "fenster")):
+        elif entity.startswith("binary_sensor.") and any(
+            k in entity for k in ("door", "window", "tuer", "fenster")
+        ):
             if new_val == "on" and "door_opened" in self.cfg.notify_on_events:
                 should_notify = True
-                event_type    = "door_opened"
+                event_type = "door_opened"
 
         # Alarm
         elif entity.startswith("alarm_control_panel."):
-            if "triggered" in new_val and "alarm_triggered" in self.cfg.notify_on_events:
+            if (
+                "triggered" in new_val
+                and "alarm_triggered" in self.cfg.notify_on_events
+            ):
                 should_notify = True
-                event_type    = "alarm_triggered"
+                event_type = "alarm_triggered"
 
         # Rauchmelder
         elif entity.startswith("binary_sensor.") and "smoke" in entity:
             if new_val == "on" and "smoke_detected" in self.cfg.notify_on_events:
                 should_notify = True
-                event_type    = "smoke_detected"
+                event_type = "smoke_detected"
 
         # Wassermelder
-        elif entity.startswith("binary_sensor.") and ("flood" in entity or "water" in entity):
+        elif entity.startswith("binary_sensor.") and (
+            "flood" in entity or "water" in entity
+        ):
             if new_val == "on" and "flood_detected" in self.cfg.notify_on_events:
                 should_notify = True
-                event_type    = "flood_detected"
+                event_type = "flood_detected"
 
         if should_notify:
             friendly = new_st.get("attributes", {}).get("friendly_name", entity)
-            await self._on_event(event_type, {
-                "entity_id": entity,
-                "name":      friendly,
-                "state":     new_val,
-                "old_state": old_val,
-            })
+            await self._on_event(
+                event_type,
+                {
+                    "entity_id": entity,
+                    "name": friendly,
+                    "state": new_val,
+                    "old_state": old_val,
+                },
+            )
 
     def stop(self) -> None:
         self._stop.set()
@@ -496,7 +555,7 @@ TOOL_DEFS = [
             "properties": {
                 "entity_id": {
                     "type": "string",
-                    "description": "HA Entity-ID, z.B. light.wohnzimmer oder sensor.temperatur_bad"
+                    "description": "HA Entity-ID, z.B. light.wohnzimmer oder sensor.temperatur_bad",
                 }
             },
             "required": ["entity_id"],
@@ -533,9 +592,18 @@ TOOL_DEFS = [
             "type": "object",
             "properties": {
                 "entity_id": {"type": "string", "description": "Entity-ID des Geräts"},
-                "brightness_pct": {"type": "integer", "description": "Helligkeit 0-100 (nur für Lichter)"},
-                "color_name": {"type": "string", "description": "Farbe auf Englisch: red, blue, green, warm_white etc."},
-                "color_temp": {"type": "integer", "description": "Farbtemperatur in Kelvin (2700=warm, 6500=kalt)"},
+                "brightness_pct": {
+                    "type": "integer",
+                    "description": "Helligkeit 0-100 (nur für Lichter)",
+                },
+                "color_name": {
+                    "type": "string",
+                    "description": "Farbe auf Englisch: red, blue, green, warm_white etc.",
+                },
+                "color_temp": {
+                    "type": "integer",
+                    "description": "Farbtemperatur in Kelvin (2700=warm, 6500=kalt)",
+                },
             },
             "required": ["entity_id"],
         },
@@ -568,9 +636,18 @@ TOOL_DEFS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "entity_id": {"type": "string", "description": "Entity-ID des Thermostats"},
-                "temperature": {"type": "number", "description": "Zieltemperatur in °C"},
-                "hvac_mode": {"type": "string", "description": "Modus: heat, cool, heat_cool, off, auto, fan_only"},
+                "entity_id": {
+                    "type": "string",
+                    "description": "Entity-ID des Thermostats",
+                },
+                "temperature": {
+                    "type": "number",
+                    "description": "Zieltemperatur in °C",
+                },
+                "hvac_mode": {
+                    "type": "string",
+                    "description": "Modus: heat, cool, heat_cool, off, auto, fan_only",
+                },
             },
             "required": ["entity_id", "temperature"],
         },
@@ -613,7 +690,10 @@ TOOL_DEFS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "automation_id": {"type": "string", "description": "Entity-ID der Automation, z.B. automation.abendmodus"}
+                "automation_id": {
+                    "type": "string",
+                    "description": "Entity-ID der Automation, z.B. automation.abendmodus",
+                }
             },
             "required": ["automation_id"],
         },
@@ -624,7 +704,10 @@ TOOL_DEFS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "script_id": {"type": "string", "description": "Entity-ID des Skripts, z.B. script.guten_morgen"}
+                "script_id": {
+                    "type": "string",
+                    "description": "Entity-ID des Skripts, z.B. script.guten_morgen",
+                }
             },
             "required": ["script_id"],
         },
@@ -638,9 +721,18 @@ TOOL_DEFS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "domain": {"type": "string", "description": "Service-Domain, z.B. light, climate, notify"},
-                "service": {"type": "string", "description": "Service-Name, z.B. turn_on, set_temperature"},
-                "entity_id": {"type": "string", "description": "Ziel-Entität (optional)"},
+                "domain": {
+                    "type": "string",
+                    "description": "Service-Domain, z.B. light, climate, notify",
+                },
+                "service": {
+                    "type": "string",
+                    "description": "Service-Name, z.B. turn_on, set_temperature",
+                },
+                "entity_id": {
+                    "type": "string",
+                    "description": "Ziel-Entität (optional)",
+                },
                 "data": {"type": "object", "description": "Zusätzliche Service-Daten"},
             },
             "required": ["domain", "service"],
@@ -672,7 +764,7 @@ async def handle_tool(name: str, params: dict, client: HomeAssistantClient) -> s
         for e in entities[:20]:
             lines.append(f"  • {e.entity_id}  →  {e.describe()}")
         if len(entities) > 20:
-            lines.append(f"  … und {len(entities)-20} weitere")
+            lines.append(f"  … und {len(entities) - 20} weitere")
         return "\n".join(lines)
 
     elif name == "ha_turn_on":
@@ -685,12 +777,20 @@ async def handle_tool(name: str, params: dict, client: HomeAssistantClient) -> s
         if "color_temp" in params:
             kwargs["color_temp_kelvin"] = params["color_temp"]
         ok = await client.turn_on(entity_id, **kwargs)
-        return f"✓ {entity_id} eingeschaltet." if ok else f"✗ Konnte {entity_id} nicht einschalten."
+        return (
+            f"✓ {entity_id} eingeschaltet."
+            if ok
+            else f"✗ Konnte {entity_id} nicht einschalten."
+        )
 
     elif name == "ha_turn_off":
         entity_id = params["entity_id"]
         ok = await client.turn_off(entity_id)
-        return f"✓ {entity_id} ausgeschaltet." if ok else f"✗ Konnte {entity_id} nicht ausschalten."
+        return (
+            f"✓ {entity_id} ausgeschaltet."
+            if ok
+            else f"✗ Konnte {entity_id} nicht ausschalten."
+        )
 
     elif name == "ha_toggle":
         entity_id = params["entity_id"]
@@ -708,22 +808,36 @@ async def handle_tool(name: str, params: dict, client: HomeAssistantClient) -> s
             params.get("hvac_mode"),
         )
         temp = params["temperature"]
-        return f"✓ Temperatur auf {temp}°C gesetzt." if ok else "✗ Temperatur konnte nicht gesetzt werden."
+        return (
+            f"✓ Temperatur auf {temp}°C gesetzt."
+            if ok
+            else "✗ Temperatur konnte nicht gesetzt werden."
+        )
 
     elif name == "ha_media":
         ok = await client.media_command(params["entity_id"], params["command"])
-        return f"✓ {params['command']} ausgeführt." if ok else "✗ Befehl fehlgeschlagen."
+        return (
+            f"✓ {params['command']} ausgeführt." if ok else "✗ Befehl fehlgeschlagen."
+        )
 
     elif name == "ha_summary":
         return await client.summary(domains=params.get("domains"))
 
     elif name == "ha_trigger_automation":
         ok = await client.trigger_automation(params["automation_id"])
-        return f"✓ Automation '{params['automation_id']}' ausgelöst." if ok else "✗ Fehlgeschlagen."
+        return (
+            f"✓ Automation '{params['automation_id']}' ausgelöst."
+            if ok
+            else "✗ Fehlgeschlagen."
+        )
 
     elif name == "ha_run_script":
         ok = await client.run_script(params["script_id"])
-        return f"✓ Skript '{params['script_id']}' gestartet." if ok else "✗ Fehlgeschlagen."
+        return (
+            f"✓ Skript '{params['script_id']}' gestartet."
+            if ok
+            else "✗ Fehlgeschlagen."
+        )
 
     elif name == "ha_call_service":
         ok = await client.call_service(
@@ -733,7 +847,11 @@ async def handle_tool(name: str, params: dict, client: HomeAssistantClient) -> s
             data=params.get("data"),
         )
         label = f"{params['domain']}.{params['service']}"
-        return f"✓ Service {label} aufgerufen." if ok else f"✗ Service {label} fehlgeschlagen."
+        return (
+            f"✓ Service {label} aufgerufen."
+            if ok
+            else f"✗ Service {label} fehlgeschlagen."
+        )
 
     return f"Unbekanntes HA-Tool: {name}"
 
@@ -753,6 +871,7 @@ def _make_config() -> HAConfig | None:
     try:
         from piclaw.config import CONFIG_FILE
         import tomllib
+
         if not CONFIG_FILE.exists():
             return None
         with open(CONFIG_FILE, "rb") as f:
@@ -764,10 +883,16 @@ def _make_config() -> HAConfig | None:
             url=ha_raw.get("url", "http://homeassistant.local:8123").rstrip("/"),
             token=ha_raw.get("token", ""),
             verify_ssl=ha_raw.get("verify_ssl", False),
-            notify_on_events=ha_raw.get("notify_on_events", [
-                "motion_detected", "door_opened", "alarm_triggered",
-                "smoke_detected", "flood_detected",
-            ]),
+            notify_on_events=ha_raw.get(
+                "notify_on_events",
+                [
+                    "motion_detected",
+                    "door_opened",
+                    "alarm_triggered",
+                    "smoke_detected",
+                    "flood_detected",
+                ],
+            ),
         )
     except Exception as e:
         logger.debug("HA-Config laden: %s", e)
@@ -775,7 +900,7 @@ def _make_config() -> HAConfig | None:
 
 
 async def start(
-    notify_callback: Callable[[str, str], Awaitable[None]] | None = None
+    notify_callback: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> HomeAssistantClient | None:
     """
     Startet HA-Client und optionalen Event-Listener.
@@ -795,24 +920,29 @@ async def start(
     if ok:
         logger.info("Home Assistant verbunden: %s (v%s)", cfg.url, info)
     else:
-        logger.warning("Home Assistant nicht erreichbar: %s – Tools trotzdem registriert", info)
+        logger.warning(
+            "Home Assistant nicht erreichbar: %s – Tools trotzdem registriert", info
+        )
 
     # Event-Listener starten wenn Callback vorhanden
     if notify_callback and cfg.notify_on_events:
+
         async def _on_event(event_type: str, data: dict):
             msgs = {
                 "motion_detected": f"🚶 Bewegung erkannt: {data.get('name', data['entity_id'])}",
-                "door_opened":     f"🚪 Geöffnet: {data.get('name', data['entity_id'])}",
+                "door_opened": f"🚪 Geöffnet: {data.get('name', data['entity_id'])}",
                 "alarm_triggered": f"🚨 ALARM: {data.get('name', data['entity_id'])} – {data.get('state')}",
-                "smoke_detected":  f"🔥 RAUCH erkannt: {data.get('name', data['entity_id'])}",
-                "flood_detected":  f"💧 WASSER erkannt: {data.get('name', data['entity_id'])}",
+                "smoke_detected": f"🔥 RAUCH erkannt: {data.get('name', data['entity_id'])}",
+                "flood_detected": f"💧 WASSER erkannt: {data.get('name', data['entity_id'])}",
             }
             msg = msgs.get(event_type, f"HA Event: {event_type} – {data}")
             await notify_callback("all", msg)
 
         _listener = HAEventListener(cfg, _on_event)
         create_background_task(_listener.run(), name="ha_event_listener")
-        logger.info("HA Event-Listener gestartet (%d Event-Typen)", len(cfg.notify_on_events))
+        logger.info(
+            "HA Event-Listener gestartet (%d Event-Typen)", len(cfg.notify_on_events)
+        )
 
     return _client
 

@@ -7,14 +7,15 @@ import asyncio
 import json
 import logging
 import time
-from pathlib import Path
 from piclaw.config import CONFIG_DIR
 
 log = logging.getLogger("piclaw.tools.installer")
 
+
 def get_ipc_paths():
     ipc_dir = CONFIG_DIR / "ipc"
     return ipc_dir, ipc_dir / "install_req.json", ipc_dir / "install_res.json"
+
 
 from piclaw.llm.base import ToolDefinition
 
@@ -30,7 +31,7 @@ TOOL_DEFS = [
             "properties": {
                 "plan": {
                     "type": "string",
-                    "description": "Detaillierter Plan der auszuführenden Befehle und Änderungen."
+                    "description": "Detaillierter Plan der auszuführenden Befehle und Änderungen.",
                 },
             },
             "required": ["plan"],
@@ -51,11 +52,7 @@ async def installer_confirm(plan: str) -> str:
     if res_file.exists():
         res_file.unlink()
 
-    req_data = {
-        "ts": time.time(),
-        "plan": plan,
-        "status": "pending"
-    }
+    req_data = {"ts": time.time(), "plan": plan, "status": "pending"}
 
     try:
         req_file.write_text(json.dumps(req_data), encoding="utf-8")
@@ -72,9 +69,9 @@ async def installer_confirm(plan: str) -> str:
             try:
                 res_data = json.loads(res_file.read_text(encoding="utf-8"))
                 decision = res_data.get("decision", "NO").upper()
-                res_file.unlink() # consume response
+                res_file.unlink()  # consume response
                 if req_file.exists():
-                    req_file.unlink() # cleanup request
+                    req_file.unlink()  # cleanup request
                 return decision
             except Exception as e:
                 log.error("Error reading response file: %s", e)

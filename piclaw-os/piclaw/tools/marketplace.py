@@ -47,45 +47,127 @@ RE_CLEAN_PLATFORMS = {
     for term in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay", ".de"]
 }
 RE_CLEAN_NOISE = []
-noise_words = ["suche", "finde", "such", "find", "schau", "schaue", "durchsuche",
-         "zeig", "liste", "was kostet", "preis für", "gibt es", "schnäppchen",
-         "angebot", "umkreis", "radius", "einen", "eine", "ein", "mir",
-         "dem", "der", "die", "das", "bitte", "im", "in", "um", "von", "bis",
-         "nähe", "für", "unter", "euro", "rosengarten", "hamburg", "berlin",
-         "nach", "mit", "den", "auf", "mal", "einem", "einer", "münchen",
-         "frankfurt", "düsseldorf", "köln", "hannover", "leipzig", "bremen",
-         "kaufen", "verkaufen", "preis", "günstig", "billig", "suche", "verkaufe",
-         "bitte", "gerade", "aktuell", "inserate", "anzeigen"]
+noise_words = [
+    "suche",
+    "finde",
+    "such",
+    "find",
+    "schau",
+    "schaue",
+    "durchsuche",
+    "zeig",
+    "liste",
+    "was kostet",
+    "preis für",
+    "gibt es",
+    "schnäppchen",
+    "angebot",
+    "umkreis",
+    "radius",
+    "einen",
+    "eine",
+    "ein",
+    "mir",
+    "dem",
+    "der",
+    "die",
+    "das",
+    "bitte",
+    "im",
+    "in",
+    "um",
+    "von",
+    "bis",
+    "nähe",
+    "für",
+    "unter",
+    "euro",
+    "rosengarten",
+    "hamburg",
+    "berlin",
+    "nach",
+    "mit",
+    "den",
+    "auf",
+    "mal",
+    "einem",
+    "einer",
+    "münchen",
+    "frankfurt",
+    "düsseldorf",
+    "köln",
+    "hannover",
+    "leipzig",
+    "bremen",
+    "kaufen",
+    "verkaufen",
+    "preis",
+    "günstig",
+    "billig",
+    "suche",
+    "verkaufe",
+    "bitte",
+    "gerade",
+    "aktuell",
+    "inserate",
+    "anzeigen",
+]
 noise_words.sort(key=len, reverse=True)
 for word in noise_words:
-    RE_CLEAN_NOISE.append(re.compile(r"(?i)(?:^|(?<=\W))" + re.escape(word) + r"(?:(?=\W)|$)"))
+    RE_CLEAN_NOISE.append(
+        re.compile(r"(?i)(?:^|(?<=\W))" + re.escape(word) + r"(?:(?=\W)|$)")
+    )
 RE_CLEAN_SPECIAL_CHARS = re.compile(r"[?!.,;:\-_/]")
 
 # Common Parsing
-RE_HTML_TAGS = re.compile(r'<[^>]+>')
+RE_HTML_TAGS = re.compile(r"<[^>]+>")
 RE_PARSE_PRICE = re.compile(r"(\d+(?:\.\d+)?)")
 
 # Kleinanzeigen Parsing
-RE_KA_ARTICLES = re.compile(r'<article[^>]+data-adid="(\d+)"[^>]*>(.*?)</article>', re.DOTALL)
-RE_KA_TITLE_1 = re.compile(r'class="[^"]*text-module-begin[^"]*"[^>]*>\s*<a[^>]*>(.*?)</a>', re.DOTALL)
-RE_KA_TITLE_2 = re.compile(r'<a[^>]*class="[^"]*ellipsis[^"]*"[^>]*>(.*?)</a>', re.DOTALL)
-RE_KA_PRICE = re.compile(r'<p[^>]*class="[^"]*aditem-main--middle--price[^"]*"[^>]*>(.*?)</p>', re.DOTALL)
-RE_KA_LOCATION = re.compile(r'<span[^>]*class="[^"]*aditem-main--top--left[^"]*"[^>]*>(.*?)</span>', re.DOTALL)
+RE_KA_ARTICLES = re.compile(
+    r'<article[^>]+data-adid="(\d+)"[^>]*>(.*?)</article>', re.DOTALL
+)
+RE_KA_TITLE_1 = re.compile(
+    r'class="[^"]*text-module-begin[^"]*"[^>]*>\s*<a[^>]*>(.*?)</a>', re.DOTALL
+)
+RE_KA_TITLE_2 = re.compile(
+    r'<a[^>]*class="[^"]*ellipsis[^"]*"[^>]*>(.*?)</a>', re.DOTALL
+)
+RE_KA_PRICE = re.compile(
+    r'<p[^>]*class="[^"]*aditem-main--middle--price[^"]*"[^>]*>(.*?)</p>', re.DOTALL
+)
+RE_KA_LOCATION = re.compile(
+    r'<span[^>]*class="[^"]*aditem-main--top--left[^"]*"[^>]*>(.*?)</span>', re.DOTALL
+)
 
 # eBay Parsing
-RE_EBAY_ITEMS_1 = re.compile(r'<li[^>]+data-view="[^"]*mi:1686[^"]*"[^>]*id="item(\d+)"[^>]*>(.*?)</li>', re.DOTALL)
-RE_EBAY_ITEMS_2 = re.compile(r'<div[^>]+class="[^"]*s-item[^"]*"[^>]*>(.*?)</div>\s*</div>\s*</li>', re.DOTALL)
+RE_EBAY_ITEMS_1 = re.compile(
+    r'<li[^>]+data-view="[^"]*mi:1686[^"]*"[^>]*id="item(\d+)"[^>]*>(.*?)</li>',
+    re.DOTALL,
+)
+RE_EBAY_ITEMS_2 = re.compile(
+    r'<div[^>]+class="[^"]*s-item[^"]*"[^>]*>(.*?)</div>\s*</div>\s*</li>', re.DOTALL
+)
 RE_EBAY_TITLE_1 = re.compile(r'<span[^>]+role="heading"[^>]*>(.*?)</span>', re.DOTALL)
-RE_EBAY_TITLE_2 = re.compile(r'class="[^"]*s-item__title[^"]*"[^>]*>(.*?)</[^>]+>', re.DOTALL)
-RE_EBAY_PRICE = re.compile(r'class="[^"]*s-item__price[^"]*"[^>]*>(.*?)</span>', re.DOTALL)
+RE_EBAY_TITLE_2 = re.compile(
+    r'class="[^"]*s-item__title[^"]*"[^>]*>(.*?)</[^>]+>', re.DOTALL
+)
+RE_EBAY_PRICE = re.compile(
+    r'class="[^"]*s-item__price[^"]*"[^>]*>(.*?)</span>', re.DOTALL
+)
 RE_EBAY_LINK = re.compile(r'href="(https://www\.ebay\.de/itm/[^"]+)"')
 
 # Web Parsing
-RE_WEB_HITS = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
-RE_WEB_SNIPPETS = re.compile(r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.DOTALL)
+RE_WEB_HITS = re.compile(
+    r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL
+)
+RE_WEB_SNIPPETS = re.compile(
+    r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.DOTALL
+)
 
 
 # ── Seen-IDs verwalten ─────────────────────────────────────────────────────────
+
 
 def _load_seen() -> set:
     try:
@@ -103,9 +185,12 @@ def _save_seen(seen: set) -> None:
         # Maximal 10.000 IDs behalten (älteste löschen)
         seen_list = list(seen)[-10000:]
         SEEN_FILE.write_text(
-            json.dumps({"seen": seen_list, "updated": datetime.now().isoformat()},
-                       ensure_ascii=False, indent=2),
-            encoding="utf-8"
+            json.dumps(
+                {"seen": seen_list, "updated": datetime.now().isoformat()},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
         )
     except Exception as e:
         log.debug("Seen-Datei speichern: %s", e)
@@ -144,6 +229,7 @@ def _clean_query(query: str) -> str:
 
 # ── Preis-Parser ───────────────────────────────────────────────────────────────
 
+
 def _parse_price(text: str) -> Optional[float]:
     """Extrahiert Preis aus Text wie '149 €', '1.299,00 €', 'VB 80 €'"""
     text = text.replace(".", "").replace(",", ".")
@@ -157,6 +243,7 @@ def _parse_price(text: str) -> Optional[float]:
 
 
 # ── Kleinanzeigen.de ───────────────────────────────────────────────────────────
+
 
 async def _search_kleinanzeigen(
     session: aiohttp.ClientSession,
@@ -202,35 +289,50 @@ async def _search_kleinanzeigen(
         title_match = RE_KA_TITLE_1.search(content)
         if not title_match:
             title_match = RE_KA_TITLE_2.search(content)
-        title = " ".join(RE_HTML_TAGS.sub(' ', title_match.group(1)).split()).strip() if title_match else ""
+        title = (
+            " ".join(RE_HTML_TAGS.sub(" ", title_match.group(1)).split()).strip()
+            if title_match
+            else ""
+        )
 
         # Preis
         price_match = RE_KA_PRICE.search(content)
-        price_text = " ".join(RE_HTML_TAGS.sub(' ', price_match.group(1)).split()).strip() if price_match else ""
+        price_text = (
+            " ".join(RE_HTML_TAGS.sub(" ", price_match.group(1)).split()).strip()
+            if price_match
+            else ""
+        )
         price = _parse_price(price_text)
 
         # Ort
         loc_match = RE_KA_LOCATION.search(content)
-        location_text = " ".join(RE_HTML_TAGS.sub(' ', loc_match.group(1)).split()).strip() if loc_match else ""
+        location_text = (
+            " ".join(RE_HTML_TAGS.sub(" ", loc_match.group(1)).split()).strip()
+            if loc_match
+            else ""
+        )
 
         if not title:
             continue
 
-        results.append({
-            "id":       ad_id,
-            "platform": "kleinanzeigen",
-            "title":    title,
-            "price":    price,
-            "price_text": price_text,
-            "location": location_text,
-            "url":      f"https://www.kleinanzeigen.de/s-anzeige/{ad_id}",
-        })
+        results.append(
+            {
+                "id": ad_id,
+                "platform": "kleinanzeigen",
+                "title": title,
+                "price": price,
+                "price_text": price_text,
+                "location": location_text,
+                "url": f"https://www.kleinanzeigen.de/s-anzeige/{ad_id}",
+            }
+        )
 
     log.info("Kleinanzeigen: %d Inserate gefunden für '%s'", len(results), query)
     return results
 
 
 # ── eBay.de ────────────────────────────────────────────────────────────────────
+
 
 async def _search_ebay(
     session: aiohttp.ClientSession,
@@ -268,34 +370,49 @@ async def _search_ebay(
         title_match = RE_EBAY_TITLE_1.search(content)
         if not title_match:
             title_match = RE_EBAY_TITLE_2.search(content)
-        title = " ".join(RE_HTML_TAGS.sub(' ', title_match.group(1)).split()).strip() if title_match else ""
+        title = (
+            " ".join(RE_HTML_TAGS.sub(" ", title_match.group(1)).split()).strip()
+            if title_match
+            else ""
+        )
         if not title or "Shop on eBay" in title:
             continue
 
         # Preis
         price_match = RE_EBAY_PRICE.search(content)
-        price_text = " ".join(RE_HTML_TAGS.sub(' ', price_match.group(1)).split()).strip() if price_match else ""
+        price_text = (
+            " ".join(RE_HTML_TAGS.sub(" ", price_match.group(1)).split()).strip()
+            if price_match
+            else ""
+        )
         price = _parse_price(price_text)
 
         # Link
         link_match = RE_EBAY_LINK.search(content)
-        link = link_match.group(1).split("?")[0] if link_match else f"https://www.ebay.de/itm/{item_id}"
+        link = (
+            link_match.group(1).split("?")[0]
+            if link_match
+            else f"https://www.ebay.de/itm/{item_id}"
+        )
 
-        results.append({
-            "id":       str(item_id),
-            "platform": "ebay",
-            "title":    title,
-            "price":    price,
-            "price_text": price_text,
-            "location": "",
-            "url":      link,
-        })
+        results.append(
+            {
+                "id": str(item_id),
+                "platform": "ebay",
+                "title": title,
+                "price": price,
+                "price_text": price_text,
+                "location": "",
+                "url": link,
+            }
+        )
 
     log.info("eBay: %d Artikel gefunden für '%s'", len(results), query)
     return results
 
 
 # ── Freie Websuche ─────────────────────────────────────────────────────────────
+
 
 async def _search_web(
     session: aiohttp.ClientSession,
@@ -321,26 +438,29 @@ async def _search_web(
     snippets = RE_WEB_SNIPPETS.findall(html)
 
     for i, (href, title) in enumerate(hits[:max_results]):
-        title_clean = RE_HTML_TAGS.sub('', title).strip()
-        snippet = RE_HTML_TAGS.sub('', snippets[i]).strip() if i < len(snippets) else ""
+        title_clean = RE_HTML_TAGS.sub("", title).strip()
+        snippet = RE_HTML_TAGS.sub("", snippets[i]).strip() if i < len(snippets) else ""
         price = _parse_price(snippet)
 
-        results.append({
-            "id":       hashlib.md5(href.encode()).hexdigest()[:12],
-            "platform": "web",
-            "title":    title_clean,
-            "price":    price,
-            "price_text": f"{price:.0f} €" if price else "",
-            "location": "",
-            "url":      href,
-            "snippet":  snippet,
-        })
+        results.append(
+            {
+                "id": hashlib.md5(href.encode()).hexdigest()[:12],
+                "platform": "web",
+                "title": title_clean,
+                "price": price,
+                "price_text": f"{price:.0f} €" if price else "",
+                "location": "",
+                "url": href,
+                "snippet": snippet,
+            }
+        )
 
     log.info("Websuche: %d Treffer für '%s'", len(results), query)
     return results
 
 
 # ── Haupt-Funktion ─────────────────────────────────────────────────────────────
+
 
 async def marketplace_search(
     query: str,
@@ -379,7 +499,12 @@ async def marketplace_search(
     query = _clean_query(query)
 
     if not query or len(query) < 2:
-        return {"new": [], "total_found": 0, "query": query or "(leer)", "location": location}
+        return {
+            "new": [],
+            "total_found": 0,
+            "query": query or "(leer)",
+            "location": location,
+        }
 
     seen = _load_seen() if not notify_all else set()
     all_results = []
@@ -387,7 +512,11 @@ async def marketplace_search(
     async with aiohttp.ClientSession(headers=HEADERS) as session:
         tasks = []
         if "kleinanzeigen" in platforms:
-            tasks.append(_search_kleinanzeigen(session, query, max_price, location, max_results, radius_km))
+            tasks.append(
+                _search_kleinanzeigen(
+                    session, query, max_price, location, max_results, radius_km
+                )
+            )
         if "ebay" in platforms:
             tasks.append(_search_ebay(session, query, max_price, max_results))
         if "web" in platforms:
@@ -414,13 +543,13 @@ async def marketplace_search(
 
     log.info("Marketplace '%s' in %s: %d total", query, location, len(all_results))
     return {
-        "new":                new_results,
-        "total_found":        len(all_results),
-        "new_count":          len(new_results),
+        "new": new_results,
+        "total_found": len(all_results),
+        "new_count": len(new_results),
         "platforms_searched": platforms,
-        "query":              query,
-        "max_price":          max_price,
-        "location":           location,
+        "query": query,
+        "max_price": max_price,
+        "location": location,
     }
 
 
@@ -445,12 +574,12 @@ def format_results(results: dict, mode: str = "text") -> str:
 
     for i, item in enumerate(new[:10], 1):
         emoji = platform_emoji.get(item["platform"], "🔗")
-        plat  = platform_label.get(item["platform"], item["platform"])
+        plat = platform_label.get(item["platform"], item["platform"])
         price = f"  💶 {item['price_text']}" if item.get("price_text") else ""
-        loc   = f"  📍 {item['location']}" if item.get("location") else ""
-        url   = item.get("url", "")
+        loc = f"  📍 {item['location']}" if item.get("location") else ""
+        url = item.get("url", "")
         # Markdown-Titel bereinigen (Klammern eskapen)
-        safe_title = item['title'].replace("[", "\\[").replace("]", "\\]")[:70]
+        safe_title = item["title"].replace("[", "\\[").replace("]", "\\]")[:70]
 
         lines.append(f"{i}. {emoji} [{plat}] {safe_title}")
         if price:
@@ -473,9 +602,7 @@ def format_results_telegram(results: dict) -> str:
     if not new:
         return f"🔍 Keine neuen Inserate für *{results.get('query', '')}*."
 
-    lines = [
-        f"🛒 *{len(new)} neue Inserate* für _{results['query']}_\n"
-    ]
+    lines = [f"🛒 *{len(new)} neue Inserate* für _{results['query']}_\n"]
     if results.get("max_price"):
         lines[0] += f"(max. {results['max_price']:.0f} €)"
 
@@ -484,13 +611,12 @@ def format_results_telegram(results: dict) -> str:
             item["platform"], "🔗"
         )
         # Markdown-Titel bereinigen (Klammern eskapen)
-        safe_title = item['title'].replace("[", "\\[").replace("]", "\\]")[:60]
+        safe_title = item["title"].replace("[", "\\[").replace("]", "\\]")[:60]
 
         price_str = f" · {item['price_text']}" if item.get("price_text") else ""
-        loc_str   = f" · {item['location']}" if item.get("location") else ""
+        loc_str = f" · {item['location']}" if item.get("location") else ""
         lines.append(
-            f"{platform_emoji} [{safe_title}]({item['url']})"
-            f"{price_str}{loc_str}"
+            f"{platform_emoji} [{safe_title}]({item['url']}){price_str}{loc_str}"
         )
 
     if len(new) > 10:

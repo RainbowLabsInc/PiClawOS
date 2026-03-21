@@ -28,7 +28,7 @@ from datetime import datetime
 from typing import Optional, Callable, Awaitable
 
 from piclaw.agents.sa_registry import SubAgentDef, SubAgentRegistry
-from piclaw.llm.base            import Message, LLMBackend, ToolCall, ToolDefinition
+from piclaw.llm.base import Message, LLMBackend, ToolCall, ToolDefinition
 from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.agents.runner")
@@ -43,20 +43,22 @@ class SubAgentRunner:
     Owned by the main Agent instance.
     """
 
-    def __init__(self,
-                 registry: SubAgentRegistry,
-                 llm: LLMBackend,
-                 tool_defs: list[ToolDefinition],
-                 handlers: dict[str, Callable],
-                 notify: Optional[Callable[[str], Awaitable]] = None,
-                 memory_log: Optional[Callable[[str], Awaitable]] = None):
-        self.registry   = registry
-        self.llm        = llm
-        self.tool_defs  = tool_defs
-        self.handlers   = handlers
-        self.notify     = notify      # async fn(text) → sends to messaging hub
+    def __init__(
+        self,
+        registry: SubAgentRegistry,
+        llm: LLMBackend,
+        tool_defs: list[ToolDefinition],
+        handlers: dict[str, Callable],
+        notify: Optional[Callable[[str], Awaitable]] = None,
+        memory_log: Optional[Callable[[str], Awaitable]] = None,
+    ):
+        self.registry = registry
+        self.llm = llm
+        self.tool_defs = tool_defs
+        self.handlers = handlers
+        self.notify = notify  # async fn(text) → sends to messaging hub
         self.memory_log = memory_log  # async fn(text) → writes to QMD memory
-        self._tasks:   dict[str, asyncio.Task] = {}  # agent_id → Task
+        self._tasks: dict[str, asyncio.Task] = {}  # agent_id → Task
         self._stop_events: dict[str, asyncio.Event] = {}
 
     # ── Public API ─────────────────────────────────────────────────
@@ -93,6 +95,7 @@ class SubAgentRunner:
             if agent.name == "InstallerAgent":
                 # Important for tests: import inside the closure to pick up monkeypatched version
                 from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+
                 if INSTALLER_LOCK_FILE.exists():
                     INSTALLER_LOCK_FILE.unlink()
                     log.info("Installer lock file removed.")
@@ -122,10 +125,7 @@ class SubAgentRunner:
                 await self.start_agent(agent.id)
 
     def running_agents(self) -> list[str]:
-        return [
-            aid for aid, task in self._tasks.items()
-            if not task.done()
-        ]
+        return [aid for aid, task in self._tasks.items() if not task.done()]
 
     def status_dict(self) -> dict:
         agents = self.registry.list_all()
@@ -133,18 +133,20 @@ class SubAgentRunner:
         for a in agents:
             task = self._tasks.get(a.id)
             running = task is not None and not task.done()
-            result.append({
-                "id":          a.id,
-                "name":        a.name,
-                "description": a.description,
-                "schedule":    a.schedule,
-                "enabled":     a.enabled,
-                "running":     running,
-                "last_run":    a.last_run,
-                "last_status": a.last_status,
-                "trusted":     a.trusted,
-                "privileged":  a.privileged,
-            })
+            result.append(
+                {
+                    "id": a.id,
+                    "name": a.name,
+                    "description": a.description,
+                    "schedule": a.schedule,
+                    "enabled": a.enabled,
+                    "running": running,
+                    "last_run": a.last_run,
+                    "last_status": a.last_status,
+                    "trusted": a.trusted,
+                    "privileged": a.privileged,
+                }
+            )
         return {"sub_agents": result}
 
     # ── Schedule loop ──────────────────────────────────────────────
@@ -192,11 +194,10 @@ class SubAgentRunner:
             await self._execute(agent)
             return
 
-        import time
         cron = croniter(expr, datetime.now())
         while not stop.is_set():
             next_run = cron.get_next(datetime)
-            delay    = (next_run - datetime.now()).total_seconds()
+            delay = (next_run - datetime.now()).total_seconds()
             if delay > 0:
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=delay)
@@ -219,7 +220,11 @@ class SubAgentRunner:
                 timeout=agent.timeout,
             )
             status = "ok"
-            log.info("Sub-agent '%s' done in " "%ss", agent.name, (datetime.now()-start).seconds)
+            log.info(
+                "Sub-agent '%s' done in %ss",
+                agent.name,
+                (datetime.now() - start).seconds,
+            )
         except asyncio.TimeoutError:
             result = f"Sub-agent '{agent.name}' timed out after {agent.timeout}s."
             status = "timeout"
@@ -235,7 +240,7 @@ class SubAgentRunner:
 
         # ── Write result to memory so mainagent can recall it ──────
         if self.memory_log and result:
-            ts        = datetime.now().strftime("%Y-%m-%d %H:%M")
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
             mem_entry = f"[{ts}] Sub-Agent '{agent.name}' ({status}): {result[:800]}"
             create_background_task(self.memory_log(mem_entry))
 
@@ -262,7 +267,7 @@ class SubAgentRunner:
 
         messages: list[Message] = [
             Message(role="system", content=system),
-            Message(role="user",   content=f"Execute your mission: {agent.description}"),
+            Message(role="user", content=f"Execute your mission: {agent.description}"),
         ]
 
         final_reply = "(no output)"
@@ -290,10 +295,14 @@ class SubAgentRunner:
             for call in response.tool_calls:
                 log.debug("  [%s] tool: %s", agent.name, call.name)
                 result = await self._dispatch(call)
-                messages.append(Message(
-                    role="tool", content=result,
-                    tool_call_id=call.id, tool_name=call.name,
-                ))
+                messages.append(
+                    Message(
+                        role="tool",
+                        content=result,
+                        tool_call_id=call.id,
+                        tool_name=call.name,
+                    )
+                )
         else:
             final_reply = "⚠️ Sub-agent reached max steps."
 
@@ -305,11 +314,12 @@ class SubAgentRunner:
         Applies sandbox restrictions (tier-1 always blocked, tier-2 by default).
         """
         from piclaw.agents.sandbox import filter_tools_for_subagent
+
         return filter_tools_for_subagent(
-            all_tool_defs   = self.tool_defs,
-            agent_allowlist = agent.tools,
-            trusted         = agent.trusted,
-            privileged      = agent.privileged,
+            all_tool_defs=self.tool_defs,
+            agent_allowlist=agent.tools,
+            trusted=agent.trusted,
+            privileged=agent.privileged,
         )
 
     async def _dispatch(self, call: ToolCall) -> str:
@@ -328,7 +338,7 @@ class SubAgentRunner:
 
     def _on_done(self, agent_id: str, task: asyncio.Task):
         agent = self.registry.get(agent_id)
-        name  = agent.name if agent else agent_id
+        name = agent.name if agent else agent_id
         if task.cancelled():
             log.info("Sub-agent '%s' was cancelled.", name)
         elif task.exception():
