@@ -348,14 +348,29 @@ async def _search_ebay(
     if max_price:
         url += f"&_udhi={int(max_price)}"
 
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "de-DE,de;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
     try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=20), headers=headers
+        ) as resp:
             if resp.status != 200:
-                log.debug("eBay HTTP %s", resp.status)
+                log.warning("eBay HTTP %s für '%s'", resp.status, query)
                 return []
             html = await resp.text(errors="replace")
     except Exception as e:
-        log.debug("eBay Fehler: %s", e)
+        log.warning("eBay Fehler: %s", e)
+        return []
+
+    if not html or len(html) < 500:
+        log.warning("eBay: Leere Antwort für '%s'", query)
         return []
 
     # eBay Artikel parsen
