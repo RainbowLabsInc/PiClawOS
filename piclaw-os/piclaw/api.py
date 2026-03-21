@@ -962,14 +962,14 @@ async def wizard_save_config(body: dict, _: str = Depends(require_auth)):
         try:
             cfg.llm.temperature = float(section["temperature"])
             changed.append("llm.temperature")
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            log.warning("Invalid temperature in wizard config: %s", e)
     if "max_tokens" in section:
         try:
             cfg.llm.max_tokens = int(section["max_tokens"])
             changed.append("llm.max_tokens")
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            log.warning("Invalid max_tokens in wizard config: %s", e)
 
     # ── Telegram ───────────────────────────────────────────────────
     section = body.get("telegram", {})
@@ -983,8 +983,8 @@ async def wizard_save_config(body: dict, _: str = Depends(require_auth)):
         try:
             cfg.discord.channel_id = int(section["channel_id"])
             changed.append("discord.channel_id")
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            log.warning("Invalid Discord channel_id in wizard config: %s", e)
 
     # ── Hardware ───────────────────────────────────────────────────
     section = body.get("hardware", {})
@@ -994,8 +994,8 @@ async def wizard_save_config(body: dict, _: str = Depends(require_auth)):
         try:
             _ = int(section["fan_pin"])
             changed.append("hardware.fan_pin")
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            log.warning("Invalid fan_pin in wizard config: %s", e)
 
     # ── API-Token rotieren ─────────────────────────────────────────
     if body.get("rotate_token"):
