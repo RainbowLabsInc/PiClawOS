@@ -894,6 +894,22 @@ def cmd_llm(args):
         print("  piclaw llm enable/disable <name>")
 
 
+# ── Update ─────────────────────────────────────────────────────────
+
+
+def cmd_update(args: list):
+    """piclaw update [check|piclaw|system]"""
+    import asyncio
+    from piclaw.config import load
+    from piclaw.tools.updater import system_update
+
+    sub = args[0] if args else "piclaw"
+    cfg = load()
+
+    print(f"\n  🔄 PiClaw Update ({sub})…\n")
+    result = asyncio.run(system_update(target=sub, cfg=cfg.updater))
+    print(f"  {result}\n")
+
 def main():
     import sys
 
@@ -1219,19 +1235,3 @@ def cmd_briefing(args: list):
 
     asyncio.run(_run())
 
-
-# ── Update ─────────────────────────────────────────────────────────
-
-
-def cmd_update(args: list):
-    """piclaw update [check|piclaw|system]"""
-    import asyncio
-    from piclaw.config import load
-    from piclaw.tools.updater import system_update
-
-    sub = args[0] if args else "piclaw"
-    cfg = load()
-
-    print(f"\n  🔄 PiClaw Update ({sub})…\n")
-    result = asyncio.run(system_update(target=sub, cfg=cfg.updater))
-    print(f"  {result}\n")
