@@ -322,8 +322,8 @@ def build_handlers(telegram_send_fn) -> dict:
         warns = sum(1 for a in alerts if a["severity"] == "warning")
 
         try:
-            disk = psutil.disk_usage("/")
-            mem = psutil.virtual_memory()
+            disk = await asyncio.to_thread(psutil.disk_usage, "/")
+            mem = await asyncio.to_thread(psutil.virtual_memory)
             disk_pct = disk.percent
             mem_pct = mem.percent
         except Exception:
