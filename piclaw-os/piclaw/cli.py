@@ -793,6 +793,92 @@ def cmd_llm(args):
         print("  piclaw llm enable/disable <name>")
 
 
+def cmd_debug(args):
+    import asyncio
+    import os
+    import sys
+    from pathlib import Path
+    from piclaw.config import load
+
+    base_dir = Path(__file__).parent.parent
+    tests_dir = base_dir / "tests"
+
+    if not tests_dir.exists() or not tests_dir.is_dir():
+        print(f"\n  ❌ Test-Verzeichnis nicht gefunden: {tests_dir}\n")
+        return
+
+    scripts = sorted([f.name for f in tests_dir.glob("test_*.py")])
+    if not scripts:
+        print("\n  ❌ Keine Testskripte (test_*.py) gefunden.\n")
+        return
+
+    print("\n🐛 PiClaw Debug - Test Scripts")
+    print("--------------------------------")
+
+    for i, script in enumerate(scripts, 1):
+        print(f"  {i}. {script}")
+
+    print("  0. Abbrechen")
+    print("  a. Alle Skripte ausführen\n")
+
+    choice = input("Auswahl [0, a, oder Nummern kommagetrennt]: ").strip().lower()
+
+    if choice == "0" or not choice:
+        print("  Abgebrochen.")
+        return
+
+    selected_scripts = []
+    if choice == "a":
+        selected_scripts = scripts
+    else:
+        try:
+            indices = [int(x.strip()) for x in choice.split(",")]
+            for idx in indices:
+                if 1 <= idx <= len(scripts):
+                    selected_scripts.append(scripts[idx-1])
+        except ValueError:
+            print("  ❌ Ungültige Eingabe.")
+            return
+
+    if not selected_scripts:
+        print("  ❌ Keine gültigen Skripte ausgewählt.")
+        return
+
+    print(f"\n  Gewählte Skripte: {', '.join(selected_scripts)}\n")
+
+    out_choice = input("Ausgabe in Datei speichern? [y/N]: ").strip().lower()
+    save_to_file = out_choice in ("y", "j", "yes", "ja")
+
+    async def _run():
+        valid_paths = [str(tests_dir / s) for s in selected_scripts]
+        cmd = [sys.executable, "-m", "pytest"] + valid_paths
+
+        print("\n  ⚙️ Führe Tests aus...\n")
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(base_dir),
+            env={"PYTHONPATH": str(base_dir), **os.environ}
+        )
+
+        stdout, _ = await proc.communicate()
+        output = stdout.decode('utf-8') if stdout else ""
+
+        if save_to_file:
+            import datetime
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"debug_result_{ts}.txt"
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(output)
+            print(f"  ✅ Output gespeichert in: {filename}")
+        else:
+            print(output)
+
+        print(f"\n  ✅ Abgeschlossen (Exit Code: {proc.returncode})\n")
+
+    asyncio.run(_run())
+
 def main():
     import sys
     args = sys.argv[1:]
@@ -803,6 +889,7 @@ def main():
     cmd = args[0]
     if   cmd in ("chat",  ""):            cmd_chat()
     elif cmd == "doctor":                 cmd_doctor()
+    elif cmd == "debug":                  cmd_debug(args[1:])
     elif cmd == "setup":                  cmd_setup()
     elif cmd == "web":                    cmd_web()
     elif cmd == "config":                 cmd_config(args[1:])

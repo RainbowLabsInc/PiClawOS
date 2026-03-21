@@ -8,7 +8,6 @@ import asyncio
 import json
 import logging
 import re
-from pathlib import Path
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
@@ -88,18 +87,28 @@ async def _run_nmap(args: list[str]) -> str:
 async def _get_local_range() -> str:
     """Attempts to find the local network range (default fallback: 192.168.1.0/24)."""
     try:
-        proc = await asyncio.create_subprocess_shell(
-            "ip -4 route show default | awk '{print $3}'",
-            stdout=asyncio.subprocess.PIPE
+        proc = await asyncio.create_subprocess_exec(
+            "ip", "-4", "route", "show", "default",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
-        out, _ = await proc.communicate()
-        gateway = out.decode().strip()
-        if gateway:
-            # Simple assumption: /24 network
-            base = ".".join(gateway.split(".")[:3])
-            return f"{base}.0/24"
-    except Exception:
-        pass
+        out, stderr = await proc.communicate()
+
+        if proc.returncode == 0:
+            output_str = out.decode().strip()
+            if output_str:
+                for line in output_str.splitlines():
+                    parts = line.split()
+                    # Example format: default via 192.168.1.1 dev eth0 proto dhcp src 192.168.1.53 metric 100
+                    if len(parts) >= 3 and parts[0] == "default" and parts[1] == "via":
+                        gateway = parts[2]
+                        # Simple assumption: /24 network
+                        base = ".".join(gateway.split(".")[:3])
+                        return f"{base}.0/24"
+        else:
+            logger.warning("Failed to determine local network range (ip route exited with %d): %s", proc.returncode, stderr.decode().strip())
+    except Exception as e:
+        logger.warning("Exception determining local network range, using fallback: %s", e)
     return "192.168.1.0/24"
 
 async def scan_devices(ip_range: str = "") -> list[NetworkDevice]:

@@ -1,7 +1,9 @@
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 import builtins
 import sys
+import json
+from piclaw.cli import cmd_chat
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from piclaw.cli import cmd_doctor
 
@@ -212,3 +214,129 @@ def test_cmd_doctor_local_llm_missing(capsys):
         assert "LLM health  : ❌ Modell nicht gefunden – piclaw model download" in out
         assert "API Token   : ⬜ not generated yet" in out
         assert "Soul        : ⬜ Not created yet (will be on first boot)" in out
+
+
+def test_cmd_chat_api_success(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("websockets.connect") as mock_ws_connect, \
+         patch("builtins.input", side_effect=["hello", "help", "exit"]), \
+         patch("piclaw.auth.get_token", return_value="test_token"):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_load.return_value = mock_cfg
+
+        mock_ws = AsyncMock()
+        # The code receives from mock_ws in a while loop, so we need to return messages that correspond to inputs.
+        # But `cmd_chat` does not break out of its `while True` loop over inputs.
+        # The exception or end of side_effects raises StopIteration, but mock objects by default raise StopAsyncIteration
+        # when an AsyncMock side_effect list is exhausted, or it might just error out. Let's fix this properly.
+        mock_ws.recv.side_effect = [
+            json.dumps({"type": "thinking"}),
+            json.dumps({"type": "reply", "text": "Hi there!"})
+        ]
+        mock_ws_connect.return_value.__aenter__.return_value = mock_ws
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "PiClawTest ready" in out
+        assert "Verbunden mit laufendem Daemon" in out
+        assert "Thinking" in out
+        assert "Hi there!" in out
+        assert "Commands:" in out  # From the HELP print
+        assert "Goodbye." in out
+
+        mock_ws.send.assert_called_with(json.dumps({"text": "hello"}))
+
+
+def test_cmd_chat_api_no_token(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("piclaw.auth.get_token", return_value=None):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_cfg.api.secret_key = None
+        mock_load.return_value = mock_cfg
+
+
+        with patch("piclaw.agent.Agent") as mock_agent_class, \
+             patch("builtins.input", side_effect=["exit"]):
+
+            mock_agent = MagicMock()
+            mock_agent.boot = AsyncMock()
+            mock_agent_class.return_value = mock_agent
+
+            cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+        # Should fall back to direct mode
+        assert "Offline-Modus" in out
+        assert "Goodbye." in out
+
+
+def test_cmd_chat_direct_fallback(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=False), \
+         patch("piclaw.agent.Agent") as mock_agent_class, \
+         patch("builtins.input", side_effect=["hello", "help", "exit"]):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_load.return_value = mock_cfg
+
+        mock_agent = MagicMock()
+        mock_agent.boot = AsyncMock()
+        mock_agent.run = AsyncMock(return_value="Direct reply!")
+        mock_agent_class.return_value = mock_agent
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "PiClawTest ready" in out
+        assert "Offline-Modus" in out
+        assert "Thinking" in out
+        assert "Direct reply!" in out
+        assert "Commands:" in out  # From the HELP print
+        assert "Goodbye." in out
+
+
+        from piclaw.llm import Message as _Msg
+        history_calls = mock_agent.run.call_args.kwargs['history']
+        assert len(history_calls) == 2
+        assert history_calls[0].role == "user"
+        assert history_calls[0].content == "hello"
+        assert history_calls[1].role == "assistant"
+        assert history_calls[1].content == "Direct reply!"
+
+
+
+def test_cmd_chat_interrupt(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=False), \
+         patch("piclaw.agent.Agent") as mock_agent_class, \
+         patch("builtins.input", side_effect=KeyboardInterrupt):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_load.return_value = mock_cfg
+
+        mock_agent = MagicMock()
+        mock_agent.boot = AsyncMock()
+        mock_agent_class.return_value = mock_agent
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "Session ended." in out
