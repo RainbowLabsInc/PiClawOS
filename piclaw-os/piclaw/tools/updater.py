@@ -84,6 +84,15 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
         if "Already up to date" in out:
             return "✅ PiClaw ist bereits aktuell – kein Neustart nötig."
 
+        # 1b. Code von piclaw-os/piclaw/ nach piclaw/ synchen (Repo-Struktur)
+        rc_sync, out_sync = await _run(
+            f"rsync -a --delete {INSTALL_DIR}/piclaw-os/piclaw/ {INSTALL_DIR}/piclaw/ 2>&1"
+        )
+        if rc_sync == 0:
+            results.append("sync: piclaw-os/piclaw/ → piclaw/ ✅")
+        else:
+            results.append(f"sync: {out_sync[:100]}")
+
         # 2. pip install -e . (nur wenn sich pyproject.toml geändert hat)
         rc2, out2 = await _run(
             f"cd {INSTALL_DIR} && git diff HEAD@{{1}} HEAD -- pyproject.toml | grep -q '^[+-]' && "
