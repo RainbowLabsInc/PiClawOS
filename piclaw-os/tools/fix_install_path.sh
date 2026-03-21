@@ -43,6 +43,7 @@ echo "  ✅ piclaw installiert"
 
 # Rechte
 chown -R "$PICLAW_USER":"$PICLAW_USER" "$INSTALL_DIR" 2>/dev/null || true
+chown -R "$PICLAW_USER":"$PICLAW_USER" /var/log/piclaw 2>/dev/null || true
 
 # sudoers
 cat > /etc/sudoers.d/piclaw << 'SUDOEOF'
