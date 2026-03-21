@@ -9,7 +9,6 @@ Läuft als asyncio-Task im Daemon und:
 
 Konfiguration in config.toml unter [proactive].
 """
-from __future__ import annotations
 
 import asyncio
 import logging

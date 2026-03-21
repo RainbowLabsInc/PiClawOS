@@ -326,7 +326,10 @@ def build_handlers(telegram_send_fn) -> dict:
 
         temp = None
         try:
-            temp = int(open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8").read()) / 1000
+            def _read_temp() -> float:
+                with open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8") as f:
+                    return int(f.read()) / 1000
+            temp = await asyncio.to_thread(_read_temp)
         except OSError as _e:
             log.debug("cpu temp read: %s", _e)
 
