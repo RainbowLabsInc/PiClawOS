@@ -42,9 +42,9 @@ TOOL_DEFS = [
 ]
 
 
-async def _systemctl(args: str, timeout: int = 15) -> str:
-    proc = await asyncio.create_subprocess_shell(
-        f"systemctl {args}",
+async def _systemctl(args: list[str], timeout: int = 15, include_stderr: bool = True) -> str:
+    proc = await asyncio.create_subprocess_exec(
+        "systemctl", *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -53,11 +53,16 @@ async def _systemctl(args: str, timeout: int = 15) -> str:
     except asyncio.TimeoutError:
         proc.kill()
         return "[TIMEOUT]"
-    return (out.decode(errors="replace") + err.decode(errors="replace")).strip()
+
+    stdout = out.decode(errors="replace").strip()
+    if include_stderr:
+        stderr = err.decode(errors="replace").strip()
+        return (stdout + ("\n" + stderr if stderr else "")).strip()
+    return stdout
 
 
 async def service_status(name: str) -> str:
-    return await _systemctl(f"status {name} --no-pager -l")
+    return await _systemctl(["status", name, "--no-pager", "-l"])
 
 
 async def service_control(name: str, action: str, cfg: ServicesConfig) -> str:
@@ -66,16 +71,16 @@ async def service_control(name: str, action: str, cfg: ServicesConfig) -> str:
             f"Service '{name}' is not in the managed list. "
             f"Managed: {', '.join(cfg.managed)}"
         )
-    return await _systemctl(f"{action} {name}")
+    return await _systemctl([action, name])
 
 
 async def service_list(cfg: ServicesConfig) -> str:
     lines = []
     for name in cfg.managed:
-        result = await _systemctl(
-            f"is-active {name} 2>/dev/null || echo inactive"
-        )
-        state = result.strip()
+        # For listing, we only care about the clean state (stdout)
+        state = await _systemctl(["is-active", name], include_stderr=False)
+        if not state:
+            state = "inactive"
         icon  = "🟢" if state == "active" else "🔴"
         lines.append(f"  {icon} {name}: {state}")
     return "Managed services:\n" + "\n".join(lines)

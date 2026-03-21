@@ -37,9 +37,9 @@ TOOL_DEFS = [
 ]
 
 
-async def _run(cmd: str, timeout: int = 15) -> str:
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
+async def _run(args: list[str], timeout: int = 15) -> str:
+    proc = await asyncio.create_subprocess_exec(
+        *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -54,36 +54,45 @@ async def _run(cmd: str, timeout: int = 15) -> str:
 
 
 async def network_status() -> str:
-    ip_info  = await _run("ip -brief addr show")
-    wifi_con = await _run("nmcli -t -f NAME,TYPE,STATE,DEVICE connection show --active")
+    ip_info  = await _run(["ip", "-brief", "addr", "show"])
+    wifi_con = await _run(["nmcli", "-t", "-f", "NAME,TYPE,STATE,DEVICE", "connection", "show", "--active"])
+    # Original used head -5. We will emulate this by taking the first 5 lines of output.
     signal   = await _run(
-        "nmcli -f IN-USE,SSID,SIGNAL,BARS dev wifi list 2>/dev/null | head -5"
+        ["nmcli", "-f", "IN-USE,SSID,SIGNAL,BARS", "dev", "wifi", "list"]
     )
-    return f"=== IP Addresses ===\n{ip_info}\n\n=== Active Connections ===\n{wifi_con}\n\n=== WiFi Signal ===\n{signal}"
+    signal_lines = signal.splitlines()[:5]
+    signal_top = "\n".join(signal_lines)
+
+    return f"=== IP Addresses ===\n{ip_info}\n\n=== Active Connections ===\n{wifi_con}\n\n=== WiFi Signal ===\n{signal_top}"
 
 
 async def wifi_scan() -> str:
-    await _run("nmcli dev wifi rescan 2>/dev/null || true")
+    await _run(["nmcli", "dev", "wifi", "rescan"])
     result = await _run(
-        "nmcli -f IN-USE,SSID,SIGNAL,BARS,SECURITY dev wifi list 2>/dev/null"
+        ["nmcli", "-f", "IN-USE,SSID,SIGNAL,BARS,SECURITY", "dev", "wifi", "list"]
     )
     return result or "No WiFi networks found."
 
 
 async def wifi_connect(ssid: str, password: str = "") -> str:
+    args = ["nmcli", "dev", "wifi", "connect", ssid]
     if password:
-        cmd = f'nmcli dev wifi connect "{ssid}" password "{password}"'
-    else:
-        cmd = f'nmcli dev wifi connect "{ssid}"'
-    return await _run(cmd, timeout=30)
+        args += ["password", password]
+    return await _run(args, timeout=30)
 
 
 async def wifi_disconnect() -> str:
     # Find the active WiFi device
-    dev = await _run("nmcli -t -f DEVICE,TYPE dev | grep ':wifi' | cut -d: -f1 | head -1")
+    raw_devs = await _run(["nmcli", "-t", "-f", "DEVICE,TYPE", "dev"])
+    dev = ""
+    for line in raw_devs.splitlines():
+        if ":wifi" in line:
+            dev = line.split(":")[0]
+            break
+
     if not dev:
         return "No active WiFi device found."
-    return await _run(f"nmcli dev disconnect {dev.strip()}")
+    return await _run(["nmcli", "dev", "disconnect", dev.strip()])
 
 
 HANDLERS = {
