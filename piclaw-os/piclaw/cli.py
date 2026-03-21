@@ -5,7 +5,6 @@ PiClaw OS – CLI
 """
 
 import asyncio
-import sys
 import os
 
 
@@ -76,7 +75,7 @@ def cmd_chat():
 
     async def _run_via_api(cfg):
         """Chat über WebSocket-API – Modell bleibt im Daemon-RAM."""
-        import websockets, json, sys
+        import websockets, json
         from piclaw.auth import get_token
         # Token aus auth-Modul (gesetzt beim API-Start) oder aus config
         token = get_token() or cfg.api.secret_key
@@ -241,11 +240,13 @@ def cmd_doctor():
         else:
             print("  Sub-Agents  : ⬜ None defined")
         try:
-            import aiohttp; print("  aiohttp     : ✅")
+            import aiohttp
+            print("  aiohttp     : ✅")
         except ImportError:
             print("  aiohttp     : ❌")
         try:
-            import fastapi; print("  fastapi     : ✅")
+            import fastapi
+            print("  fastapi     : ✅")
         except ImportError:
             print("  fastapi     : ❌")
         print()
@@ -370,8 +371,6 @@ def cmd_messaging(args):
 
 def _messaging_setup_wizard(cfg, platform=None):
     """Interactive setup wizard for messaging adapters."""
-    from piclaw.config import save
-
     platforms = {
         "telegram":  _setup_telegram,
         "discord":   _setup_discord,
@@ -556,9 +555,7 @@ def cmd_soul(args):
 
 
 def cmd_agent(args):
-    from piclaw.config import load
     from piclaw.agents.sa_registry import SubAgentRegistry
-    from piclaw.agents.runner      import SubAgentRunner
 
     sub  = args[0] if args else "list"
     name = args[1] if len(args) > 1 else None
@@ -643,7 +640,7 @@ def cmd_agent(args):
 
 def _api_call(method: str, path: str, body: dict = None) -> dict | None:
     """Simple synchronous HTTP call to local PiClaw API. Returns None if unreachable."""
-    import urllib.request, urllib.error, json as _json, logging as _log
+    import urllib.request, json as _json, logging as _log
     from piclaw.config import load
     cfg = load()
     url = f"http://127.0.0.1:{cfg.api.port}{path}"
@@ -894,7 +891,7 @@ def cmd_backup(args: list):
 
 def cmd_metrics(args: list):
     from piclaw.metrics import get_db, _read_cpu_temp
-    import time, psutil
+    import psutil
 
     sub = args[0] if args else "show"
 
