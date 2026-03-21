@@ -4,12 +4,11 @@ Connects the agent to the Tandem Browser API (127.0.0.1:8765).
 Allows complex web interactions, SPA analysis, and human-in-the-loop browsing.
 """
 
-import asyncio
 import json
 import logging
 import aiohttp
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from piclaw.llm.base import ToolDefinition
 
@@ -26,10 +25,14 @@ TOOL_DEFS = [
             "type": "object",
             "properties": {
                 "url": {"type": "string", "description": "The URL to open."},
-                "focus": {"type": "boolean", "description": "Whether to switch to the new tab immediately.", "default": False}
+                "focus": {
+                    "type": "boolean",
+                    "description": "Whether to switch to the new tab immediately.",
+                    "default": False,
+                },
             },
-            "required": ["url"]
-        }
+            "required": ["url"],
+        },
     ),
     ToolDefinition(
         name="browser_snapshot",
@@ -37,9 +40,13 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "compact": {"type": "boolean", "description": "Whether to return a compact version.", "default": True}
-            }
-        }
+                "compact": {
+                    "type": "boolean",
+                    "description": "Whether to return a compact version.",
+                    "default": True,
+                }
+            },
+        },
     ),
     ToolDefinition(
         name="browser_click",
@@ -47,10 +54,16 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "ref": {"type": "string", "description": "Accessibility ref from snapshot (e.g. @e5)."},
-                "text": {"type": "string", "description": "Text of the element to click if ref is not used."}
-            }
-        }
+                "ref": {
+                    "type": "string",
+                    "description": "Accessibility ref from snapshot (e.g. @e5).",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Text of the element to click if ref is not used.",
+                },
+            },
+        },
     ),
     ToolDefinition(
         name="browser_type",
@@ -58,12 +71,19 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "ref": {"type": "string", "description": "Accessibility ref from snapshot."},
+                "ref": {
+                    "type": "string",
+                    "description": "Accessibility ref from snapshot.",
+                },
                 "text": {"type": "string", "description": "The text to type."},
-                "clear": {"type": "boolean", "description": "Whether to clear the field first.", "default": True}
+                "clear": {
+                    "type": "boolean",
+                    "description": "Whether to clear the field first.",
+                    "default": True,
+                },
             },
-            "required": ["text"]
-        }
+            "required": ["text"],
+        },
     ),
     ToolDefinition(
         name="browser_close",
@@ -71,12 +91,16 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "tabId": {"type": "string", "description": "The ID of the tab to close."}
+                "tabId": {
+                    "type": "string",
+                    "description": "The ID of the tab to close.",
+                }
             },
-            "required": ["tabId"]
-        }
-    )
+            "required": ["tabId"],
+        },
+    ),
 ]
+
 
 def _get_token() -> str:
     """Reads the Tandem API token from the standard location."""
@@ -85,13 +109,11 @@ def _get_token() -> str:
         return ""
     return TOKEN_FILE.read_text().strip()
 
+
 async def _call_api(method: str, path: str, data: dict = None) -> Any:
     """Helper to perform Tandem API calls."""
     token = _get_token()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     url = f"{TANDEM_API_URL}{path}"
 
@@ -108,19 +130,24 @@ async def _call_api(method: str, path: str, data: dict = None) -> Any:
     except Exception as e:
         return f"[ERROR] Could not connect to Tandem Browser: {e}"
 
+
 async def browser_open(url: str, focus: bool = False) -> str:
-    result = await _call_api("POST", "/tabs/open", {"url": url, "focus": focus, "source": "piclaw"})
+    result = await _call_api(
+        "POST", "/tabs/open", {"url": url, "focus": focus, "source": "piclaw"}
+    )
     if isinstance(result, str) and result.startswith("[ERROR]"):
         return result
     tab_id = result.get("tab", {}).get("id", "unknown")
     return f"Opened {url} in tab {tab_id}"
 
+
 async def browser_snapshot(compact: bool = True) -> str:
-    path = f"/snapshot?compact=true" if compact else "/snapshot"
+    path = "/snapshot?compact=true" if compact else "/snapshot"
     result = await _call_api("GET", path)
     if isinstance(result, str) and result.startswith("[ERROR]"):
         return result
     return json.dumps(result, indent=2)
+
 
 async def browser_click(ref: str = None, text: str = None) -> str:
     if ref:
@@ -134,22 +161,27 @@ async def browser_click(ref: str = None, text: str = None) -> str:
         return result
     return "Click successful."
 
+
 async def browser_type(text: str, ref: str = None, clear: bool = True) -> str:
     if ref:
         result = await _call_api("POST", "/snapshot/fill", {"ref": ref, "value": text})
     else:
         # Fallback to find by placeholder or label if no ref
-        result = await _call_api("POST", "/type", {"selector": "input", "text": text, "clear": clear})
+        result = await _call_api(
+            "POST", "/type", {"selector": "input", "text": text, "clear": clear}
+        )
 
     if isinstance(result, str) and result.startswith("[ERROR]"):
         return result
     return "Typing successful."
+
 
 async def browser_close(tabId: str) -> str:
     result = await _call_api("POST", "/tabs/close", {"tabId": tabId})
     if isinstance(result, str) and result.startswith("[ERROR]"):
         return result
     return f"Tab {tabId} closed."
+
 
 def build_handlers():
     return {

@@ -13,6 +13,7 @@ Agent-Tools:
   camera_list()               → verfügbare Kameras
   camera_timelapse(...)       → Zeitraffer starten/stoppen
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,11 +33,12 @@ CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Kamera-Detektion ─────────────────────────────────────────────
 
+
 @dataclass
 class CameraInfo:
     index: int
     name: str
-    driver: str           # "libcamera" | "v4l2" | "picamera2"
+    driver: str  # "libcamera" | "v4l2" | "picamera2"
     available: bool = True
     resolution: tuple[int, int] = (1920, 1080)
 
@@ -49,18 +51,22 @@ def detect_cameras() -> list[CameraInfo]:
     try:
         result = subprocess.run(
             ["libcamera-hello", "--list-cameras"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0 and "Available cameras" in result.stdout:
             lines = result.stdout.strip().split("\n")
             for i, line in enumerate(lines):
                 if ":" in line and not line.startswith("Available"):
-                    cameras.append(CameraInfo(
-                        index=len(cameras),
-                        name=f"Pi Camera {len(cameras)}",
-                        driver="libcamera",
-                        resolution=(4608, 2592),  # Pi Camera 3 default
-                    ))
+                    cameras.append(
+                        CameraInfo(
+                            index=len(cameras),
+                            name=f"Pi Camera {len(cameras)}",
+                            driver="libcamera",
+                            resolution=(4608, 2592),  # Pi Camera 3 default
+                        )
+                    )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
@@ -70,7 +76,9 @@ def detect_cameras() -> list[CameraInfo]:
             idx = int(dev.name.replace("video", ""))
             result = subprocess.run(
                 ["v4l2-ctl", f"--device={dev}", "--info"],
-                capture_output=True, text=True, timeout=3
+                capture_output=True,
+                text=True,
+                timeout=3,
             )
             name = "USB Camera"
             if result.returncode == 0:
@@ -78,12 +86,14 @@ def detect_cameras() -> list[CameraInfo]:
                     if "Card type" in l:
                         name = l.split(":", 1)[-1].strip()
                         break
-            cameras.append(CameraInfo(
-                index=idx,
-                name=name,
-                driver="v4l2",
-                resolution=(1920, 1080),
-            ))
+            cameras.append(
+                CameraInfo(
+                    index=idx,
+                    name=name,
+                    driver="v4l2",
+                    resolution=(1920, 1080),
+                )
+            )
     except Exception as _e:
         log.debug("v4l2 camera enumeration: %s", _e)
 
@@ -91,6 +101,7 @@ def detect_cameras() -> list[CameraInfo]:
 
 
 # ── Aufnahme ─────────────────────────────────────────────────────
+
 
 async def capture_snapshot(
     camera_index: int = 0,
@@ -110,12 +121,17 @@ async def capture_snapshot(
     try:
         result = await asyncio.create_subprocess_exec(
             "libcamera-still",
-            "-o", str(output),
-            "--width", str(resolution[0]),
-            "--height", str(resolution[1]),
-            "-q", str(quality),
+            "-o",
+            str(output),
+            "--width",
+            str(resolution[0]),
+            "--height",
+            str(resolution[1]),
+            "-q",
+            str(quality),
             "--nopreview",
-            "--timeout", "2000",
+            "--timeout",
+            "2000",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -130,9 +146,12 @@ async def capture_snapshot(
     try:
         result = await asyncio.create_subprocess_exec(
             "fswebcam",
-            "-d", f"/dev/video{camera_index}",
-            "-r", f"{resolution[0]}x{resolution[1]}",
-            "--jpeg", str(quality),
+            "-d",
+            f"/dev/video{camera_index}",
+            "-r",
+            f"{resolution[0]}x{resolution[1]}",
+            "--jpeg",
+            str(quality),
             "--no-banner",
             str(output),
             stdout=asyncio.subprocess.PIPE,
@@ -149,12 +168,17 @@ async def capture_snapshot(
     try:
         result = await asyncio.create_subprocess_exec(
             "raspistill",
-            "-o", str(output),
-            "-w", str(resolution[0]),
-            "-h", str(resolution[1]),
-            "-q", str(quality),
+            "-o",
+            str(output),
+            "-w",
+            str(resolution[0]),
+            "-h",
+            str(resolution[1]),
+            "-q",
+            str(quality),
             "-n",
-            "-t", "2000",
+            "-t",
+            "2000",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -192,6 +216,7 @@ async def describe_image(
         # Versuche den Standard-Client zu laden
         try:
             from piclaw.llm import get_client
+
             llm_client = get_client()
         except Exception:
             return "Kein LLM-Client verfügbar für Vision."
@@ -214,10 +239,11 @@ async def describe_image(
 
 # ── Zeitraffer ────────────────────────────────────────────────────
 
+
 @dataclass
 class TimelapseConfig:
     interval_s: int = 60
-    max_frames: int = 1440          # 24h bei 1fps
+    max_frames: int = 1440  # 24h bei 1fps
     output_dir: Path = field(default_factory=lambda: CAPTURE_DIR / "timelapse")
     name: str = "timelapse"
     resolution: tuple[int, int] = (1280, 720)
@@ -295,8 +321,14 @@ TOOL_DEFS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "filename": {"type": "string", "description": "Optionaler Dateiname (ohne Pfad). Standard: snapshot_<timestamp>.jpg"},
-                "resolution": {"type": "string", "description": "Auflösung: 'hd' (1920x1080), 'fhd' (1920x1080), '4k' (3840x2160). Standard: hd"},
+                "filename": {
+                    "type": "string",
+                    "description": "Optionaler Dateiname (ohne Pfad). Standard: snapshot_<timestamp>.jpg",
+                },
+                "resolution": {
+                    "type": "string",
+                    "description": "Auflösung: 'hd' (1920x1080), 'fhd' (1920x1080), '4k' (3840x2160). Standard: hd",
+                },
             },
         },
     },
@@ -306,7 +338,10 @@ TOOL_DEFS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "prompt": {"type": "string", "description": "Aufgabe/Frage für das Vision-LLM. Standard: allgemeine Beschreibung"},
+                "prompt": {
+                    "type": "string",
+                    "description": "Aufgabe/Frage für das Vision-LLM. Standard: allgemeine Beschreibung",
+                },
             },
         },
     },
@@ -322,8 +357,14 @@ TOOL_DEFS = [
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Name des Zeitraffers"},
-                "interval_s": {"type": "integer", "description": "Intervall in Sekunden (z.B. 60 für 1 Foto/Min)"},
-                "max_frames": {"type": "integer", "description": "Max. Anzahl Fotos (Standard: 1440)"},
+                "interval_s": {
+                    "type": "integer",
+                    "description": "Intervall in Sekunden (z.B. 60 für 1 Foto/Min)",
+                },
+                "max_frames": {
+                    "type": "integer",
+                    "description": "Max. Anzahl Fotos (Standard: 1440)",
+                },
             },
             "required": ["name", "interval_s"],
         },
@@ -334,7 +375,10 @@ TOOL_DEFS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Name des zu stoppenden Zeitraffers"}
+                "name": {
+                    "type": "string",
+                    "description": "Name des zu stoppenden Zeitraffers",
+                }
             },
             "required": ["name"],
         },
@@ -374,7 +418,9 @@ async def handle_tool(name: str, params: dict, llm_client=None) -> str:
             return "Keine Kameras gefunden. Ist eine Pi Camera oder USB-Webcam angeschlossen?"
         lines = [f"Gefundene Kameras ({len(cameras)}):"]
         for cam in cameras:
-            lines.append(f"  [{cam.index}] {cam.name} ({cam.driver}, {cam.resolution[0]}x{cam.resolution[1]})")
+            lines.append(
+                f"  [{cam.index}] {cam.name} ({cam.driver}, {cam.resolution[0]}x{cam.resolution[1]})"
+            )
         return "\n".join(lines)
 
     elif name == "camera_timelapse_start":

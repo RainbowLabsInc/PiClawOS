@@ -34,40 +34,40 @@ from piclaw.taskutils import create_background_task
 log = logging.getLogger("piclaw.hardware.thermal")
 
 # ── Thresholds ────────────────────────────────────────────────────
-TEMP_COOL_C  = 55.0   # below this: local inference freely allowed
-TEMP_WARN_C  = 70.0   # above this: prefer cloud, warn user
-TEMP_CRIT_C  = 80.0   # above this: local inference disabled
-TEMP_EMERG_C = 85.0   # above this: send alert, throttle all operations
+TEMP_COOL_C = 55.0  # below this: local inference freely allowed
+TEMP_WARN_C = 70.0  # above this: prefer cloud, warn user
+TEMP_CRIT_C = 80.0  # above this: local inference disabled
+TEMP_EMERG_C = 85.0  # above this: send alert, throttle all operations
 
 # Fan control defaults
-FAN_PWM_PIN      = 14    # BCM pin, change in config
-FAN_MIN_DUTY     = 20.0  # minimum PWM% to spin fan
-FAN_FULL_DUTY    = 100.0
+FAN_PWM_PIN = 14  # BCM pin, change in config
+FAN_MIN_DUTY = 20.0  # minimum PWM% to spin fan
+FAN_FULL_DUTY = 100.0
 FAN_START_TEMP_C = 50.0  # fan starts spinning above this temp
-FAN_FULL_TEMP_C  = 75.0  # fan at full speed above this temp
+FAN_FULL_TEMP_C = 75.0  # fan at full speed above this temp
 
 # Polling interval
-POLL_INTERVAL_S = 15     # check temperature every N seconds
+POLL_INTERVAL_S = 15  # check temperature every N seconds
 
 
 class ThermalState(Enum):
-    COOL     = "cool"     # < 55°C: all good, local inference ok
-    WARM     = "warm"     # 55–70°C: local inference ok with monitoring
-    HOT      = "hot"      # 70–80°C: prefer cloud API, warn
-    CRITICAL = "critical" # 80–85°C: local disabled
-    EMERGENCY= "emergency"# > 85°C: everything throttled, alert sent
+    COOL = "cool"  # < 55°C: all good, local inference ok
+    WARM = "warm"  # 55–70°C: local inference ok with monitoring
+    HOT = "hot"  # 70–80°C: prefer cloud API, warn
+    CRITICAL = "critical"  # 80–85°C: local disabled
+    EMERGENCY = "emergency"  # > 85°C: everything throttled, alert sent
 
 
 @dataclass
 class ThermalStatus:
-    temp_c:     float
-    state:      ThermalState
-    local_ok:   bool        # is local LLM inference allowed?
-    cloud_pref: bool        # should we prefer cloud over local?
-    message:    str
-    throttle_active: bool = False   # Pi currently throttled by firmware
-    under_voltage:   bool = False
-    timestamp:  str = ""
+    temp_c: float
+    state: ThermalState
+    local_ok: bool  # is local LLM inference allowed?
+    cloud_pref: bool  # should we prefer cloud over local?
+    message: str
+    throttle_active: bool = False  # Pi currently throttled by firmware
+    under_voltage: bool = False
+    timestamp: str = ""
 
     def __post_init__(self):
         if not self.timestamp:
@@ -75,14 +75,14 @@ class ThermalStatus:
 
     def to_dict(self) -> dict:
         return {
-            "temp_c":        self.temp_c,
-            "state":         self.state.value,
-            "local_ok":      self.local_ok,
-            "cloud_pref":    self.cloud_pref,
-            "message":       self.message,
-            "throttle":      self.throttle_active,
+            "temp_c": self.temp_c,
+            "state": self.state.value,
+            "local_ok": self.local_ok,
+            "cloud_pref": self.cloud_pref,
+            "message": self.message,
+            "throttle": self.throttle_active,
             "under_voltage": self.under_voltage,
-            "timestamp":     self.timestamp,
+            "timestamp": self.timestamp,
         }
 
 
@@ -98,24 +98,25 @@ def classify_temp(temp_c: float) -> ThermalState:
     return ThermalState.COOL
 
 
-def make_status(temp_c: float,
-                throttle_active: bool = False,
-                under_voltage: bool = False) -> ThermalStatus:
+def make_status(
+    temp_c: float, throttle_active: bool = False, under_voltage: bool = False
+) -> ThermalStatus:
     state = classify_temp(temp_c)
     return ThermalStatus(
-        temp_c   = temp_c,
-        state    = state,
-        local_ok = state not in (ThermalState.CRITICAL, ThermalState.EMERGENCY),
-        cloud_pref = state in (ThermalState.HOT, ThermalState.CRITICAL, ThermalState.EMERGENCY),
-        message  = {
-            ThermalState.COOL:      f"✅ {temp_c:.1f}°C – nominal",
-            ThermalState.WARM:      f"🟡 {temp_c:.1f}°C – warm, monitor",
-            ThermalState.HOT:       f"🟠 {temp_c:.1f}°C – hot, prefer cloud LLM",
-            ThermalState.CRITICAL:  f"🔴 {temp_c:.1f}°C – critical, local LLM disabled",
+        temp_c=temp_c,
+        state=state,
+        local_ok=state not in (ThermalState.CRITICAL, ThermalState.EMERGENCY),
+        cloud_pref=state
+        in (ThermalState.HOT, ThermalState.CRITICAL, ThermalState.EMERGENCY),
+        message={
+            ThermalState.COOL: f"✅ {temp_c:.1f}°C – nominal",
+            ThermalState.WARM: f"🟡 {temp_c:.1f}°C – warm, monitor",
+            ThermalState.HOT: f"🟠 {temp_c:.1f}°C – hot, prefer cloud LLM",
+            ThermalState.CRITICAL: f"🔴 {temp_c:.1f}°C – critical, local LLM disabled",
             ThermalState.EMERGENCY: f"⚠️  {temp_c:.1f}°C – EMERGENCY, throttling all ops",
         }[state],
-        throttle_active = throttle_active,
-        under_voltage   = under_voltage,
+        throttle_active=throttle_active,
+        under_voltage=under_voltage,
     )
 
 
@@ -146,12 +147,14 @@ def local_inference_allowed() -> bool:
 
 # ── Fan control ───────────────────────────────────────────────────
 
+
 async def _set_fan(duty: float):
     """Set fan PWM duty cycle. Silently fails if no fan connected."""
     global _fan_on
     try:
         from piclaw.tools.gpio import gpio_pwm
-        await gpio_pwm(FAN_PWM_PIN, duty, frequency=25)   # 25Hz standard for PC fans
+
+        await gpio_pwm(FAN_PWM_PIN, duty, frequency=25)  # 25Hz standard for PC fans
         _fan_on = duty > 0
     except Exception as _e:
         log.debug("Fan init failed: %s", _e)
@@ -164,16 +167,17 @@ def _calc_fan_duty(temp_c: float) -> float:
     if temp_c >= FAN_FULL_TEMP_C:
         return FAN_FULL_DUTY
     pct = (temp_c - FAN_START_TEMP_C) / (FAN_FULL_TEMP_C - FAN_START_TEMP_C) * 100
-    return max(FAN_MIN_DUTY, pct)   # never below minimum once started
+    return max(FAN_MIN_DUTY, pct)  # never below minimum once started
 
 
 # ── Monitoring loop ───────────────────────────────────────────────
 
+
 async def run_thermal_monitor(
-    notify_fn:    Optional[Callable[[str], Awaitable]] = None,
-    memory_fn:    Optional[Callable[[str], Awaitable]] = None,
-    fan_enabled:  bool = False,
-    stop_event:   Optional[asyncio.Event] = None,
+    notify_fn: Optional[Callable[[str], Awaitable]] = None,
+    memory_fn: Optional[Callable[[str], Awaitable]] = None,
+    fan_enabled: bool = False,
+    stop_event: Optional[asyncio.Event] = None,
 ):
     """
     Background task: polls temperature, updates _current_status,
@@ -185,6 +189,7 @@ async def run_thermal_monitor(
     global _current_status, _alert_sent_for_state
 
     from piclaw.hardware.pi_info import current_temp, is_throttled
+
     log.info("Thermal monitor started")
 
     prev_state = None
@@ -198,7 +203,7 @@ async def run_thermal_monitor(
                 continue
 
             throttled = is_throttled()
-            status    = make_status(temp, throttle_active=throttled)
+            status = make_status(temp, throttle_active=throttled)
             _current_status = status
 
             # Fan control
@@ -208,20 +213,29 @@ async def run_thermal_monitor(
 
             # State transition handling
             if status.state != prev_state:
-                log.info("Thermal state change: %s → %s (%.1f°C)", prev_state, status.state.value, temp)
+                log.info(
+                    "Thermal state change: %s → %s (%.1f°C)",
+                    prev_state,
+                    status.state.value,
+                    temp,
+                )
 
                 # Log to memory
                 if memory_fn and prev_state is not None:
-                    ts  = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    msg = (f"[{ts}] Thermal event: {status.state.value} at {temp:.1f}°C "
-                           f"(was {prev_state.value if prev_state else 'unknown'}). "
-                           f"Local LLM: {'OK' if status.local_ok else 'DISABLED'}")
+                    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    msg = (
+                        f"[{ts}] Thermal event: {status.state.value} at {temp:.1f}°C "
+                        f"(was {prev_state.value if prev_state else 'unknown'}). "
+                        f"Local LLM: {'OK' if status.local_ok else 'DISABLED'}"
+                    )
                     create_background_task(memory_fn(msg))
 
                 # Alert on critical / emergency
-                if (status.state in (ThermalState.CRITICAL, ThermalState.EMERGENCY)
-                        and notify_fn
-                        and _alert_sent_for_state != status.state):
+                if (
+                    status.state in (ThermalState.CRITICAL, ThermalState.EMERGENCY)
+                    and notify_fn
+                    and _alert_sent_for_state != status.state
+                ):
                     alert = (
                         "🌡️ PiClaw Thermal Alert\n"
                         f"Temperature: {temp:.1f}°C – {status.state.value.upper()}\n"
@@ -259,6 +273,7 @@ async def run_thermal_monitor(
 
 
 # ── Context for agent ─────────────────────────────────────────────
+
 
 def thermal_context_line() -> str:
     """One-liner for system prompt injection."""

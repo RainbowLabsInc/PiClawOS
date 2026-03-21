@@ -18,40 +18,41 @@ Timing constraints:
 """
 
 import asyncio
-import hashlib
-import json
 import logging
 import re
 import signal
 import sys
-import time
 from datetime import datetime, timedelta
 from html.parser import HTMLParser
-from pathlib import Path
-from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import aiohttp
 
 from piclaw.agents.ipc import (
-    CrawlJob, CrawlMode, JobStatus,
-    write_job_result, update_job_status,
-    list_jobs, get_job, init_jobs_db,
+    CrawlJob,
+    CrawlMode,
+    JobStatus,
+    write_job_result,
+    update_job_status,
+    list_jobs,
+    get_job,
+    init_jobs_db,
 )
 from piclaw.config import load as load_cfg, CONFIG_DIR
-from piclaw.memory.store import write_fact, write_daily_note
+from piclaw.memory.store import write_fact
 from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.agents.crawler")
 
-REQUEST_TIMEOUT = 15     # seconds per HTTP request
-PAGE_TIMEOUT    = 15     # seconds per page processing
-API_PORT        = 7842   # mainagent API for LLM access
-POLL_INTERVAL   = 10     # seconds between job queue polls
-CRAWL_LOG_DIR   = CONFIG_DIR / "logs" / "crawler"
+REQUEST_TIMEOUT = 15  # seconds per HTTP request
+PAGE_TIMEOUT = 15  # seconds per page processing
+API_PORT = 7842  # mainagent API for LLM access
+POLL_INTERVAL = 10  # seconds between job queue polls
+CRAWL_LOG_DIR = CONFIG_DIR / "logs" / "crawler"
 
 
 # ── HTML text extractor ───────────────────────────────────────────
+
 
 class _TextExtractor(HTMLParser):
     def __init__(self):
@@ -88,6 +89,7 @@ class _TextExtractor(HTMLParser):
 
 # ── Crawler core ──────────────────────────────────────────────────
 
+
 class WebCrawler:
     def __init__(self):
         self._running_jobs: set[str] = set()
@@ -97,18 +99,22 @@ class WebCrawler:
 
     # ── HTTP helpers ─────────────────────────────────────────────
 
-    async def _fetch(self, session: aiohttp.ClientSession,
-                     url: str) -> tuple[str, str, list[str]]:
+    async def _fetch(
+        self, session: aiohttp.ClientSession, url: str
+    ) -> tuple[str, str, list[str]]:
         """Fetch a URL, return (text, final_url, links)."""
         # (v0.18) Try Tandem Browser first if it looks like a complex site or fallback
         try:
             from piclaw.tools import tandem
+
             if tandem.TOKEN_FILE.exists():
-                log.debug("Tandem Browser detected – using for enhanced crawling: %s", url)
+                log.debug(
+                    "Tandem Browser detected – using for enhanced crawling: %s", url
+                )
                 # Note: This is a simplified integration. For production, we'd
                 # manage tab IDs more strictly.
                 await tandem.browser_open(url, focus=False)
-                await asyncio.sleep(3) # Wait for JS to render
+                await asyncio.sleep(3)  # Wait for JS to render
                 snap_raw = await tandem.browser_snapshot(compact=True)
                 # We return the snapshot as text. Tandem doesn't return links in compact snap yet
                 # in a way we can easily use here without more parsing logic.
@@ -126,7 +132,7 @@ class WebCrawler:
                 max_redirects=5,
             ) as resp:
                 resp.raise_for_status()
-                ct  = resp.content_type or ""
+                ct = resp.content_type or ""
                 raw = await resp.text(errors="replace")
                 final_url = str(resp.url)
 
@@ -134,7 +140,9 @@ class WebCrawler:
                     p = _TextExtractor()
                     p.feed(raw)
                     # Resolve relative links
-                    base = f"{urlparse(final_url).scheme}://{urlparse(final_url).netloc}"
+                    base = (
+                        f"{urlparse(final_url).scheme}://{urlparse(final_url).netloc}"
+                    )
                     abs_links = []
                     for link in p.links:
                         if link.startswith("http"):
@@ -211,12 +219,12 @@ class WebCrawler:
             ]
 
         headers = {"User-Agent": "PiClaw-Crawler/1.0 (Raspberry Pi research bot)"}
-        all_text   = []
+        all_text = []
         pages_done = 0
         found_match = ""
 
         async with aiohttp.ClientSession(headers=headers) as session:
-            queue  = list(seeds[:job.max_pages])
+            queue = list(seeds[: job.max_pages])
             visited: set[str] = set()
 
             while queue and pages_done < job.max_pages:
@@ -234,21 +242,24 @@ class WebCrawler:
                     # until_found check
                     if job.mode == CrawlMode.UNTIL_FOUND and job.until_pattern:
                         if re.search(job.until_pattern, text, re.IGNORECASE):
-                            found_match = f"Pattern '{job.until_pattern}' found at {final_url}"
+                            found_match = (
+                                f"Pattern '{job.until_pattern}' found at {final_url}"
+                            )
                             log.info(found_match)
                             break
 
                     # Depth expansion
                     if job.max_depth > 1:
                         same_domain = [
-                            l for l in links
+                            l
+                            for l in links
                             if urlparse(l).netloc == urlparse(url).netloc
                             and l not in visited
                         ]
                         queue.extend(same_domain[:3])
 
         combined = "\n\n".join(all_text)
-        summary  = await self._summarise(job.query, combined)
+        summary = await self._summarise(job.query, combined)
 
         # Persist to memory
         write_fact(
@@ -259,7 +270,9 @@ class WebCrawler:
         write_job_result(job.id, pages_done, summary, combined, found_match)
 
         # Log
-        log_path = CRAWL_LOG_DIR / f"{job.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        log_path = (
+            CRAWL_LOG_DIR / f"{job.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        )
         log_path.write_text(
             f"# Crawl: {job.query}\n"
             f"Date: {datetime.now().isoformat()}\n"
@@ -283,9 +296,7 @@ class WebCrawler:
         """Start a background task for recurring/until_found jobs."""
         if job.id in self._scheduler_tasks:
             return
-        task = asyncio.create_task(
-            self._job_loop(job), name=f"crawl-{job.id}"
-        )
+        task = asyncio.create_task(self._job_loop(job), name=f"crawl-{job.id}")
         self._scheduler_tasks[job.id] = task
 
     async def _job_loop(self, job: CrawlJob):
@@ -303,7 +314,7 @@ class WebCrawler:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=sleep)
                 break  # stop event fired
             except asyncio.TimeoutError:
-                pass   # normal: time to run
+                pass  # normal: time to run
 
             fresh = get_job(job.id)
             if not fresh or fresh.status == JobStatus.CANCELLED:
@@ -334,12 +345,15 @@ class WebCrawler:
         try:
             url = f"https://api.telegram.org/bot{token}/sendMessage"
             async with aiohttp.ClientSession() as s:
-                for chunk in [text[i:i+4096] for i in range(0, len(text), 4096)]:
-                    await s.post(url, json={
-                        "chat_id": chat_id,
-                        "text": chunk,
-                        "parse_mode": "Markdown",
-                    })
+                for chunk in [text[i : i + 4096] for i in range(0, len(text), 4096)]:
+                    await s.post(
+                        url,
+                        json={
+                            "chat_id": chat_id,
+                            "text": chunk,
+                            "parse_mode": "Markdown",
+                        },
+                    )
         except Exception as e:
             log.error("Telegram notify failed: %s", e)
 
@@ -350,6 +364,7 @@ class WebCrawler:
         try:
             from croniter import croniter
             from datetime import datetime as dt
+
             nxt = croniter(cron, dt.now()).get_next(dt)
             return max(1, int((nxt - dt.now()).total_seconds()))
         except ImportError:
@@ -362,7 +377,9 @@ class WebCrawler:
                     now = datetime.now()
                     target = now.replace(hour=h, minute=m, second=0, microsecond=0)
                     if target <= now:
-                        target += timedelta(days=1)  # timedelta statt .day+1 (kein overflow am Monatsende)
+                        target += timedelta(
+                            days=1
+                        )  # timedelta statt .day+1 (kein overflow am Monatsende)
                     return max(60, int((target - now).total_seconds()))
                 except Exception as _e:
                     log.debug("schedule time parse: %s", _e)
@@ -378,7 +395,8 @@ class WebCrawler:
         # Re-schedule any surviving recurring jobs
         for job in list_jobs():
             if job.mode != CrawlMode.ONCE and job.status not in (
-                JobStatus.CANCELLED, JobStatus.FAILED
+                JobStatus.CANCELLED,
+                JobStatus.FAILED,
             ):
                 log.info("Resuming recurring job: %s '%s'", job.id, job.query)
                 self.schedule_job(job)
@@ -407,6 +425,7 @@ class WebCrawler:
 
 # ── Entrypoint ────────────────────────────────────────────────────
 
+
 def run():
     logging.basicConfig(
         level=logging.INFO,
@@ -422,7 +441,7 @@ def run():
         crawler.stop()
 
     signal.signal(signal.SIGTERM, _sig)
-    signal.signal(signal.SIGINT,  _sig)
+    signal.signal(signal.SIGINT, _sig)
 
     asyncio.run(crawler.run_daemon())
 

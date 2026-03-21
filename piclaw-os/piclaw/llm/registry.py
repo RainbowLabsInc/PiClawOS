@@ -25,7 +25,6 @@ Tags are free-form strings. Built-in tag categories (used by the classifier):
 import json
 import logging
 from dataclasses import dataclass, field, asdict
-from pathlib import Path
 from typing import Optional
 
 from piclaw.config import CONFIG_DIR
@@ -37,18 +36,18 @@ REGISTRY_FILE = CONFIG_DIR / "llm_registry.json"
 
 @dataclass
 class BackendConfig:
-    name:        str         # unique identifier
-    provider:    str         # anthropic | openai | ollama | local
-    model:       str
-    tags:        list[str]   = field(default_factory=list)
-    priority:    int         = 5       # 1–10, higher = preferred
-    api_key:     str         = ""      # empty = use global config key
-    base_url:    str         = ""      # empty = provider default
-    enabled:     bool        = True
-    max_tokens:  int         = 4096
-    temperature: float       = 0.7
-    timeout:     int         = 60
-    notes:       str         = ""      # user-visible description
+    name: str  # unique identifier
+    provider: str  # anthropic | openai | ollama | local
+    model: str
+    tags: list[str] = field(default_factory=list)
+    priority: int = 5  # 1–10, higher = preferred
+    api_key: str = ""  # empty = use global config key
+    base_url: str = ""  # empty = provider default
+    enabled: bool = True
+    max_tokens: int = 4096
+    temperature: float = 0.7
+    timeout: int = 60
+    notes: str = ""  # user-visible description
 
     def has_tag(self, tag: str) -> bool:
         return tag.lower() in [t.lower() for t in self.tags]
@@ -77,9 +76,7 @@ class LLMRegistry:
             return
         try:
             data = json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
-            self._backends = {
-                k: BackendConfig(**v) for k, v in data.items()
-            }
+            self._backends = {k: BackendConfig(**v) for k, v in data.items()}
             log.info("LLM registry loaded: %s backends", len(self._backends))
         except Exception as e:
             log.error("Registry load error: %s", e)
@@ -89,6 +86,7 @@ class LLMRegistry:
         REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
         data = {k: asdict(v) for k, v in self._backends.items()}
         from piclaw.fileutils import safe_write_json
+
         safe_write_json(REGISTRY_FILE, data, label="llm_registry")
 
     # ── CRUD ──────────────────────────────────────────────────────
@@ -119,18 +117,16 @@ class LLMRegistry:
         return self._backends.get(name)
 
     def list_all(self) -> list[BackendConfig]:
-        return sorted(
-            self._backends.values(),
-            key=lambda b: (-b.priority, b.name)
-        )
+        return sorted(self._backends.values(), key=lambda b: (-b.priority, b.name))
 
     def list_enabled(self) -> list[BackendConfig]:
         return [b for b in self.list_all() if b.enabled]
 
     # ── Tag-based lookup ──────────────────────────────────────────
 
-    def find_by_tags(self, tags: list[str],
-                     min_overlap: int = 1) -> list[BackendConfig]:
+    def find_by_tags(
+        self, tags: list[str], min_overlap: int = 1
+    ) -> list[BackendConfig]:
         """
         Return enabled backends sorted by tag overlap (descending),
         then priority (descending).
@@ -186,7 +182,7 @@ class LLMRegistry:
 
         # Kimi K2 via NVIDIA NIM bekommt empfohlene temperature=0.6
         is_nim = self._NVIDIA_NIM_URL in (llm.base_url or "")
-        temp   = 0.6 if is_nim else 0.7
+        temp = 0.6 if is_nim else 0.7
 
         name = f"{llm.backend}-default"
         default = BackendConfig(
@@ -245,7 +241,9 @@ class LLMRegistry:
             ),
         )
         self.add(nemotron)
-        log.info("Registry: Nemotron-Backend hinzugefügt (nvidia/nemotron-super-49b-v1)")
+        log.info(
+            "Registry: Nemotron-Backend hinzugefügt (nvidia/nemotron-super-49b-v1)"
+        )
         return True
 
     # ── Status summary ────────────────────────────────────────────
@@ -257,7 +255,7 @@ class LLMRegistry:
         lines = [f"LLM Backends ({len(backends)} registered):\n"]
         for b in backends:
             status = "✅" if b.enabled else "⏸"
-            key    = "🔑" if b.api_key else "  "
+            key = "🔑" if b.api_key else "  "
             lines.append(
                 f"  {status} {key} [{b.priority:2}] {b.name}\n"
                 f"        {b.provider}/{b.model}\n"

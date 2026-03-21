@@ -9,24 +9,26 @@ Design rules:
 
 import asyncio
 import logging
-from datetime import datetime
 
 log = logging.getLogger(__name__)
 
 from piclaw.llm.base import ToolDefinition
 from piclaw.agents.ipc import (
-    CrawlJob, CrawlMode, JobStatus,
-    write_job, cancel_job, list_jobs, get_job,
-    get_unsent_alerts, get_unsent_reports,
-    mark_alert_sent, mark_report_sent,
+    CrawlJob,
+    write_job,
+    cancel_job,
+    list_jobs,
+    get_job,
+    get_unsent_alerts,
+    get_unsent_reports,
+    mark_alert_sent,
+    mark_report_sent,
     get_recent_alerts,
 )
 
 
 TOOL_DEFS = [
-
     # ── Crawler tools ─────────────────────────────────────────────
-
     ToolDefinition(
         name="crawl_create",
         description=(
@@ -38,7 +40,7 @@ TOOL_DEFS = [
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "What to search for / research topic"
+                    "description": "What to search for / research topic",
                 },
                 "mode": {
                     "type": "string",
@@ -48,49 +50,48 @@ TOOL_DEFS = [
                         "recurring=cron/interval schedule until cancelled, "
                         "until_found=repeat until pattern found then auto-stop"
                     ),
-                    "default": "once"
+                    "default": "once",
                 },
                 "cron": {
                     "type": "string",
-                    "description": "Cron expression for recurring mode (e.g. '0 8 * * *' = daily 08:00)"
+                    "description": "Cron expression for recurring mode (e.g. '0 8 * * *' = daily 08:00)",
                 },
                 "interval_sec": {
                     "type": "integer",
-                    "description": "Repeat every N seconds (alternative to cron)"
+                    "description": "Repeat every N seconds (alternative to cron)",
                 },
                 "urls": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Optional seed URLs. If empty, uses DuckDuckGo search."
+                    "description": "Optional seed URLs. If empty, uses DuckDuckGo search.",
                 },
                 "max_pages": {
                     "type": "integer",
                     "description": "Max pages per run (default 10, max 50)",
-                    "default": 10
+                    "default": 10,
                 },
                 "max_depth": {
                     "type": "integer",
                     "description": "Link-following depth (1=only seeds, 2=follow links)",
-                    "default": 1
+                    "default": 1,
                 },
                 "timeout_sec": {
                     "type": "integer",
                     "description": "Hard job timeout in seconds (default 300)",
-                    "default": 300
+                    "default": 300,
                 },
                 "until_pattern": {
                     "type": "string",
-                    "description": "Regex pattern for until_found mode (e.g. 'price.*€[0-9]+')"
+                    "description": "Regex pattern for until_found mode (e.g. 'price.*€[0-9]+')",
                 },
                 "notify_chat": {
                     "type": "string",
-                    "description": "Telegram chat_id to notify when done"
+                    "description": "Telegram chat_id to notify when done",
                 },
             },
             "required": ["query"],
         },
     ),
-
     ToolDefinition(
         name="crawl_list",
         description="List all crawl jobs and their current status.",
@@ -99,13 +100,19 @@ TOOL_DEFS = [
             "properties": {
                 "status_filter": {
                     "type": "string",
-                    "enum": ["all", "pending", "running", "done", "failed", "cancelled"],
-                    "default": "all"
+                    "enum": [
+                        "all",
+                        "pending",
+                        "running",
+                        "done",
+                        "failed",
+                        "cancelled",
+                    ],
+                    "default": "all",
                 }
-            }
+            },
         },
     ),
-
     ToolDefinition(
         name="crawl_cancel",
         description="Cancel a recurring or pending crawl job by ID.",
@@ -117,21 +124,16 @@ TOOL_DEFS = [
             "required": ["job_id"],
         },
     ),
-
     ToolDefinition(
         name="crawl_result",
         description="Get the latest result of a specific crawl job.",
         parameters={
             "type": "object",
-            "properties": {
-                "job_id": {"type": "string"}
-            },
+            "properties": {"job_id": {"type": "string"}},
             "required": ["job_id"],
         },
     ),
-
     # ── Watchdog tools (READ-ONLY) ────────────────────────────────
-
     ToolDefinition(
         name="watchdog_alerts",
         description=(
@@ -144,17 +146,16 @@ TOOL_DEFS = [
                 "unsent_only": {
                     "type": "boolean",
                     "description": "Only show alerts not yet sent via Telegram",
-                    "default": False
+                    "default": False,
                 },
                 "limit": {
                     "type": "integer",
                     "description": "Max alerts to return (default 10)",
-                    "default": 10
-                }
-            }
+                    "default": 10,
+                },
+            },
         },
     ),
-
     ToolDefinition(
         name="watchdog_forward",
         description=(
@@ -163,7 +164,6 @@ TOOL_DEFS = [
         ),
         parameters={"type": "object", "properties": {}},
     ),
-
     ToolDefinition(
         name="watchdog_status",
         description="Get a summary of the watchdog's current health assessment.",
@@ -173,6 +173,7 @@ TOOL_DEFS = [
 
 
 # ── Handlers ─────────────────────────────────────────────────────
+
 
 def build_handlers(telegram_send_fn) -> dict:
     """
@@ -224,15 +225,18 @@ def build_handlers(telegram_send_fn) -> dict:
         )
 
     async def crawl_list(status_filter: str = "all") -> str:
-        sf   = None if status_filter == "all" else status_filter
+        sf = None if status_filter == "all" else status_filter
         jobs = list_jobs(status=sf)
         if not jobs:
             return f"No crawl jobs{f' with status {status_filter}' if sf else ''}."
         lines = [f"Crawl jobs ({len(jobs)} total):\n"]
         for j in jobs:
             icon = {
-                "pending": "⏳", "running": "🔄", "done": "✅",
-                "failed": "❌", "cancelled": "🚫"
+                "pending": "⏳",
+                "running": "🔄",
+                "done": "✅",
+                "failed": "❌",
+                "cancelled": "🚫",
             }.get(j.status, "?")
             sched = j.cron or (f"{j.interval_sec}s" if j.interval_sec else "once")
             lines.append(
@@ -260,8 +264,7 @@ def build_handlers(telegram_send_fn) -> dict:
             f"Result:\n{job.last_result or '(no result yet)'}"
         )
 
-    async def watchdog_alerts(unsent_only: bool = False,
-                               limit: int = 10) -> str:
+    async def watchdog_alerts(unsent_only: bool = False, limit: int = 10) -> str:
         if unsent_only:
             alerts = get_unsent_alerts()[:limit]
         else:
@@ -273,25 +276,26 @@ def build_handlers(telegram_send_fn) -> dict:
         icons = {"info": "ℹ️", "warning": "⚠️", "critical": "⛔"}
         lines = [f"Watchdog alerts ({len(alerts)}):\n"]
         for a in alerts:
-            sev  = a["severity"] if isinstance(a, dict) else a.severity
-            cat  = a["category"] if isinstance(a, dict) else a.category
-            msg  = a["message"]  if isinstance(a, dict) else a.message
-            ts   = a["ts"]       if isinstance(a, dict) else a.ts
+            sev = a["severity"] if isinstance(a, dict) else a.severity
+            cat = a["category"] if isinstance(a, dict) else a.category
+            msg = a["message"] if isinstance(a, dict) else a.message
+            ts = a["ts"] if isinstance(a, dict) else a.ts
             icon = icons.get(sev, "?")
             lines.append(f"  {icon} [{cat}] {msg}\n     {ts}")
         return "\n\n".join(lines)
 
     async def watchdog_forward() -> str:
         """Forward unsent alerts/reports via mainagent Telegram."""
-        alerts  = get_unsent_alerts()
+        alerts = get_unsent_alerts()
         reports = get_unsent_reports()
-        sent    = 0
+        sent = 0
 
         for alert in alerts:
             if not telegram_send_fn:
                 break
             icon = {"info": "ℹ️", "warning": "⚠️", "critical": "⛔"}.get(
-                alert.severity, "?")
+                alert.severity, "?"
+            )
             text = (
                 f"{icon} *Watchdog Alert*\n"
                 f"[{alert.category.upper()}] {alert.message}\n"
@@ -312,30 +316,39 @@ def build_handlers(telegram_send_fn) -> dict:
 
     async def watchdog_status() -> str:
         import psutil
+
         alerts = get_recent_alerts(limit=50)
-        crits  = sum(1 for a in alerts if a["severity"] == "critical")
-        warns  = sum(1 for a in alerts if a["severity"] == "warning")
+        crits = sum(1 for a in alerts if a["severity"] == "critical")
+        warns = sum(1 for a in alerts if a["severity"] == "warning")
 
         try:
             disk = psutil.disk_usage("/")
-            mem  = psutil.virtual_memory()
+            mem = psutil.virtual_memory()
             disk_pct = disk.percent
-            mem_pct  = mem.percent
+            mem_pct = mem.percent
         except Exception:
             disk_pct = mem_pct = 0
 
         temp = None
         try:
+
             def _read_temp() -> float:
-                with open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8") as f:
+                with open(
+                    "/sys/class/thermal/thermal_zone0/temp", encoding="utf-8"
+                ) as f:
                     return int(f.read()) / 1000
+
             temp = await asyncio.to_thread(_read_temp)
         except OSError as _e:
             log.debug("cpu temp read: %s", _e)
 
-        status = "🟢 All OK" if crits == 0 and warns == 0 else \
-                 "🔴 Critical issues" if crits > 0 else \
-                 "🟡 Warnings present"
+        status = (
+            "🟢 All OK"
+            if crits == 0 and warns == 0
+            else "🔴 Critical issues"
+            if crits > 0
+            else "🟡 Warnings present"
+        )
 
         return (
             f"Watchdog Status: {status}\n"
@@ -348,11 +361,11 @@ def build_handlers(telegram_send_fn) -> dict:
         )
 
     return {
-        "crawl_create":      lambda **kw: crawl_create(**kw),
-        "crawl_list":        lambda **kw: crawl_list(**kw),
-        "crawl_cancel":      lambda **kw: crawl_cancel(**kw),
-        "crawl_result":      lambda **kw: crawl_result(**kw),
-        "watchdog_alerts":   lambda **kw: watchdog_alerts(**kw),
-        "watchdog_forward":  lambda **_:  watchdog_forward(),
-        "watchdog_status":   lambda **_:  watchdog_status(),
+        "crawl_create": lambda **kw: crawl_create(**kw),
+        "crawl_list": lambda **kw: crawl_list(**kw),
+        "crawl_cancel": lambda **kw: crawl_cancel(**kw),
+        "crawl_result": lambda **kw: crawl_result(**kw),
+        "watchdog_alerts": lambda **kw: watchdog_alerts(**kw),
+        "watchdog_forward": lambda **_: watchdog_forward(),
+        "watchdog_status": lambda **_: watchdog_status(),
     }

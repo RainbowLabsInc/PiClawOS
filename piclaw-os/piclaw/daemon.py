@@ -15,23 +15,22 @@ import asyncio
 import logging
 import signal
 import sys
-from pathlib import Path
 
 from piclaw.config import load as load_cfg, LOG_DIR
-from piclaw.agent  import Agent
-from piclaw.agents import heartbeat_loop
+from piclaw.agent import Agent
 from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.daemon")
 
 
 async def _daemon_main():
-    cfg   = load_cfg()
+    cfg = load_cfg()
 
     # ── Messaging Hub (früh, damit Notify-Callbacks bereit sind) ──
     _hub = None
     try:
         from piclaw.messaging import build_hub
+
         _hub = build_hub(cfg)
     except Exception as e:
         log.warning("Messaging Hub Fehler: %s", e)
@@ -46,6 +45,7 @@ async def _daemon_main():
     # ── Home Assistant Connector ───────────────────────────────────
     try:
         from piclaw.tools import homeassistant as ha_mod
+
         ha_client = await ha_mod.start(notify_callback=_notify_all)
         if ha_client:
             ok, info = await ha_client.ping()
@@ -69,16 +69,19 @@ async def _daemon_main():
     # ── Proaktiver Agent ───────────────────────────────────────────
     try:
         from piclaw import proactive as proactive_mod
+
         proactive_runner = await proactive_mod.start(
-            cfg   = cfg,
-            hub   = _hub,
-            llm   = agent.llm,
-            agent = agent,
+            cfg=cfg,
+            hub=_hub,
+            llm=agent.llm,
+            agent=agent,
         )
         # Runner der Routinen-Tools bekannt machen
         agent._proactive = proactive_runner
-        log.info("Proaktiver Agent gestartet (%d Routinen aktiv)",
-                 len(proactive_runner.registry.enabled()))
+        log.info(
+            "Proaktiver Agent gestartet (%d Routinen aktiv)",
+            len(proactive_runner.registry.enabled()),
+        )
     except Exception as e:
         log.warning("Proaktiver Agent konnte nicht starten: %s", e)
 
@@ -94,15 +97,15 @@ async def _daemon_main():
                     log.debug("mem_log after_turn: %s", _e)
 
         fan_enabled = bool(
-            getattr(cfg, "hardware", None) and
-            getattr(cfg.hardware, "fan_enabled", False)
+            getattr(cfg, "hardware", None)
+            and getattr(cfg.hardware, "fan_enabled", False)
         )
         create_background_task(
             run_thermal_monitor(
-                notify_fn   = _notify_all,
-                memory_fn   = _mem_log,
-                fan_enabled = fan_enabled,
-                stop_event  = stop,
+                notify_fn=_notify_all,
+                memory_fn=_mem_log,
+                fan_enabled=fan_enabled,
+                stop_event=stop,
             ),
             name="thermal-monitor",
         )
@@ -126,11 +129,13 @@ async def _daemon_main():
             log.info("Stopped %s sub-agent(s).", n)
     try:
         from piclaw.tools import homeassistant as ha_mod
+
         await ha_mod.stop()
     except Exception as _e:
         log.debug("HA stop: %s", _e)
     try:
         from piclaw import proactive as proactive_mod
+
         await proactive_mod.stop()
     except Exception as _e:
         log.debug("proactive stop: %s", _e)

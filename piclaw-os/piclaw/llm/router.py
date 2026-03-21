@@ -23,38 +23,38 @@ from enum import Enum
 from typing import AsyncIterator, Optional
 
 from piclaw.config import PiClawConfig
-from piclaw.llm.base import LLMBackend, Message, ToolDefinition, ToolCall, LLMResponse
-from piclaw.llm.api   import AnthropicBackend, OpenAIBackend
+from piclaw.llm.base import LLMBackend, Message, ToolDefinition, LLMResponse
+from piclaw.llm.api import AnthropicBackend, OpenAIBackend
 from piclaw.llm.local import LocalBackend, DEFAULT_MODEL_PATH
 
 log = logging.getLogger("piclaw.llm.router")
 
 
 class BackendState(str, Enum):
-    BOOTING   = "booting"
-    LOCAL     = "local"
-    API       = "api"
+    BOOTING = "booting"
+    LOCAL = "local"
+    API = "api"
     SWITCHING = "switching"
 
 
 @dataclass
 class RouterStatus:
-    state:           BackendState = BackendState.BOOTING
-    active_backend:  str          = "none"
-    local_loaded:    bool         = False
-    api_reachable:   bool         = False
-    last_api_check:  float        = 0.0
-    last_api_error:  str          = ""
-    switch_count:    int          = 0
-    uptime_local_s:  float        = 0.0
-    uptime_api_s:    float        = 0.0
-    _state_since:    float        = field(default_factory=time.time)
+    state: BackendState = BackendState.BOOTING
+    active_backend: str = "none"
+    local_loaded: bool = False
+    api_reachable: bool = False
+    last_api_check: float = 0.0
+    last_api_error: str = ""
+    switch_count: int = 0
+    uptime_local_s: float = 0.0
+    uptime_api_s: float = 0.0
+    _state_since: float = field(default_factory=time.time)
 
     def summary(self) -> str:
         mode = {
-            BackendState.LOCAL:     "🟡 Offline / Local (Phi-3 Mini)",
-            BackendState.API:       "🟢 Online / Cloud API",
-            BackendState.BOOTING:   "⚪ Booting…",
+            BackendState.LOCAL: "🟡 Offline / Local (Phi-3 Mini)",
+            BackendState.API: "🟢 Online / Cloud API",
+            BackendState.BOOTING: "⚪ Booting…",
             BackendState.SWITCHING: "🔄 Switching…",
         }[self.state]
         age = int(time.time() - self._state_since)
@@ -68,9 +68,9 @@ class RouterStatus:
 
 
 # How long to wait for API connectivity check on boot
-API_CHECK_TIMEOUT   = 8      # seconds
+API_CHECK_TIMEOUT = 8  # seconds
 # How often to re-check API when in LOCAL mode
-API_RECHECK_INTERVAL = 60    # seconds
+API_RECHECK_INTERVAL = 60  # seconds
 # How many consecutive API failures before falling back
 API_FAILURE_THRESHOLD = 2
 
@@ -82,7 +82,7 @@ class SmartRouter(LLMBackend):
     """
 
     def __init__(self, cfg: PiClawConfig):
-        self.cfg    = cfg
+        self.cfg = cfg
         self.status = RouterStatus()
 
         # Instantiate backends
@@ -94,9 +94,9 @@ class SmartRouter(LLMBackend):
             temperature=cfg.llm.temperature,
         )
         self._api: Optional[LLMBackend] = self._build_api_backend()
-        self._active: LLMBackend        = self._local   # start with local
+        self._active: LLMBackend = self._local  # start with local
 
-        self._api_failures  = 0
+        self._api_failures = 0
         self._boot_complete = asyncio.Event()
         self._recheck_task: Optional[asyncio.Task] = None
 
@@ -105,8 +105,11 @@ class SmartRouter(LLMBackend):
         if not cfg.api_key:
             return None
         kw = dict(
-            api_key=cfg.api_key, model=cfg.model, base_url=cfg.base_url,
-            temperature=cfg.temperature, max_tokens=cfg.max_tokens,
+            api_key=cfg.api_key,
+            model=cfg.model,
+            base_url=cfg.base_url,
+            temperature=cfg.temperature,
+            max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
         )
         if cfg.backend == "anthropic":
@@ -124,10 +127,12 @@ class SmartRouter(LLMBackend):
           2. Check API connectivity
         Switches to API if available, stays local otherwise.
         """
-        log.info("SmartRouter booting – checking API and loading local model in parallel…")
+        log.info(
+            "SmartRouter booting – checking API and loading local model in parallel…"
+        )
         self.status.state = BackendState.BOOTING
 
-        api_task   = asyncio.create_task(self._check_api_connectivity())
+        api_task = asyncio.create_task(self._check_api_connectivity())
         local_task = asyncio.create_task(self._preload_local())
 
         # We don't wait for both to finish before proceeding –
@@ -139,7 +144,7 @@ class SmartRouter(LLMBackend):
             log.warning("API connectivity check timed out.")
             api_ok = False
 
-        self.status.api_reachable  = api_ok
+        self.status.api_reachable = api_ok
         self.status.last_api_check = time.time()
 
         if api_ok and self._api:
@@ -193,9 +198,9 @@ class SmartRouter(LLMBackend):
     # ── State transitions ─────────────────────────────────────────
 
     def _set_state(self, state: BackendState, backend_name: str):
-        self.status.state          = state
+        self.status.state = state
         self.status.active_backend = backend_name
-        self.status._state_since   = time.time()
+        self.status._state_since = time.time()
         if state == BackendState.API:
             self._active = self._api
         else:
@@ -209,7 +214,9 @@ class SmartRouter(LLMBackend):
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._local.unload)
             self.status.local_loaded = False
-        self._set_state(BackendState.API, f"api ({self.cfg.llm.backend}/{self.cfg.llm.model})")
+        self._set_state(
+            BackendState.API, f"api ({self.cfg.llm.backend}/{self.cfg.llm.model})"
+        )
         self.status.switch_count += 1
         log.info("Switched to API mode.")
 
@@ -227,7 +234,7 @@ class SmartRouter(LLMBackend):
                 return
         self._set_state(BackendState.LOCAL, "local (Phi-3 Mini)")
         self.status.switch_count += 1
-        log.warning("Switched to LOCAL mode. Reason: %s", reason or 'API failure')
+        log.warning("Switched to LOCAL mode. Reason: %s", reason or "API failure")
         self._start_recheck()
 
     # ── Background API re-checker ─────────────────────────────────
@@ -250,7 +257,7 @@ class SmartRouter(LLMBackend):
                 continue
             log.info("Re-checking API connectivity…")
             ok = await self._check_api_connectivity()
-            self.status.api_reachable  = ok
+            self.status.api_reachable = ok
             self.status.last_api_check = time.time()
             if ok:
                 log.info("API restored! Switching back to API mode.")
@@ -310,9 +317,8 @@ class SmartRouter(LLMBackend):
                     yield token
 
     async def health_check(self) -> bool:
-        return (
-            self.status.local_loaded or
-            (self._api is not None and self.status.api_reachable)
+        return self.status.local_loaded or (
+            self._api is not None and self.status.api_reachable
         )
 
     # ── Helpers ───────────────────────────────────────────────────
@@ -338,10 +344,10 @@ class SmartRouter(LLMBackend):
     def get_status_dict(self) -> dict:
         s = self.status
         return {
-            "mode":           s.state.value,
-            "backend":        s.active_backend,
-            "local_loaded":   s.local_loaded,
-            "api_reachable":  s.api_reachable,
+            "mode": s.state.value,
+            "backend": s.active_backend,
+            "local_loaded": s.local_loaded,
+            "api_reachable": s.api_reachable,
             "last_api_error": s.last_api_error,
-            "switch_count":   s.switch_count,
+            "switch_count": s.switch_count,
         }

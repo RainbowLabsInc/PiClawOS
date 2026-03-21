@@ -9,6 +9,7 @@ Schema:
 
 Retention: 7 Tage (default), konfigurierbar.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,9 +31,9 @@ _SECS_PER_DAY = 86_400  # Sekunden pro Tag
 logger = logging.getLogger(__name__)
 
 # ── Konfiguration ────────────────────────────────────────────────
-DB_DEFAULT   = Path("/etc/piclaw/metrics.db")
-RETENTION_S  = 7 * 24 * 3600   # 7 Tage
-COLLECT_S    = 30               # Sammle alle 30 Sekunden
+DB_DEFAULT = Path("/etc/piclaw/metrics.db")
+RETENTION_S = 7 * 24 * 3600  # 7 Tage
+COLLECT_S = 30  # Sammle alle 30 Sekunden
 
 
 # ── Datenmodell ──────────────────────────────────────────────────
@@ -62,9 +63,13 @@ class MetricsDB:
     def _conn(self):
         con = sqlite3.connect(self.path, check_same_thread=False)
         con.row_factory = sqlite3.Row
-        con.execute("PRAGMA journal_mode=WAL")      # besser bei gleichzeitigem Lesen/Schreiben
-        con.execute("PRAGMA synchronous=NORMAL")    # Geschwindigkeit ohne Datenverlust-Risiko
-        con.execute("PRAGMA cache_size=-4000")      # 4 MB Page-Cache
+        con.execute(
+            "PRAGMA journal_mode=WAL"
+        )  # besser bei gleichzeitigem Lesen/Schreiben
+        con.execute(
+            "PRAGMA synchronous=NORMAL"
+        )  # Geschwindigkeit ohne Datenverlust-Risiko
+        con.execute("PRAGMA cache_size=-4000")  # 4 MB Page-Cache
         try:
             yield con
             con.commit()
@@ -83,7 +88,9 @@ class MetricsDB:
                 )
             """)
             con.execute("CREATE INDEX IF NOT EXISTS idx_metrics_ts   ON metrics(ts)")
-            con.execute("CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics(name, ts)")
+            con.execute(
+                "CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics(name, ts)"
+            )
         logger.debug("MetricsDB initialisiert: %s", self.path)
 
     # ── Schreiben ─────────────────────────────────────────────────
@@ -155,7 +162,7 @@ class MetricsDB:
 
         with self._conn() as con:
             for i in range(0, len(names), CHUNK_SIZE):
-                chunk = names[i:i + CHUNK_SIZE]
+                chunk = names[i : i + CHUNK_SIZE]
                 queries = []
                 params = []
 
@@ -182,12 +189,14 @@ class MetricsDB:
                     for r in rows:
                         n = r["query_name"]
                         if n in result:
-                            result[n].append({
-                                "ts": r["bucket"],
-                                "name": n,
-                                "value": round(r["value"], 2),
-                                "unit": r["unit"]
-                            })
+                            result[n].append(
+                                {
+                                    "ts": r["bucket"],
+                                    "name": n,
+                                    "value": round(r["value"], 2),
+                                    "unit": r["unit"],
+                                }
+                            )
                 else:
                     for name in chunk:
                         queries.append("""
@@ -212,7 +221,9 @@ class MetricsDB:
 
         return result
 
-    def _query_downsampled(self, name: str, since_ts: int, resolution: int) -> list[dict]:
+    def _query_downsampled(
+        self, name: str, since_ts: int, resolution: int
+    ) -> list[dict]:
         with self._conn() as con:
             rows = con.execute(
                 f"""SELECT (ts / {resolution}) * {resolution} AS bucket,
@@ -225,7 +236,15 @@ class MetricsDB:
                    LIMIT 500""",
                 (name, since_ts),
             ).fetchall()
-        return [{"ts": r["bucket"], "name": name, "value": round(r["value"], 2), "unit": r["unit"]} for r in rows]
+        return [
+            {
+                "ts": r["bucket"],
+                "name": name,
+                "value": round(r["value"], 2),
+                "unit": r["unit"],
+            }
+            for r in rows
+        ]
 
     def list_metrics(self) -> list[str]:
         """Alle bekannten Metrik-Namen."""
@@ -240,7 +259,9 @@ class MetricsDB:
         with self._conn() as con:
             total = con.execute("SELECT COUNT(*) FROM metrics").fetchone()[0]
             oldest = con.execute("SELECT MIN(ts) FROM metrics").fetchone()[0]
-            names = con.execute("SELECT COUNT(DISTINCT name) FROM metrics").fetchone()[0]
+            names = con.execute("SELECT COUNT(DISTINCT name) FROM metrics").fetchone()[
+                0
+            ]
         size_kb = round(self.path.stat().st_size / 1024, 1) if self.path.exists() else 0
         return {
             "total_points": total,
@@ -259,11 +280,16 @@ class MetricsDB:
             cur = con.execute("DELETE FROM metrics WHERE ts < ?", (cutoff,))
             deleted = cur.rowcount
         if deleted:
-            logger.info("MetricsDB: %d alte Einträge gelöscht (älter als %dd)", deleted, self.retention_s // 86400)
+            logger.info(
+                "MetricsDB: %d alte Einträge gelöscht (älter als %dd)",
+                deleted,
+                self.retention_s // 86400,
+            )
         return deleted
 
-
-    def query_summary(self, names: list[str], since_s: int = 86400) -> dict[str, dict[str, float]]:
+    def query_summary(
+        self, names: list[str], since_s: int = 86400
+    ) -> dict[str, dict[str, float]]:
         """
         Berechnet Durchschnitt und Maximum für mehrere Metriken in einer einzigen SQL-Abfrage.
         Gibt ein Dictionary zurück: { "metric_name": {"avg": 42.5, "max": 60.0} }
@@ -297,6 +323,7 @@ class MetricsDB:
 
 
 # ── Collector ────────────────────────────────────────────────────
+
 
 class MetricsCollector:
     """
@@ -359,17 +386,25 @@ class MetricsCollector:
 
             cpu_freq = psutil.cpu_freq()
             if cpu_freq:
-                points.append(MetricPoint("cpu_mhz", round(cpu_freq.current, 0), "MHz", ts=ts))
+                points.append(
+                    MetricPoint("cpu_mhz", round(cpu_freq.current, 0), "MHz", ts=ts)
+                )
 
             # RAM
             mem = psutil.virtual_memory()
             points.append(MetricPoint("ram_percent", mem.percent, "%", ts=ts))
-            points.append(MetricPoint("ram_used_mb", round(mem.used / 1024 / 1024, 0), "MB", ts=ts))
+            points.append(
+                MetricPoint(
+                    "ram_used_mb", round(mem.used / 1024 / 1024, 0), "MB", ts=ts
+                )
+            )
 
             # Disk
             disk = psutil.disk_usage("/")
             points.append(MetricPoint("disk_percent", disk.percent, "%", ts=ts))
-            points.append(MetricPoint("disk_free_gb", round(disk.free / 1024**3, 2), "GB", ts=ts))
+            points.append(
+                MetricPoint("disk_free_gb", round(disk.free / 1024**3, 2), "GB", ts=ts)
+            )
 
             # CPU-Temperatur (Pi: /sys/class/thermal/thermal_zone0/temp)
             temp = _read_cpu_temp()
@@ -378,8 +413,16 @@ class MetricsCollector:
 
             # Netzwerk (Rx/Tx Bytes delta)
             net = psutil.net_io_counters()
-            points.append(MetricPoint("net_rx_mb", round(net.bytes_recv / 1024 / 1024, 1), "MB", ts=ts))
-            points.append(MetricPoint("net_tx_mb", round(net.bytes_sent / 1024 / 1024, 1), "MB", ts=ts))
+            points.append(
+                MetricPoint(
+                    "net_rx_mb", round(net.bytes_recv / 1024 / 1024, 1), "MB", ts=ts
+                )
+            )
+            points.append(
+                MetricPoint(
+                    "net_tx_mb", round(net.bytes_sent / 1024 / 1024, 1), "MB", ts=ts
+                )
+            )
 
             # Load Average
             load = psutil.getloadavg()
@@ -395,7 +438,11 @@ def _read_cpu_temp() -> float | None:
     """Liest CPU-Temperatur – funktioniert auf Pi und in psutil-Fallback."""
     # Pi: /sys/class/thermal/thermal_zone0/temp (in Milligrad)
     try:
-        t = Path("/sys/class/thermal/thermal_zone0/temp").read_text(encoding="utf-8").strip()
+        t = (
+            Path("/sys/class/thermal/thermal_zone0/temp")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
         return int(t) / 1000.0
     except OSError:
         pass  # thermal_zone0 not present on non-Pi
@@ -419,6 +466,7 @@ def get_db() -> MetricsDB:
     global _db
     if _db is None:
         from piclaw.config import load_config
+
         cfg = load_config()
         db_path = Path(cfg.config_dir) / "metrics.db"
         _db = MetricsDB(db_path)

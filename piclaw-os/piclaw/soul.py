@@ -21,7 +21,7 @@ The agent can read and update the soul file via tools.
 import logging
 from datetime import datetime
 from pathlib import Path
-from piclaw.fileutils import atomic_write_text, safe_write_text
+from piclaw.fileutils import atomic_write_text
 
 from piclaw.config import CONFIG_DIR
 
@@ -86,7 +86,9 @@ def save(content: str) -> str:
         SOUL_FILE.parent.mkdir(parents=True, exist_ok=True)
         SOUL_FILE.write_text(content.strip() + "\n", encoding="utf-8")
         log.info("Soul file updated.")
-        return f"Soul saved ({len(content)} chars). Changes take effect next conversation."
+        return (
+            f"Soul saved ({len(content)} chars). Changes take effect next conversation."
+        )
     except Exception as e:
         log.error("Soul save failed: %s", e)
         return f"Error saving soul: {e}"
@@ -110,8 +112,9 @@ def _write_default():
     log.info("Default soul written to %s", SOUL_FILE)
 
 
-def build_system_prompt(name: str, date: str, hostname: str,
-                        base_capabilities: str) -> str:
+def build_system_prompt(
+    name: str, date: str, hostname: str, base_capabilities: str
+) -> str:
     """
     Build the complete system prompt:
       1. Soul (personality, purpose – user-defined, takes precedence)

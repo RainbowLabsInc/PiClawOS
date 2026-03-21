@@ -10,27 +10,30 @@ from datetime import datetime
 from typing import Callable
 
 from piclaw.config import PiClawConfig, CRASH_DIR
-from piclaw.llm    import create_backend, Message, ToolDefinition, ToolCall
+from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall
 from piclaw.taskutils import create_background_task
 
-from piclaw.tools  import shell    as shell_mod
-from piclaw.tools  import network  as network_mod
-from piclaw.tools  import gpio     as gpio_mod
-from piclaw.tools  import services as services_mod
-from piclaw.tools  import updater  as updater_mod
-from piclaw.tools  import agentmail as agentmail_mod
+from piclaw.tools import shell as shell_mod
+from piclaw.tools import network as network_mod
+from piclaw.tools import gpio as gpio_mod
+from piclaw.tools import services as services_mod
+from piclaw.tools import updater as updater_mod
 from piclaw.tools.scheduler import Scheduler
 
-from piclaw.memory        import QMDBackend, MemoryMiddleware
-from piclaw.memory.tools  import TOOL_DEFS as MEMORY_TOOL_DEFS
-from piclaw.memory.tools  import build_handlers as build_memory_handlers
-from piclaw.agents        import heartbeat_loop
+from piclaw.memory import QMDBackend, MemoryMiddleware
+from piclaw.memory.tools import TOOL_DEFS as MEMORY_TOOL_DEFS
+from piclaw.memory.tools import build_handlers as build_memory_handlers
+from piclaw.agents import heartbeat_loop
 from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS
 from piclaw.agents.orchestration import build_handlers as build_agent_handlers
-from piclaw.agents.sa_registry   import SubAgentRegistry, SubAgentDef, INSTALLER_MISSION_TEMPLATE
-from piclaw.agents.runner        import SubAgentRunner
-from piclaw.agents.sa_tools      import TOOL_DEFS as SA_TOOL_DEFS
-from piclaw.agents.sa_tools      import build_handlers as build_sa_handlers
+from piclaw.agents.sa_registry import (
+    SubAgentRegistry,
+    SubAgentDef,
+    INSTALLER_MISSION_TEMPLATE,
+)
+from piclaw.agents.runner import SubAgentRunner
+from piclaw.agents.sa_tools import TOOL_DEFS as SA_TOOL_DEFS
+from piclaw.agents.sa_tools import build_handlers as build_sa_handlers
 from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS
 from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers
 from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
@@ -43,10 +46,13 @@ log = logging.getLogger("piclaw.agent")
 @dataclass
 class AgentTask:
     """Represents a request to the agent, managed in a queue."""
+
     user_input: str
     history: list[Message] | None = None
     on_token: Callable | None = None
-    future: asyncio.Future = field(default_factory=lambda: asyncio.get_running_loop().create_future())
+    future: asyncio.Future = field(
+        default_factory=lambda: asyncio.get_running_loop().create_future()
+    )
 
 
 # Base capabilities block (appended after the soul)
@@ -95,15 +101,15 @@ Datum/Zeit: {date}  |  Hostname: {hostname}  |  Agent: {name}
 
 class Agent:
     def __init__(self, cfg: PiClawConfig):
-        self.cfg            = cfg
-        self.llm            = create_backend(cfg)
-        self.scheduler      = Scheduler()
+        self.cfg = cfg
+        self.llm = create_backend(cfg)
+        self.scheduler = Scheduler()
         self.scheduler.set_agent(self)
-        self.qmd            = QMDBackend()
-        self.memory         = MemoryMiddleware(self.qmd, self.llm)
-        self.sa_registry    = SubAgentRegistry()
+        self.qmd = QMDBackend()
+        self.memory = MemoryMiddleware(self.qmd, self.llm)
+        self.sa_registry = SubAgentRegistry()
         self.sa_runner: SubAgentRunner | None = None  # built after notify is set
-        self._telegram_send = lambda text: None       # replaced by messaging hub
+        self._telegram_send = lambda text: None  # replaced by messaging hub
         self._build_tools()
 
         # Parallel processing queue (v0.14)
@@ -112,41 +118,47 @@ class Agent:
 
     def _build_tools(self):
         """Assemble all tool definitions and handlers."""
-        self._tool_defs:  list[ToolDefinition] = []
-        self._handlers:   dict[str, callable]  = {}
+        self._tool_defs: list[ToolDefinition] = []
+        self._handlers: dict[str, callable] = {}
 
         def _reg(defs, handlers):
             self._tool_defs.extend(defs)
             self._handlers.update(handlers)
 
-        _reg(shell_mod.TOOL_DEFS,    shell_mod.build_handlers(self.cfg.shell))
-        _reg(network_mod.TOOL_DEFS,  network_mod.HANDLERS)
-        _reg(gpio_mod.TOOL_DEFS,     gpio_mod.HANDLERS)
+        _reg(shell_mod.TOOL_DEFS, shell_mod.build_handlers(self.cfg.shell))
+        _reg(network_mod.TOOL_DEFS, network_mod.HANDLERS)
+        _reg(gpio_mod.TOOL_DEFS, gpio_mod.HANDLERS)
         _reg(services_mod.TOOL_DEFS, services_mod.build_handlers(self.cfg.services))
-        _reg(updater_mod.TOOL_DEFS,  updater_mod.build_handlers(self.cfg.updater))
-        _reg(self.scheduler.TOOL_DEFS if hasattr(self.scheduler, 'TOOL_DEFS') else [],
-             self.scheduler.build_handlers())
-        _reg(MEMORY_TOOL_DEFS,    build_memory_handlers(self.qmd))
-        _reg(AGENT_TOOL_DEFS,     build_agent_handlers(self._telegram_send))
-        _reg(LLM_MGMT_TOOL_DEFS,  build_llm_mgmt_handlers(self.llm.registry, self.llm))
+        _reg(updater_mod.TOOL_DEFS, updater_mod.build_handlers(self.cfg.updater))
+        _reg(
+            self.scheduler.TOOL_DEFS if hasattr(self.scheduler, "TOOL_DEFS") else [],
+            self.scheduler.build_handlers(),
+        )
+        _reg(MEMORY_TOOL_DEFS, build_memory_handlers(self.qmd))
+        _reg(AGENT_TOOL_DEFS, build_agent_handlers(self._telegram_send))
+        _reg(LLM_MGMT_TOOL_DEFS, build_llm_mgmt_handlers(self.llm.registry, self.llm))
 
         # Hardware tools (pi_info, sensors, i2c_scan, thermal_status)
         _reg(HW_TOOL_DEFS, HW_HANDLERS)
 
         # Network Monitor tools (v0.15)
         from piclaw.tools import network_monitor as net_mon
+
         _reg(net_mon.TOOL_DEFS, net_mon.build_handlers())
 
         # Tandem Browser tools (v0.18)
         from piclaw.tools import tandem as tandem_mod
+
         _reg(tandem_mod.TOOL_DEFS, tandem_mod.build_handlers())
 
         # HTTP tool
         from piclaw.tools import http as http_mod
+
         _reg(http_mod.TOOL_DEFS, http_mod.HANDLERS)
 
         # Installer tools
         from piclaw.tools import installer as installer_mod
+
         _reg(installer_mod.TOOL_DEFS, installer_mod.build_handlers())
 
         # Home Assistant tools (nur wenn konfiguriert)
@@ -161,7 +173,9 @@ class Agent:
                 for t in ha_mod.TOOL_DEFS
             ]
             ha_handlers = {
-                t["name"]: (lambda n: lambda **kw: ha_mod.handle_tool(n, kw, self._ha_client))(t["name"])
+                t["name"]: (
+                    lambda n: lambda **kw: ha_mod.handle_tool(n, kw, self._ha_client)
+                )(t["name"])
                 for t in ha_mod.TOOL_DEFS
             }
             _reg(ha_tool_defs, ha_handlers)
@@ -176,6 +190,7 @@ class Agent:
         # Marketplace tools (Kleinanzeigen, eBay, Websuche)
         from piclaw.tools.marketplace import marketplace_search, format_results
         from piclaw.llm.base import ToolDefinition as _TD
+
         _marketplace_tool = _TD(
             name="marketplace_search",
             description=(
@@ -185,14 +200,32 @@ class Agent:
             parameters={
                 "type": "object",
                 "properties": {
-                    "query":     {"type": "string",  "description": "Suchbegriff"},
-                    "platforms": {"type": "array", "items": {"type": "string"},
-                                  "description": "Plattformen: kleinanzeigen, ebay, web"},
-                    "max_price": {"type": "number",  "description": "Maximaler Preis in Euro"},
-                    "location":  {"type": "string",  "description": "Ort oder PLZ (für Kleinanzeigen)"},
-                    "max_results": {"type": "integer", "description": "Max. Ergebnisse pro Plattform (default: 10)"},
-                    "radius_km": {"type": "integer", "description": "Suchradius in km um den angegebenen Ort (z.B. 20, 50, 100)"},
-                    "notify_all": {"type": "boolean", "description": "True = alle Funde zeigen, False = nur neue Funde (default: True)"},
+                    "query": {"type": "string", "description": "Suchbegriff"},
+                    "platforms": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Plattformen: kleinanzeigen, ebay, web",
+                    },
+                    "max_price": {
+                        "type": "number",
+                        "description": "Maximaler Preis in Euro",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Ort oder PLZ (für Kleinanzeigen)",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max. Ergebnisse pro Plattform (default: 10)",
+                    },
+                    "radius_km": {
+                        "type": "integer",
+                        "description": "Suchradius in km um den angegebenen Ort (z.B. 20, 50, 100)",
+                    },
+                    "notify_all": {
+                        "type": "boolean",
+                        "description": "True = alle Funde zeigen, False = nur neue Funde (default: True)",
+                    },
                 },
                 "required": ["query"],
             },
@@ -217,6 +250,7 @@ class Agent:
     def _build_soul_tools(self):
         """Inline soul management tools."""
         from piclaw.llm.base import ToolDefinition
+
         defs = [
             ToolDefinition(
                 name="soul_read",
@@ -229,7 +263,10 @@ class Agent:
                 parameters={
                     "type": "object",
                     "properties": {
-                        "content": {"type": "string", "description": "Full new soul file content (Markdown)"},
+                        "content": {
+                            "type": "string",
+                            "description": "Full new soul file content (Markdown)",
+                        },
                     },
                     "required": ["content"],
                 },
@@ -240,15 +277,18 @@ class Agent:
                 parameters={
                     "type": "object",
                     "properties": {
-                        "section": {"type": "string", "description": "New section to append"},
+                        "section": {
+                            "type": "string",
+                            "description": "New section to append",
+                        },
                     },
                     "required": ["section"],
                 },
             ),
         ]
         handlers = {
-            "soul_read":   lambda **_: soul_mod.load(),
-            "soul_write":  lambda content, **_: soul_mod.save(content),
+            "soul_read": lambda **_: soul_mod.load(),
+            "soul_write": lambda content, **_: soul_mod.save(content),
             "soul_append": lambda section, **_: soul_mod.append(section),
         }
         return defs, handlers
@@ -260,6 +300,7 @@ class Agent:
         so that when api.py replaces _telegram_send after boot, sub-agents
         automatically pick up the real messaging-hub sender.
         """
+
         async def _notify(text: str):
             # Late-bound: always uses the current value of self._telegram_send,
             # not the no-op placeholder that existed at _wire_sa_runner() time.
@@ -286,7 +327,7 @@ class Agent:
             memory_log=_memory_log,
         )
         # Register sub-agent tools
-        sa_defs     = SA_TOOL_DEFS
+        sa_defs = SA_TOOL_DEFS
         sa_handlers = build_sa_handlers(self.sa_registry, self.sa_runner)
         self._tool_defs.extend(sa_defs)
         self._handlers.update(sa_handlers)
@@ -318,6 +359,7 @@ class Agent:
             from piclaw import proactive as proactive_mod
             from piclaw.routines import TOOL_DEFS as ROUTINE_TOOL_DEFS
             from piclaw.routines import build_handlers as build_routine_handlers
+
             runner = proactive_mod.get_runner()
             if runner:
                 for td in ROUTINE_TOOL_DEFS:
@@ -349,9 +391,7 @@ class Agent:
         if self._workers:
             return
         for i in range(count):
-            t = create_background_task(
-                self._worker_loop(), name=f"agent-worker-{i}"
-            )
+            t = create_background_task(self._worker_loop(), name=f"agent-worker-{i}")
             self._workers.append(t)
         log.info("Started %d agent queue workers.", count)
 
@@ -371,6 +411,7 @@ class Agent:
         if user_input.strip().startswith("@installer"):
             request = user_input.strip()[10:].strip()
             from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+
             INSTALLER_LOCK_FILE.write_text(request, encoding="utf-8")
             return await self._delegate_to_installer(request)
 
@@ -381,16 +422,44 @@ class Agent:
     def _detect_marketplace_intent(self, text: str) -> dict | None:
         """Detect marketplace search intent and extract parameters directly."""
         import re
+
         # Vorab-Bereinigung von Chat-Präfixen wie "[you]"
         text_clean = re.sub(r"\[.*?\]", " ", text)
         t = text_clean.lower()
 
-        search_kw = ["suche", "finde", "such", "find", "schau", "schaue",
-                     "durchsuche", "zeig", "liste", "search", "look for",
-                     "was kostet", "preis für", "gibt es"]
-        market_kw = ["kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
-                     "marktplatz", "gebraucht", "preis", "euro", "schnäppchen",
-                     "angebot", "nähe", "umkreis", "plz", "ort"]
+        search_kw = [
+            "suche",
+            "finde",
+            "such",
+            "find",
+            "schau",
+            "schaue",
+            "durchsuche",
+            "zeig",
+            "liste",
+            "search",
+            "look for",
+            "was kostet",
+            "preis für",
+            "gibt es",
+        ]
+        market_kw = [
+            "kleinanzeigen",
+            "ebay",
+            "inserat",
+            "anzeige",
+            "kaufen",
+            "marktplatz",
+            "gebraucht",
+            "preis",
+            "euro",
+            "schnäppchen",
+            "angebot",
+            "nähe",
+            "umkreis",
+            "plz",
+            "ort",
+        ]
         if not any(k in t for k in search_kw):
             return None
         if not any(k in t for k in market_kw):
@@ -424,8 +493,18 @@ class Agent:
         # Query bereinigen
         query = text_clean
         # Plattform-Phrasen entfernen
-        for phrase in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay",
-                       "zeige mir", "zeig mir", "was kostet", "preis für", "gibt es", "auf"]:
+        for phrase in [
+            "kleinanzeigen.de",
+            "ebay.de",
+            "kleinanzeigen",
+            "ebay",
+            "zeige mir",
+            "zeig mir",
+            "was kostet",
+            "preis für",
+            "gibt es",
+            "auf",
+        ]:
             query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
         # PLZ entfernen
         if plz_match:
@@ -433,13 +512,50 @@ class Agent:
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
         query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
         # Stoppwörter entfernen
-        stopwords = ["auf", "im", "in", "um", "von", "bis", "bitte", "suche",
-                     "finde", "such", "durchsuche", "liste", "umkreis", "radius",
-                     "einen", "eine", "ein", "mir", "dem", "der", "die", "das",
-                     "rosengarten", "hamburg", "berlin", "münchen", "köln",
-                     "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig",
-                     "schnäppchen", "angebot", "angebote", "nach", "einem", "einer", "nähe",
-                     "nähe von", "in der", "nach einem"]
+        stopwords = [
+            "auf",
+            "im",
+            "in",
+            "um",
+            "von",
+            "bis",
+            "bitte",
+            "suche",
+            "finde",
+            "such",
+            "durchsuche",
+            "liste",
+            "umkreis",
+            "radius",
+            "einen",
+            "eine",
+            "ein",
+            "mir",
+            "dem",
+            "der",
+            "die",
+            "das",
+            "rosengarten",
+            "hamburg",
+            "berlin",
+            "münchen",
+            "köln",
+            "frankfurt",
+            "bremen",
+            "hannover",
+            "düsseldorf",
+            "leipzig",
+            "schnäppchen",
+            "angebot",
+            "angebote",
+            "nach",
+            "einem",
+            "einer",
+            "nähe",
+            "nähe von",
+            "in der",
+            "nach einem",
+        ]
         for w in stopwords:
             query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
         # .de Suffix entfernen
@@ -457,10 +573,10 @@ class Agent:
             "radius_km": radius_km,
         }
 
-
     async def _delegate_to_installer(self, request: str) -> str:
         """Spawn a privileged InstallerAgent sub-agent."""
         from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
+
         try:
             INSTALLER_LOCK_FILE.write_text(request, encoding="utf-8")
         except Exception as e:
@@ -489,6 +605,7 @@ class Agent:
     async def _delegate_to_search_assistant(self, request: str) -> str:
         """Spawn a SearchAssistant sub-agent."""
         from piclaw.agents.sa_registry import SEARCH_ASSISTANT_MISSION_TEMPLATE
+
         agent_def = SubAgentDef(
             name="SearchAssistant",
             description=f"Marketplace Search: {request}",
@@ -515,6 +632,7 @@ class Agent:
         on_token=None,
     ) -> str:
         import socket
+
         system = soul_mod.build_system_prompt(
             name=self.cfg.agent_name,
             date=datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -543,8 +661,10 @@ class Agent:
             log.info("Marketplace intent detected: %s", mp_kwargs)
 
             # If we have a clear query AND location/radius, execute directly
-            if mp_kwargs.get("query") and (mp_kwargs.get("location") or mp_kwargs.get("radius_km")):
-                log.info("Executing marketplace shortcut for: '%s'", mp_kwargs['query'])
+            if mp_kwargs.get("query") and (
+                mp_kwargs.get("location") or mp_kwargs.get("radius_km")
+            ):
+                log.info("Executing marketplace shortcut for: '%s'", mp_kwargs["query"])
                 handler = self._handlers.get("marketplace_search")
                 if handler:
                     return await handler(**mp_kwargs, notify_all=True)
@@ -554,19 +674,36 @@ class Agent:
 
         # Follow-up detection: "erhöhe", "vergrößer", "erweitere", "nochmal", "zeig mehr"
         if not mp_kwargs and _prev_mp_context:
-            followup_kw = ["erhöh", "vergrößer", "erweiter", "nochmal", "mehr", "radius",
-                           "breiter", "größer", "weiter", "nochmal", "wiederhol"]
+            followup_kw = [
+                "erhöh",
+                "vergrößer",
+                "erweiter",
+                "nochmal",
+                "mehr",
+                "radius",
+                "breiter",
+                "größer",
+                "weiter",
+                "nochmal",
+                "wiederhol",
+            ]
             if any(k in user_input.lower() for k in followup_kw):
                 mp_kwargs = dict(_prev_mp_context)
                 # Update radius if mentioned
                 import re
-                new_radius = re.search(r'(\d+)\s*km', user_input)
+
+                new_radius = re.search(r"(\d+)\s*km", user_input)
                 if new_radius:
                     mp_kwargs["radius_km"] = int(new_radius.group(1))
                 # Update max_price if mentioned
-                new_price = re.search(r'unter\s+(\d+)\s*€|max\s+(\d+)\s*€|bis\s+(\d+)\s*€', user_input.lower())
+                new_price = re.search(
+                    r"unter\s+(\d+)\s*€|max\s+(\d+)\s*€|bis\s+(\d+)\s*€",
+                    user_input.lower(),
+                )
                 if new_price:
-                    mp_kwargs["max_price"] = float(next(g for g in new_price.groups() if g))
+                    mp_kwargs["max_price"] = float(
+                        next(g for g in new_price.groups() if g)
+                    )
 
         if mp_kwargs:
             log.info("Marketplace intent detected: %s", mp_kwargs)
@@ -576,22 +713,22 @@ class Agent:
 
         # Memory-Recall: kurzer Timeout damit Agent immer antwortet
         try:
-            messages = await asyncio.wait_for(
-                self.memory.enrich(messages), timeout=8.0
-            )
+            messages = await asyncio.wait_for(self.memory.enrich(messages), timeout=8.0)
         except asyncio.TimeoutError:
             log.debug("Memory enrich timeout – weiter ohne Memory-Kontext")
         except Exception as _me:
             log.debug("Memory enrich error: %s", _me)
 
-        MAX_STEPS   = 15
+        MAX_STEPS = 15
         final_reply = "(empty response)"
 
         for step in range(MAX_STEPS):
             try:
                 if on_token and step == 0:
                     collected = ""
-                    async for token in self.llm.stream_chat(messages, tools=self._tool_defs):
+                    async for token in self.llm.stream_chat(
+                        messages, tools=self._tool_defs
+                    ):
                         collected += token
                         await on_token(token)
                     # Only do a second chat() call if the streamed response
@@ -603,7 +740,10 @@ class Agent:
                         response = await self.llm.chat(messages, tools=self._tool_defs)
                     else:
                         from piclaw.llm.base import LLMResponse
-                        response = LLMResponse(content=collected, tool_calls=[], finish_reason="stop")
+
+                        response = LLMResponse(
+                            content=collected, tool_calls=[], finish_reason="stop"
+                        )
                     if not response.tool_calls:
                         final_reply = response.content or collected
                         break
@@ -623,10 +763,14 @@ class Agent:
                 log.info("Tool: %s(%s)", call.name, list(call.arguments.keys()))
                 result = await self._dispatch(call)
                 log.debug("  → %.120s", result)
-                messages.append(Message(
-                    role="tool", content=result,
-                    tool_call_id=call.id, tool_name=call.name,
-                ))
+                messages.append(
+                    Message(
+                        role="tool",
+                        content=result,
+                        tool_call_id=call.id,
+                        tool_name=call.name,
+                    )
+                )
         else:
             final_reply = "⚠️ Agent reached max steps."
 
@@ -637,15 +781,15 @@ class Agent:
 
     async def boot(self):
         """Boot LLM router, memory, heartbeat, and sub-agents."""
-        log.info("PiClaw Agent v0.14.x booting (Marketplace Search Assistant active)...")
+        log.info(
+            "PiClaw Agent v0.14.x booting (Marketplace Search Assistant active)..."
+        )
         await self.llm.boot()
         self._start_workers()
         self._wire_sa_runner()
         create_background_task(self._boot_memory(), name="memory-boot")
-        create_background_task(heartbeat_loop(),    name="heartbeat")
-        create_background_task(
-            self.sa_runner.start_all_scheduled(), name="sa-boot"
-        )
+        create_background_task(heartbeat_loop(), name="heartbeat")
+        create_background_task(self.sa_runner.start_all_scheduled(), name="sa-boot")
         log.info("Soul loaded from %s", soul_mod.get_path())
 
     async def _boot_memory(self):

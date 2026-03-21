@@ -23,13 +23,14 @@ Konfiguration in config.toml:
   ha_discovery = true                 # Home Assistant Auto-Discovery
   tls      = false
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Awaitable
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,9 @@ class MqttAdapter:
     Nutzt aiomqtt (async, modernes API).
     """
 
-    def __init__(self, cfg: MqttConfig, on_message: Callable[[str, str], Awaitable[None]]):
+    def __init__(
+        self, cfg: MqttConfig, on_message: Callable[[str, str], Awaitable[None]]
+    ):
         self.cfg = cfg
         self._on_message = on_message
         self._client = None
@@ -102,6 +105,7 @@ class MqttAdapter:
         tls_params = None
         if self.cfg.tls:
             import ssl
+
             tls_params = aiomqtt.TLSParameters(
                 ca_certs=self.cfg.tls_ca_cert or None,
                 tls_version=ssl.PROTOCOL_TLS_CLIENT,
@@ -136,7 +140,6 @@ class MqttAdapter:
                 tg.create_task(self._send_loop(client))
 
     async def _receive_loop(self, client) -> None:
-        import aiomqtt
         async for message in client.messages:
             try:
                 text = message.payload.decode("utf-8")
@@ -184,15 +187,19 @@ class MqttAdapter:
         except asyncio.TimeoutError:
             return False
 
-    async def publish_sensor(self, sensor_name: str, value: float, unit: str = "") -> bool:
+    async def publish_sensor(
+        self, sensor_name: str, value: float, unit: str = ""
+    ) -> bool:
         """Publiziert einen Sensorwert auf dem Sensor-Topic."""
         topic = f"{self.cfg.topic_sensors}/{sensor_name}"
-        payload = json.dumps({
-            "name": sensor_name,
-            "value": value,
-            "unit": unit,
-            "ts": int(time.time()),
-        })
+        payload = json.dumps(
+            {
+                "name": sensor_name,
+                "value": value,
+                "unit": unit,
+                "ts": int(time.time()),
+            }
+        )
         try:
             await asyncio.wait_for(
                 self._publish_queue.put((topic, payload, self.cfg.qos)),
@@ -228,14 +235,16 @@ class MqttAdapter:
         }
 
         sensors = [
-            ("cpu_temp",    "CPU Temperatur",  "temperature",   "°C",  "mdi:thermometer"),
-            ("cpu_percent", "CPU Last",         None,           "%",   "mdi:chip"),
-            ("ram_percent", "RAM Nutzung",      None,           "%",   "mdi:memory"),
-            ("disk_percent","Disk Nutzung",     None,           "%",   "mdi:harddisk"),
+            ("cpu_temp", "CPU Temperatur", "temperature", "°C", "mdi:thermometer"),
+            ("cpu_percent", "CPU Last", None, "%", "mdi:chip"),
+            ("ram_percent", "RAM Nutzung", None, "%", "mdi:memory"),
+            ("disk_percent", "Disk Nutzung", None, "%", "mdi:harddisk"),
         ]
 
         for sensor_id, name, device_class, unit, icon in sensors:
-            config_topic = f"{self.cfg.ha_prefix}/sensor/{self.cfg.client_id}_{sensor_id}/config"
+            config_topic = (
+                f"{self.cfg.ha_prefix}/sensor/{self.cfg.client_id}_{sensor_id}/config"
+            )
             state_topic = f"{self.cfg.topic_metrics}"
             payload = {
                 "name": name,
@@ -277,6 +286,7 @@ class MqttAdapter:
 
 
 # ── Fabrik ───────────────────────────────────────────────────────
+
 
 def create_adapter(config_dict: dict, on_message) -> MqttAdapter | None:
     """Erstellt einen MqttAdapter aus einem Konfigurations-Dict."""

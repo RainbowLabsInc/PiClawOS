@@ -10,27 +10,27 @@ class Message:
     role: str
     content: str
     tool_call_id: Optional[str] = None
-    tool_name:    Optional[str] = None
+    tool_name: Optional[str] = None
 
 
 @dataclass
 class ToolDefinition:
-    name:        str
+    name: str
     description: str
-    parameters:  dict
+    parameters: dict
 
 
 @dataclass
 class ToolCall:
-    id:        str
-    name:      str
+    id: str
+    name: str
     arguments: dict
 
 
 @dataclass
 class LLMResponse:
-    content:      str
-    tool_calls:   list
+    content: str
+    tool_calls: list
     finish_reason: str
 
 

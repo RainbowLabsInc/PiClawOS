@@ -13,7 +13,6 @@ Tools:
   thermal_status   Get current thermal state and LLM routing recommendation
 """
 
-import asyncio
 import logging
 from piclaw.llm.base import ToolDefinition
 
@@ -23,7 +22,6 @@ log = logging.getLogger("piclaw.hardware.tools")
 # ── Tool definitions (schema for LLM) ────────────────────────────
 
 TOOL_DEFS = [
-
     ToolDefinition(
         name="pi_info",
         description=(
@@ -33,7 +31,6 @@ TOOL_DEFS = [
         ),
         parameters={"type": "object", "properties": {}},
     ),
-
     ToolDefinition(
         name="i2c_scan",
         description=(
@@ -45,20 +42,18 @@ TOOL_DEFS = [
             "type": "object",
             "properties": {
                 "bus": {
-                    "type":        "integer",
+                    "type": "integer",
                     "description": "I2C bus number to scan (default: 1, the main GPIO bus). Use -1 to scan all.",
-                    "default":     1,
+                    "default": 1,
                 }
             },
         },
     ),
-
     ToolDefinition(
         name="sensor_list",
         description="List all registered named sensors with their type, description, and last reading.",
         parameters={"type": "object", "properties": {}},
     ),
-
     ToolDefinition(
         name="sensor_read",
         description=(
@@ -66,20 +61,18 @@ TOOL_DEFS = [
             "Returns temperature, humidity, distance, voltage, etc. depending on sensor type."
         ),
         parameters={
-            "type":     "object",
+            "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Sensor name as registered"},
             },
             "required": ["name"],
         },
     ),
-
     ToolDefinition(
         name="sensor_read_all",
         description="Read all enabled sensors concurrently. Returns all current values in one call.",
         parameters={"type": "object", "properties": {}},
     ),
-
     ToolDefinition(
         name="sensor_add",
         description=(
@@ -91,15 +84,23 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "name":        {"type": "string", "description": "Unique sensor name"},
-                "type":        {"type": "string", "description": "Sensor type (DHT22, BMP280, PIR, etc.)"},
-                "description": {"type": "string", "description": "What this sensor monitors"},
-                "config":      {"type": "object", "description": "Driver config (pin, address, etc.)"},
+                "name": {"type": "string", "description": "Unique sensor name"},
+                "type": {
+                    "type": "string",
+                    "description": "Sensor type (DHT22, BMP280, PIR, etc.)",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "What this sensor monitors",
+                },
+                "config": {
+                    "type": "object",
+                    "description": "Driver config (pin, address, etc.)",
+                },
             },
             "required": ["name", "type"],
         },
     ),
-
     ToolDefinition(
         name="sensor_remove",
         description="Remove a named sensor from the registry.",
@@ -111,7 +112,6 @@ TOOL_DEFS = [
             "required": ["name"],
         },
     ),
-
     ToolDefinition(
         name="thermal_status",
         description=(
@@ -127,9 +127,11 @@ TOOL_DEFS = [
 
 # ── Handler implementations ───────────────────────────────────────
 
+
 async def _pi_info() -> str:
     try:
         from piclaw.hardware.pi_info import read_pi_info
+
         info = await read_pi_info()
         return info.format_report()
     except Exception as e:
@@ -138,7 +140,12 @@ async def _pi_info() -> str:
 
 async def _i2c_scan(bus: int = 1) -> str:
     try:
-        from piclaw.hardware.i2c_scan import scan_bus, scan_all_buses, format_scan_report
+        from piclaw.hardware.i2c_scan import (
+            scan_bus,
+            scan_all_buses,
+            format_scan_report,
+        )
+
         if bus == -1:
             results = await scan_all_buses()
         else:
@@ -151,6 +158,7 @@ async def _i2c_scan(bus: int = 1) -> str:
 def _get_registry():
     """Lazily import and return the global sensor registry."""
     from piclaw.hardware import get_sensor_registry
+
     return get_sensor_registry()
 
 
@@ -165,10 +173,13 @@ async def _sensor_list() -> str:
 async def _sensor_read(name: str) -> str:
     try:
         from piclaw.hardware.sensors import read_sensor
-        reg    = _get_registry()
+
+        reg = _get_registry()
         sensor = reg.get(name)
         if not sensor:
-            return f"Sensor '{name}' not found. Use sensor_list to see available sensors."
+            return (
+                f"Sensor '{name}' not found. Use sensor_list to see available sensors."
+            )
         reading = await read_sensor(sensor)
         reg.update_reading(name, reading)
         return str(reading)
@@ -179,7 +190,8 @@ async def _sensor_read(name: str) -> str:
 async def _sensor_read_all() -> str:
     try:
         from piclaw.hardware.sensors import read_all_sensors
-        reg      = _get_registry()
+
+        reg = _get_registry()
         readings = await read_all_sensors(reg)
         if not readings:
             return "No sensors registered. Use sensor_add to add sensors."
@@ -188,22 +200,27 @@ async def _sensor_read_all() -> str:
         return f"[sensor_read_all error] {e}"
 
 
-async def _sensor_add(name: str, sensor_type: str, description: str = "", config: dict = None) -> str:
+async def _sensor_add(
+    name: str, sensor_type: str, description: str = "", config: dict = None
+) -> str:
     try:
         from piclaw.hardware.sensors import SensorDef, ALL_TYPES
+
         if type not in ALL_TYPES:
             return f"Unknown sensor type '{type}'. Valid types: {', '.join(ALL_TYPES)}"
-        reg    = _get_registry()
+        reg = _get_registry()
         if reg.get(name):
             return f"Sensor '{name}' already exists. Remove it first or use a different name."
         sensor = SensorDef(
-            name        = name,
-            type        = type,
-            description = description,
-            config      = config or {},
+            name=name,
+            type=type,
+            description=description,
+            config=config or {},
         )
         reg.add(sensor)
-        return f"Sensor '{name}' ({type}) registered. Use sensor_read {name} to test it."
+        return (
+            f"Sensor '{name}' ({type}) registered. Use sensor_read {name} to test it."
+        )
     except Exception as e:
         return f"[sensor_add error] {e}"
 
@@ -222,6 +239,7 @@ async def _thermal_status() -> str:
     try:
         from piclaw.hardware.thermal import get_thermal_state, make_status
         from piclaw.hardware.pi_info import current_temp, is_throttled
+
         status = get_thermal_state()
         if status is None:
             # Manual one-shot read
@@ -229,14 +247,16 @@ async def _thermal_status() -> str:
             if temp is None:
                 return "Temperature not available (not running on Pi hardware)"
             throttled = is_throttled()
-            status    = make_status(temp, throttle_active=throttled)
+            status = make_status(temp, throttle_active=throttled)
         lines = [
             status.message,
             f"  Local LLM:  {'✅ allowed' if status.local_ok else '❌ disabled (too hot)'}",
             f"  Cloud pref: {'yes' if status.cloud_pref else 'no'}",
         ]
         if status.throttle_active:
-            lines.append("  ⚠️  Firmware throttling active (check power supply / cooling)")
+            lines.append(
+                "  ⚠️  Firmware throttling active (check power supply / cooling)"
+            )
         if status.under_voltage:
             lines.append("  ⚠️  Under-voltage detected – use official Pi power supply")
         return "\n".join(lines)
@@ -247,12 +267,12 @@ async def _thermal_status() -> str:
 # ── Handler dispatch map ──────────────────────────────────────────
 
 HANDLERS: dict[str, callable] = {
-    "pi_info":         lambda **_:    _pi_info(),
-    "i2c_scan":        lambda **kw:   _i2c_scan(**kw),
-    "sensor_list":     lambda **_:    _sensor_list(),
-    "sensor_read":     lambda **kw:   _sensor_read(**kw),
-    "sensor_read_all": lambda **_:    _sensor_read_all(),
-    "sensor_add":      lambda **kw:   _sensor_add(**kw),
-    "sensor_remove":   lambda **kw:   _sensor_remove(**kw),
-    "thermal_status":  lambda **_:    _thermal_status(),
+    "pi_info": lambda **_: _pi_info(),
+    "i2c_scan": lambda **kw: _i2c_scan(**kw),
+    "sensor_list": lambda **_: _sensor_list(),
+    "sensor_read": lambda **kw: _sensor_read(**kw),
+    "sensor_read_all": lambda **_: _sensor_read_all(),
+    "sensor_add": lambda **kw: _sensor_add(**kw),
+    "sensor_remove": lambda **kw: _sensor_remove(**kw),
+    "thermal_status": lambda **_: _thermal_status(),
 }

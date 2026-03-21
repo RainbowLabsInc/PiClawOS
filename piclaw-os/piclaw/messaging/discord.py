@@ -21,7 +21,6 @@ Notes:
 
 import asyncio
 import logging
-from typing import Optional
 
 from piclaw.messaging.hub import MessagingAdapter, IncomingMessage, MessageHandler
 
@@ -33,14 +32,15 @@ DISCORD_LIMIT = 1900  # safe under 2000 char limit
 class DiscordAdapter(MessagingAdapter):
     name = "discord"
 
-    def __init__(self, token: str, channel_id: int,
-                 allowed_users: list[int] | None = None):
-        self.token         = token
-        self.channel_id    = int(channel_id)
+    def __init__(
+        self, token: str, channel_id: int, allowed_users: list[int] | None = None
+    ):
+        self.token = token
+        self.channel_id = int(channel_id)
         self.allowed_users = [int(u) for u in (allowed_users or [])]
-        self._client       = None
-        self._channel      = None
-        self._stop         = asyncio.Event()
+        self._client = None
+        self._channel = None
+        self._stop = asyncio.Event()
 
     def is_configured(self) -> bool:
         return bool(self.token and self.channel_id)
@@ -49,13 +49,11 @@ class DiscordAdapter(MessagingAdapter):
         try:
             import discord
         except ImportError:
-            raise RuntimeError(
-                "discord.py not installed. Run: pip install discord.py"
-            )
+            raise RuntimeError("discord.py not installed. Run: pip install discord.py")
 
-        intents                    = discord.Intents.default()
-        intents.message_content    = True
-        self._client               = discord.Client(intents=intents)
+        intents = discord.Intents.default()
+        intents.message_content = True
+        self._client = discord.Client(intents=intents)
 
         @self._client.event
         async def on_ready():
@@ -79,7 +77,7 @@ class DiscordAdapter(MessagingAdapter):
             if not text:
                 return
 
-            inc   = IncomingMessage(
+            inc = IncomingMessage(
                 platform="discord",
                 sender_id=str(msg.author.id),
                 text=text,
@@ -121,10 +119,12 @@ class DiscordAdapter(MessagingAdapter):
             return
         try:
             import discord
+
             embed = discord.Embed(
                 description=text[:4096],
-                color=discord.Color.red() if "CRITICAL" in text or "⛔" in text
-                      else discord.Color.orange(),
+                color=discord.Color.red()
+                if "CRITICAL" in text or "⛔" in text
+                else discord.Color.orange(),
             )
             embed.set_footer(text="PiClaw Watchdog")
             await channel.send(embed=embed)

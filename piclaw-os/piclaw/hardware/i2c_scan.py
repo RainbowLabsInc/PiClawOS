@@ -23,94 +23,155 @@ log = logging.getLogger("piclaw.hardware.i2c_scan")
 # address → {name, description, driver_hint, category}
 KNOWN_I2C_DEVICES: dict[int, dict] = {
     # ── Temperature / Humidity / Pressure ──
-    0x48: {"name": "ADS1115",       "desc": "16-bit ADC (4 channels)",         "cat": "adc"},
-    0x49: {"name": "ADS1115",       "desc": "16-bit ADC (addr A1)",            "cat": "adc"},
-    0x4A: {"name": "ADS1115",       "desc": "16-bit ADC (addr A2)",            "cat": "adc"},
-    0x4B: {"name": "ADS1115",       "desc": "16-bit ADC (addr A3)",            "cat": "adc"},
-
-    0x40: {"name": "HTU21D/SHT20",  "desc": "Temperature & humidity sensor",   "cat": "environment"},
-    0x44: {"name": "SHT40/SHT31",   "desc": "High-accuracy temp & humidity",   "cat": "environment"},
-    0x45: {"name": "SHT40/SHT31",   "desc": "High-accuracy temp & humidity (alt addr)", "cat": "environment"},
-
-    0x76: {"name": "BMP280/BME280", "desc": "Pressure, temperature, (humidity)", "cat": "environment"},
-    0x77: {"name": "BMP280/BME280/BMP180", "desc": "Pressure, temperature",    "cat": "environment"},
-
-    0x5C: {"name": "AM2320",        "desc": "Temperature & humidity sensor",   "cat": "environment"},
-    0x38: {"name": "AHT10/AHT20",   "desc": "Temperature & humidity sensor",   "cat": "environment"},
-    0x39: {"name": "AHT10",         "desc": "Temperature & humidity (alt addr)", "cat": "environment"},
-
+    0x48: {"name": "ADS1115", "desc": "16-bit ADC (4 channels)", "cat": "adc"},
+    0x49: {"name": "ADS1115", "desc": "16-bit ADC (addr A1)", "cat": "adc"},
+    0x4A: {"name": "ADS1115", "desc": "16-bit ADC (addr A2)", "cat": "adc"},
+    0x4B: {"name": "ADS1115", "desc": "16-bit ADC (addr A3)", "cat": "adc"},
+    0x40: {
+        "name": "HTU21D/SHT20",
+        "desc": "Temperature & humidity sensor",
+        "cat": "environment",
+    },
+    0x44: {
+        "name": "SHT40/SHT31",
+        "desc": "High-accuracy temp & humidity",
+        "cat": "environment",
+    },
+    0x45: {
+        "name": "SHT40/SHT31",
+        "desc": "High-accuracy temp & humidity (alt addr)",
+        "cat": "environment",
+    },
+    0x76: {
+        "name": "BMP280/BME280",
+        "desc": "Pressure, temperature, (humidity)",
+        "cat": "environment",
+    },
+    0x77: {
+        "name": "BMP280/BME280/BMP180",
+        "desc": "Pressure, temperature",
+        "cat": "environment",
+    },
+    0x5C: {
+        "name": "AM2320",
+        "desc": "Temperature & humidity sensor",
+        "cat": "environment",
+    },
+    0x38: {
+        "name": "AHT10/AHT20",
+        "desc": "Temperature & humidity sensor",
+        "cat": "environment",
+    },
+    0x39: {
+        "name": "AHT10",
+        "desc": "Temperature & humidity (alt addr)",
+        "cat": "environment",
+    },
     # ── Light / Color ──
-    0x29: {"name": "VL53L0X/TCS34725", "desc": "ToF distance or color sensor", "cat": "optical"},
-    0x23: {"name": "BH1750",        "desc": "Ambient light sensor (lux)",       "cat": "optical"},
-    0x5B: {"name": "BH1750",        "desc": "Ambient light (H-mode addr)",      "cat": "optical"},
-
+    0x29: {
+        "name": "VL53L0X/TCS34725",
+        "desc": "ToF distance or color sensor",
+        "cat": "optical",
+    },
+    0x23: {"name": "BH1750", "desc": "Ambient light sensor (lux)", "cat": "optical"},
+    0x5B: {"name": "BH1750", "desc": "Ambient light (H-mode addr)", "cat": "optical"},
     # ── Current / Power ──
-    0x41: {"name": "INA219",        "desc": "Current/power monitor (addr 1)",   "cat": "power"},
-    0x44: {"name": "INA219",        "desc": "Current/power monitor (addr 4)",   "cat": "power"},
+    0x41: {"name": "INA219", "desc": "Current/power monitor (addr 1)", "cat": "power"},
+    0x44: {"name": "INA219", "desc": "Current/power monitor (addr 4)", "cat": "power"},
     # Note: 0x40-0x4F are all valid INA219 addresses
-    0x4C: {"name": "INA219",        "desc": "Current/power monitor",            "cat": "power"},
-    0x4D: {"name": "INA219",        "desc": "Current/power monitor",            "cat": "power"},
-
+    0x4C: {"name": "INA219", "desc": "Current/power monitor", "cat": "power"},
+    0x4D: {"name": "INA219", "desc": "Current/power monitor", "cat": "power"},
     # ── Motor / Servo / PWM ──
-    0x60: {"name": "PCA9685",       "desc": "16-channel PWM/servo driver",      "cat": "actuator"},
-    0x41: {"name": "PCA9685",       "desc": "16-ch PWM (alt addr)",             "cat": "actuator"},
-
+    0x60: {"name": "PCA9685", "desc": "16-channel PWM/servo driver", "cat": "actuator"},
+    0x41: {"name": "PCA9685", "desc": "16-ch PWM (alt addr)", "cat": "actuator"},
     # ── Display / OLED ──
-    0x3C: {"name": "SSD1306/SH1106","desc": "OLED display (128x64 or 128x32)", "cat": "display"},
-    0x3D: {"name": "SSD1306",       "desc": "OLED display (alt addr)",          "cat": "display"},
-
+    0x3C: {
+        "name": "SSD1306/SH1106",
+        "desc": "OLED display (128x64 or 128x32)",
+        "cat": "display",
+    },
+    0x3D: {"name": "SSD1306", "desc": "OLED display (alt addr)", "cat": "display"},
     # ── Real-time clock ──
-    0x68: {"name": "DS3231/DS1307", "desc": "Real-time clock module",           "cat": "rtc"},
-    0x50: {"name": "DS3231 EEPROM", "desc": "RTC on-board EEPROM",              "cat": "rtc"},
-
+    0x68: {"name": "DS3231/DS1307", "desc": "Real-time clock module", "cat": "rtc"},
+    0x50: {"name": "DS3231 EEPROM", "desc": "RTC on-board EEPROM", "cat": "rtc"},
     # ── GPIO expanders ──
-    0x20: {"name": "PCF8574/MCP23017", "desc": "8/16-channel GPIO expander",   "cat": "gpio"},
-    0x21: {"name": "PCF8574",       "desc": "8-channel GPIO expander (addr 1)", "cat": "gpio"},
-    0x24: {"name": "MCP23017",      "desc": "16-channel GPIO expander",         "cat": "gpio"},
-    0x27: {"name": "PCF8574",       "desc": "GPIO expander / LCD backpack",     "cat": "gpio"},
-
+    0x20: {
+        "name": "PCF8574/MCP23017",
+        "desc": "8/16-channel GPIO expander",
+        "cat": "gpio",
+    },
+    0x21: {
+        "name": "PCF8574",
+        "desc": "8-channel GPIO expander (addr 1)",
+        "cat": "gpio",
+    },
+    0x24: {"name": "MCP23017", "desc": "16-channel GPIO expander", "cat": "gpio"},
+    0x27: {"name": "PCF8574", "desc": "GPIO expander / LCD backpack", "cat": "gpio"},
     # ── Accelerometer / IMU ──
-    0x53: {"name": "ADXL345",       "desc": "3-axis accelerometer",             "cat": "motion"},
-    0x1C: {"name": "MMA8452Q/FXOS8700", "desc": "3-axis accelerometer",        "cat": "motion"},
-    0x1D: {"name": "MMA8452Q",      "desc": "3-axis accelerometer (alt addr)",  "cat": "motion"},
-    0x19: {"name": "LSM303/LIS3DH", "desc": "Accelerometer/magnetometer",       "cat": "motion"},
-    0x69: {"name": "MPU-6050",      "desc": "6-axis gyro + accelerometer (alt addr)", "cat": "motion"},
-    0x6A: {"name": "MPU-6050/ICM-20689", "desc": "IMU",                        "cat": "motion"},
-    0x1E: {"name": "HMC5883L",      "desc": "3-axis magnetometer/compass",      "cat": "motion"},
-
+    0x53: {"name": "ADXL345", "desc": "3-axis accelerometer", "cat": "motion"},
+    0x1C: {
+        "name": "MMA8452Q/FXOS8700",
+        "desc": "3-axis accelerometer",
+        "cat": "motion",
+    },
+    0x1D: {
+        "name": "MMA8452Q",
+        "desc": "3-axis accelerometer (alt addr)",
+        "cat": "motion",
+    },
+    0x19: {
+        "name": "LSM303/LIS3DH",
+        "desc": "Accelerometer/magnetometer",
+        "cat": "motion",
+    },
+    0x69: {
+        "name": "MPU-6050",
+        "desc": "6-axis gyro + accelerometer (alt addr)",
+        "cat": "motion",
+    },
+    0x6A: {"name": "MPU-6050/ICM-20689", "desc": "IMU", "cat": "motion"},
+    0x1E: {"name": "HMC5883L", "desc": "3-axis magnetometer/compass", "cat": "motion"},
     # ── Distance ──
-    0x52: {"name": "VL6180X",       "desc": "ToF distance & ambient light",     "cat": "distance"},
-    0x29: {"name": "VL53L1X",       "desc": "Long-range ToF distance sensor",   "cat": "distance"},
-
+    0x52: {
+        "name": "VL6180X",
+        "desc": "ToF distance & ambient light",
+        "cat": "distance",
+    },
+    0x29: {
+        "name": "VL53L1X",
+        "desc": "Long-range ToF distance sensor",
+        "cat": "distance",
+    },
     # ── Misc / RP2040-based ──
-    0x0D: {"name": "Pimoroni Pico", "desc": "RP2040 I2C bridge",               "cat": "bridge"},
-    0x55: {"name": "MAX17043",      "desc": "LiPo battery fuel gauge",          "cat": "power"},
-
+    0x0D: {"name": "Pimoroni Pico", "desc": "RP2040 I2C bridge", "cat": "bridge"},
+    0x55: {"name": "MAX17043", "desc": "LiPo battery fuel gauge", "cat": "power"},
     # ── Pi Hat EEPROM (always present on properly designed HATs) ──
-    0x50: {"name": "HAT EEPROM",    "desc": "Pi HAT configuration EEPROM",     "cat": "hat"},
+    0x50: {"name": "HAT EEPROM", "desc": "Pi HAT configuration EEPROM", "cat": "hat"},
 }
 
 
 @dataclass
 class I2CDevice:
-    address:  int
-    bus:      int
-    name:     str
-    desc:     str
+    address: int
+    bus: int
+    name: str
+    desc: str
     category: str
-    known:    bool
+    known: bool
 
     def __str__(self):
         prefix = "★" if self.known else "?"
-        return f"{prefix} 0x{self.address:02X} (bus {self.bus}): {self.name} – {self.desc}"
+        return (
+            f"{prefix} 0x{self.address:02X} (bus {self.bus}): {self.name} – {self.desc}"
+        )
 
 
 @dataclass
 class I2CScanResult:
-    bus:      int
-    devices:  list[I2CDevice] = field(default_factory=list)
-    error:    Optional[str]   = None
-    simulated: bool           = False
+    bus: int
+    devices: list[I2CDevice] = field(default_factory=list)
+    error: Optional[str] = None
+    simulated: bool = False
 
     @property
     def count(self) -> int:
@@ -134,6 +195,7 @@ def _scan_sync(bus: int) -> I2CScanResult:
     # Try smbus2
     try:
         import smbus2
+
         return _scan_smbus2(bus)
     except ImportError:
         log.debug("smbus2 not available, trying i2cdetect")
@@ -146,12 +208,17 @@ def _scan_sync(bus: int) -> I2CScanResult:
     except Exception as e:
         log.debug("i2cdetect failed: %s", e)
 
-    return I2CScanResult(bus=bus, error="No I2C scanning method available (smbus2 or i2cdetect required)", simulated=True)
+    return I2CScanResult(
+        bus=bus,
+        error="No I2C scanning method available (smbus2 or i2cdetect required)",
+        simulated=True,
+    )
 
 
 def _scan_smbus2(bus: int) -> I2CScanResult:
     """Scan using smbus2 library."""
     import smbus2
+
     devices: list[I2CDevice] = []
     try:
         with smbus2.SMBus(bus) as b:
@@ -171,12 +238,14 @@ def _scan_smbus2(bus: int) -> I2CScanResult:
 def _scan_i2cdetect(bus: int) -> I2CScanResult:
     """Scan using i2cdetect system tool."""
     import subprocess
+
     result = subprocess.run(
-        ["i2cdetect", "-y", "-r", str(bus)],
-        capture_output=True, text=True, timeout=10
+        ["i2cdetect", "-y", "-r", str(bus)], capture_output=True, text=True, timeout=10
     )
     if result.returncode != 0:
-        return I2CScanResult(bus=bus, error=f"i2cdetect failed: {result.stderr.strip()}")
+        return I2CScanResult(
+            bus=bus, error=f"i2cdetect failed: {result.stderr.strip()}"
+        )
 
     devices: list[I2CDevice] = []
     for line in result.stdout.splitlines()[1:]:  # skip header
@@ -193,23 +262,23 @@ def _scan_i2cdetect(bus: int) -> I2CScanResult:
 
 def _make_device(address: int, bus: int) -> I2CDevice:
     """Create an I2CDevice, looking up known info if available."""
-    info  = KNOWN_I2C_DEVICES.get(address)
+    info = KNOWN_I2C_DEVICES.get(address)
     if info:
         return I2CDevice(
-            address  = address,
-            bus      = bus,
-            name     = info["name"],
-            desc     = info["desc"],
-            category = info["cat"],
-            known    = True,
+            address=address,
+            bus=bus,
+            name=info["name"],
+            desc=info["desc"],
+            category=info["cat"],
+            known=True,
         )
     return I2CDevice(
-        address  = address,
-        bus      = bus,
-        name     = f"Unknown (0x{address:02X})",
-        desc     = "Unrecognized device",
-        category = "unknown",
-        known    = False,
+        address=address,
+        bus=bus,
+        name=f"Unknown (0x{address:02X})",
+        desc="Unrecognized device",
+        category="unknown",
+        known=False,
     )
 
 
@@ -220,6 +289,7 @@ async def scan_all_buses() -> list[I2CScanResult]:
         dev_path = f"/dev/i2c-{bus}"
         try:
             import os
+
             if not os.path.exists(dev_path):
                 continue
         except Exception:
@@ -228,8 +298,14 @@ async def scan_all_buses() -> list[I2CScanResult]:
         results.append(result)
     if not results:
         # Simulate bus 1 for dev environments
-        results.append(I2CScanResult(bus=1, devices=[], simulated=True,
-                                     error="No I2C buses found (not running on Pi)"))
+        results.append(
+            I2CScanResult(
+                bus=1,
+                devices=[],
+                simulated=True,
+                error="No I2C buses found (not running on Pi)",
+            )
+        )
     return results
 
 

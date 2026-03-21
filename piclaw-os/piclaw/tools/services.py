@@ -14,7 +14,10 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Service name, e.g. 'ssh' or 'homeassistant'"},
+                "name": {
+                    "type": "string",
+                    "description": "Service name, e.g. 'ssh' or 'homeassistant'",
+                },
             },
             "required": ["name"],
         },
@@ -25,7 +28,7 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "name":   {"type": "string", "description": "Service name"},
+                "name": {"type": "string", "description": "Service name"},
                 "action": {
                     "type": "string",
                     "enum": ["start", "stop", "restart", "enable", "disable"],
@@ -42,9 +45,12 @@ TOOL_DEFS = [
 ]
 
 
-async def _systemctl(args: list[str], timeout: int = 15, include_stderr: bool = True) -> str:
+async def _systemctl(
+    args: list[str], timeout: int = 15, include_stderr: bool = True
+) -> str:
     proc = await asyncio.create_subprocess_exec(
-        "systemctl", *args,
+        "systemctl",
+        *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -81,14 +87,14 @@ async def service_list(cfg: ServicesConfig) -> str:
         state = await _systemctl(["is-active", name], include_stderr=False)
         if not state:
             state = "inactive"
-        icon  = "🟢" if state == "active" else "🔴"
+        icon = "🟢" if state == "active" else "🔴"
         lines.append(f"  {icon} {name}: {state}")
     return "Managed services:\n" + "\n".join(lines)
 
 
 def build_handlers(cfg: ServicesConfig) -> dict:
     return {
-        "service_status":  lambda **kw: service_status(**kw),
+        "service_status": lambda **kw: service_status(**kw),
         "service_control": lambda **kw: service_control(cfg=cfg, **kw),
-        "service_list":    lambda **_:  service_list(cfg),
+        "service_list": lambda **_: service_list(cfg),
     }

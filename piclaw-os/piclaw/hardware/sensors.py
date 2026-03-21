@@ -36,48 +36,57 @@ log = logging.getLogger("piclaw.hardware.sensors")
 SENSOR_FILE = CONFIG_DIR / "sensors.json"
 
 # Sensor type constants
-TYPE_DHT22       = "DHT22"
-TYPE_DS18B20     = "DS18B20"
-TYPE_BMP280      = "BMP280"
-TYPE_SHT40       = "SHT40"
-TYPE_BH1750      = "BH1750"
-TYPE_ADS1115     = "ADS1115"
-TYPE_INA219      = "INA219"
-TYPE_PIR         = "PIR"
-TYPE_ULTRASONIC  = "HC_SR04"
-TYPE_GPIO_INPUT  = "GPIO_INPUT"
+TYPE_DHT22 = "DHT22"
+TYPE_DS18B20 = "DS18B20"
+TYPE_BMP280 = "BMP280"
+TYPE_SHT40 = "SHT40"
+TYPE_BH1750 = "BH1750"
+TYPE_ADS1115 = "ADS1115"
+TYPE_INA219 = "INA219"
+TYPE_PIR = "PIR"
+TYPE_ULTRASONIC = "HC_SR04"
+TYPE_GPIO_INPUT = "GPIO_INPUT"
 
 ALL_TYPES = [
-    TYPE_DHT22, TYPE_DS18B20, TYPE_BMP280, TYPE_SHT40,
-    TYPE_BH1750, TYPE_ADS1115, TYPE_INA219,
-    TYPE_PIR, TYPE_ULTRASONIC, TYPE_GPIO_INPUT,
+    TYPE_DHT22,
+    TYPE_DS18B20,
+    TYPE_BMP280,
+    TYPE_SHT40,
+    TYPE_BH1750,
+    TYPE_ADS1115,
+    TYPE_INA219,
+    TYPE_PIR,
+    TYPE_ULTRASONIC,
+    TYPE_GPIO_INPUT,
 ]
 
 
 @dataclass
 class SensorReading:
     """A single sensor reading with timestamp."""
+
     sensor_name: str
-    values:      dict[str, Any]    # e.g. {"temp_c": 22.3, "humidity_pct": 65.1}
-    timestamp:   str = field(default_factory=lambda: datetime.now().isoformat())
-    error:       Optional[str] = None
-    simulated:   bool = False
+    values: dict[str, Any]  # e.g. {"temp_c": 22.3, "humidity_pct": 65.1}
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    error: Optional[str] = None
+    simulated: bool = False
 
     def __str__(self) -> str:
         if self.error:
             return f"[{self.sensor_name}] ERROR: {self.error}"
         vals = ", ".join(f"{k}={v}" for k, v in self.values.items())
-        sim  = " [SIM]" if self.simulated else ""
+        sim = " [SIM]" if self.simulated else ""
         return f"[{self.sensor_name}]{sim} {vals} @ {self.timestamp[:16]}"
 
 
 @dataclass
 class SensorDef:
     """A registered sensor with its configuration."""
-    name:        str            # user-defined name, e.g. "balcony_temp"
-    type:        str            # one of ALL_TYPES
-    description: str = ""      # human-readable, e.g. "DHT22 on balcony"
-    config:      dict = field(default_factory=dict)
+
+    name: str  # user-defined name, e.g. "balcony_temp"
+    type: str  # one of ALL_TYPES
+    description: str = ""  # human-readable, e.g. "DHT22 on balcony"
+    config: dict = field(default_factory=dict)
     # config examples:
     #   DHT22:      {"pin": 4}
     #   DS18B20:    {"device_id": "28-000000abcdef"}  or {"pin": 4} for auto
@@ -88,10 +97,10 @@ class SensorDef:
     #   GPIO_INPUT: {"pin": 22, "pull_up": true}
     #   ADS1115:    {"i2c_bus": 1, "address": 72, "channel": 0}  (0x48)
 
-    enabled:     bool = True
-    last_reading: Optional[dict] = None   # SensorReading dict
-    last_error:   Optional[str]  = None
-    added_at:     str = field(default_factory=lambda: datetime.now().isoformat())
+    enabled: bool = True
+    last_reading: Optional[dict] = None  # SensorReading dict
+    last_error: Optional[str] = None
+    added_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -122,6 +131,7 @@ class SensorRegistry:
         SENSOR_FILE.parent.mkdir(parents=True, exist_ok=True)
         data = {name: s.to_dict() for name, s in self._sensors.items()}
         from piclaw.fileutils import safe_write_json
+
         safe_write_json(SENSOR_FILE, data, label="sensors")
 
     def add(self, sensor: SensorDef) -> str:
@@ -149,7 +159,7 @@ class SensorRegistry:
         s = self._sensors.get(name)
         if s:
             s.last_reading = asdict(reading)
-            s.last_error   = reading.error
+            s.last_error = reading.error
             self._save()
 
     def summary(self) -> str:
@@ -167,6 +177,7 @@ class SensorRegistry:
 
 
 # ── Sensor drivers ────────────────────────────────────────────────
+
 
 async def read_sensor(sensor: SensorDef) -> SensorReading:
     """
@@ -209,16 +220,18 @@ async def read_sensor(sensor: SensorDef) -> SensorReading:
 
 # ── DHT22 / DHT11 ─────────────────────────────────────────────────
 
+
 def _read_dht22(sensor: SensorDef) -> SensorReading:
     pin = sensor.config.get("pin", 4)
     try:
         import adafruit_dht
         import board
+
         pin_obj = getattr(board, f"D{pin}")
         dht = adafruit_dht.DHT22(pin_obj, use_pulseio=False)
         try:
             temp = dht.temperature
-            hum  = dht.humidity
+            hum = dht.humidity
             dht.exit()
             return SensorReading(
                 sensor_name=sensor.name,
@@ -226,12 +239,16 @@ def _read_dht22(sensor: SensorDef) -> SensorReading:
             )
         except RuntimeError as e:
             dht.exit()
-            return SensorReading(sensor_name=sensor.name, values={},
-                                  error=f"DHT read failed (retry): {e}")
+            return SensorReading(
+                sensor_name=sensor.name,
+                values={},
+                error=f"DHT read failed (retry): {e}",
+            )
     except ImportError:
         # Fallback: try Adafruit_DHT legacy
         try:
             import Adafruit_DHT
+
             sensor_type = Adafruit_DHT.DHT22
             hum, temp = Adafruit_DHT.read_retry(sensor_type, pin)
             if temp is not None and hum is not None:
@@ -239,28 +256,41 @@ def _read_dht22(sensor: SensorDef) -> SensorReading:
                     sensor_name=sensor.name,
                     values={"temp_c": round(temp, 1), "humidity_pct": round(hum, 1)},
                 )
-            return SensorReading(sensor_name=sensor.name, values={},
-                                  error="DHT returned None (check wiring)")
+            return SensorReading(
+                sensor_name=sensor.name,
+                values={},
+                error="DHT returned None (check wiring)",
+            )
         except ImportError:
-            return SensorReading(sensor_name=sensor.name, values={},
-                                  error="adafruit_dht or Adafruit_DHT library required")
+            return SensorReading(
+                sensor_name=sensor.name,
+                values={},
+                error="adafruit_dht or Adafruit_DHT library required",
+            )
 
 
 # ── DS18B20 1-Wire ────────────────────────────────────────────────
+
 
 def _read_ds18b20(sensor: SensorDef) -> SensorReading:
     device_id = sensor.config.get("device_id")
     # Search /sys/bus/w1/devices/ for DS18B20 sensors
     w1_path = Path("/sys/bus/w1/devices")
     if not w1_path.exists():
-        return SensorReading(sensor_name=sensor.name, values={},
-                              error="1-Wire not enabled. Add 'dtoverlay=w1-gpio' to /boot/config.txt")
+        return SensorReading(
+            sensor_name=sensor.name,
+            values={},
+            error="1-Wire not enabled. Add 'dtoverlay=w1-gpio' to /boot/config.txt",
+        )
     try:
         # Find all DS18B20 devices (start with 28-)
         devices = list(w1_path.glob("28-*"))
         if not devices:
-            return SensorReading(sensor_name=sensor.name, values={},
-                                  error="No DS18B20 sensors found on 1-Wire bus")
+            return SensorReading(
+                sensor_name=sensor.name,
+                values={},
+                error="No DS18B20 sensors found on 1-Wire bus",
+            )
         # Select specific device or first found
         if device_id:
             target = w1_path / device_id
@@ -268,8 +298,9 @@ def _read_ds18b20(sensor: SensorDef) -> SensorReading:
             target = devices[0]
         raw = (target / "w1_slave").read_text(encoding="utf-8", errors="replace")
         if "YES" not in raw:
-            return SensorReading(sensor_name=sensor.name, values={},
-                                  error="DS18B20 CRC check failed")
+            return SensorReading(
+                sensor_name=sensor.name, values={}, error="DS18B20 CRC check failed"
+            )
         temp_str = raw.split("t=")[1].strip()
         temp = int(temp_str) / 1000.0
         return SensorReading(
@@ -282,16 +313,19 @@ def _read_ds18b20(sensor: SensorDef) -> SensorReading:
 
 # ── BMP280 / BME280 ────────────────────────────────────────────────
 
+
 def _read_bmp280(sensor: SensorDef) -> SensorReading:
     bus_num = sensor.config.get("i2c_bus", 1)
     address = sensor.config.get("address", 0x76)
     try:
-        import smbus2, bme280
+        import smbus2
+        import bme280
+
         bus = smbus2.SMBus(bus_num)
         calibration = bme280.load_calibration_params(bus, address)
         data = bme280.sample(bus, address, calibration)
         values = {
-            "temp_c":      round(data.temperature, 2),
+            "temp_c": round(data.temperature, 2),
             "pressure_hpa": round(data.pressure, 2),
         }
         if hasattr(data, "humidity") and data.humidity:
@@ -300,30 +334,39 @@ def _read_bmp280(sensor: SensorDef) -> SensorReading:
     except ImportError:
         # Try adafruit-circuitpython-bmp280
         try:
-            import board, busio, adafruit_bmp280
+            import board
+            import busio
+            import adafruit_bmp280
+
             i2c = busio.I2C(board.SCL, board.SDA)
             bmp = adafruit_bmp280.Adafruit_BMP280_I2C(i2c, address=address)
             return SensorReading(
                 sensor_name=sensor.name,
                 values={
-                    "temp_c":       round(bmp.temperature, 2),
+                    "temp_c": round(bmp.temperature, 2),
                     "pressure_hpa": round(bmp.pressure, 2),
-                }
+                },
             )
         except ImportError:
-            return SensorReading(sensor_name=sensor.name, values={},
-                                  error="smbus2+bme280 or adafruit-circuitpython-bmp280 required")
+            return SensorReading(
+                sensor_name=sensor.name,
+                values={},
+                error="smbus2+bme280 or adafruit-circuitpython-bmp280 required",
+            )
     except Exception as e:
         return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
 
 
 # ── SHT40 / SHT31 ─────────────────────────────────────────────────
 
+
 def _read_sht40(sensor: SensorDef) -> SensorReading:
     bus_num = sensor.config.get("i2c_bus", 1)
     address = sensor.config.get("address", 0x44)
     try:
-        import smbus2, time
+        import smbus2
+        import time
+
         bus = smbus2.SMBus(bus_num)
         # SHT40: send measure command 0xFD (high precision)
         bus.write_byte(address, 0xFD)
@@ -333,24 +376,29 @@ def _read_sht40(sensor: SensorDef) -> SensorReading:
         t_raw = (data[0] << 8) | data[1]
         h_raw = (data[3] << 8) | data[4]
         temp = -45 + 175 * t_raw / 65535
-        hum  = max(0, min(100, -6 + 125 * h_raw / 65535))
+        hum = max(0, min(100, -6 + 125 * h_raw / 65535))
         return SensorReading(
             sensor_name=sensor.name,
             values={"temp_c": round(temp, 2), "humidity_pct": round(hum, 1)},
         )
     except ImportError:
-        return SensorReading(sensor_name=sensor.name, values={}, error="smbus2 required")
+        return SensorReading(
+            sensor_name=sensor.name, values={}, error="smbus2 required"
+        )
     except Exception as e:
         return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
 
 
 # ── BH1750 Light sensor ───────────────────────────────────────────
 
+
 def _read_bh1750(sensor: SensorDef) -> SensorReading:
     bus_num = sensor.config.get("i2c_bus", 1)
     address = sensor.config.get("address", 0x23)
     try:
-        import smbus2, time
+        import smbus2
+        import time
+
         bus = smbus2.SMBus(bus_num)
         # One-time high resolution mode
         bus.write_byte(address, 0x20)
@@ -359,23 +407,28 @@ def _read_bh1750(sensor: SensorDef) -> SensorReading:
         lux = ((data[0] << 8) | data[1]) / 1.2
         return SensorReading(sensor_name=sensor.name, values={"lux": round(lux, 1)})
     except ImportError:
-        return SensorReading(sensor_name=sensor.name, values={}, error="smbus2 required")
+        return SensorReading(
+            sensor_name=sensor.name, values={}, error="smbus2 required"
+        )
     except Exception as e:
         return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
 
 
 # ── ADS1115 ADC ───────────────────────────────────────────────────
 
+
 def _read_ads1115(sensor: SensorDef) -> SensorReading:
     bus_num = sensor.config.get("i2c_bus", 1)
     address = sensor.config.get("address", 0x48)
-    channel = sensor.config.get("channel", 0)   # 0–3
-    gain    = sensor.config.get("gain", 1)       # 1=±4.096V, 2=±2.048V
+    channel = sensor.config.get("channel", 0)  # 0–3
+    gain = sensor.config.get("gain", 1)  # 1=±4.096V, 2=±2.048V
     try:
-        import smbus2, time
+        import smbus2
+        import time
+
         bus = smbus2.SMBus(bus_num)
         # Config register: single-shot, selected channel, PGA gain
-        mux = 0b100 | (channel & 0b11)           # AINx vs GND
+        mux = 0b100 | (channel & 0b11)  # AINx vs GND
         pga = {1: 0b010, 2: 0b011, 4: 0b100}[gain]
         config = (0x80 << 8) | (mux << 12) | (pga << 9) | 0x0183
         hi, lo = (config >> 8) & 0xFF, config & 0xFF
@@ -392,47 +445,60 @@ def _read_ads1115(sensor: SensorDef) -> SensorReading:
             values={"voltage_v": round(voltage, 4), "raw": raw, "channel": channel},
         )
     except ImportError:
-        return SensorReading(sensor_name=sensor.name, values={}, error="smbus2 required")
+        return SensorReading(
+            sensor_name=sensor.name, values={}, error="smbus2 required"
+        )
     except Exception as e:
         return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
 
 
 # ── INA219 Current/Power ──────────────────────────────────────────
 
+
 def _read_ina219(sensor: SensorDef) -> SensorReading:
-    bus_num   = sensor.config.get("i2c_bus", 1)
-    address   = sensor.config.get("address", 0x40)
+    bus_num = sensor.config.get("i2c_bus", 1)
+    address = sensor.config.get("address", 0x40)
     shunt_ohm = sensor.config.get("shunt_ohm", 0.1)
     try:
         from ina219 import INA219, DeviceRangeError
+
         ina = INA219(shunt_ohm, busnum=bus_num, address=address)
         ina.configure()
         try:
             return SensorReading(
                 sensor_name=sensor.name,
                 values={
-                    "voltage_v":  round(ina.voltage(), 3),
+                    "voltage_v": round(ina.voltage(), 3),
                     "current_ma": round(ina.current(), 1),
-                    "power_mw":   round(ina.power(), 1),
-                }
+                    "power_mw": round(ina.power(), 1),
+                },
             )
         except DeviceRangeError:
-            return SensorReading(sensor_name=sensor.name, values={},
-                                  error="INA219 measurement out of range")
+            return SensorReading(
+                sensor_name=sensor.name,
+                values={},
+                error="INA219 measurement out of range",
+            )
     except ImportError:
-        return SensorReading(sensor_name=sensor.name, values={}, error="pi-ina219 library required")
+        return SensorReading(
+            sensor_name=sensor.name, values={}, error="pi-ina219 library required"
+        )
     except Exception as e:
         return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
 
 
 # ── PIR Motion Sensor ─────────────────────────────────────────────
 
+
 def _read_pir(sensor: SensorDef) -> SensorReading:
     pin = sensor.config.get("pin", 17)
     try:
         from gpiozero import MotionSensor
+
         pir = MotionSensor(pin)
-        import time; time.sleep(0.01)
+        import time
+
+        time.sleep(0.01)
         motion = pir.motion_detected
         pir.close()
         return SensorReading(
@@ -440,43 +506,53 @@ def _read_pir(sensor: SensorDef) -> SensorReading:
             values={"motion": motion, "state": "MOTION" if motion else "CLEAR"},
         )
     except ImportError:
-        return SensorReading(sensor_name=sensor.name, values={},
-                              error="gpiozero required for PIR sensor")
+        return SensorReading(
+            sensor_name=sensor.name, values={}, error="gpiozero required for PIR sensor"
+        )
     except Exception as e:
         return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
 
 
 # ── HC-SR04 Ultrasonic Distance ───────────────────────────────────
 
+
 async def _read_ultrasonic(sensor: SensorDef) -> SensorReading:
     trigger_pin = sensor.config.get("trigger_pin", 23)
-    echo_pin    = sensor.config.get("echo_pin", 24)
+    echo_pin = sensor.config.get("echo_pin", 24)
     try:
         from gpiozero import DistanceSensor
+
         d = DistanceSensor(echo=echo_pin, trigger=trigger_pin, max_distance=4.0)
-        await asyncio.sleep(0.06)   # let sensor stabilize
-        dist = d.distance * 100     # metres → cm
+        await asyncio.sleep(0.06)  # let sensor stabilize
+        dist = d.distance * 100  # metres → cm
         d.close()
         return SensorReading(
             sensor_name=sensor.name,
             values={"distance_cm": round(dist, 1)},
         )
     except ImportError:
-        return SensorReading(sensor_name=sensor.name, values={},
-                              error="gpiozero required for ultrasonic sensor")
+        return SensorReading(
+            sensor_name=sensor.name,
+            values={},
+            error="gpiozero required for ultrasonic sensor",
+        )
     except Exception as e:
         return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
 
 
 # ── Generic GPIO Input ────────────────────────────────────────────
 
+
 def _read_gpio_input(sensor: SensorDef) -> SensorReading:
-    pin     = sensor.config.get("pin", 22)
+    pin = sensor.config.get("pin", 22)
     pull_up = sensor.config.get("pull_up", True)
     try:
         from gpiozero import Button
+
         btn = Button(pin, pull_up=pull_up)
-        import time; time.sleep(0.005)
+        import time
+
+        time.sleep(0.005)
         state = btn.is_pressed
         btn.close()
         return SensorReading(
@@ -484,22 +560,25 @@ def _read_gpio_input(sensor: SensorDef) -> SensorReading:
             values={"pressed": state, "state": "HIGH" if state else "LOW"},
         )
     except ImportError:
-        return SensorReading(sensor_name=sensor.name, values={},
-                              error="gpiozero required for GPIO input")
+        return SensorReading(
+            sensor_name=sensor.name, values={}, error="gpiozero required for GPIO input"
+        )
     except Exception as e:
         return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
 
 
 # ── Read all registered sensors ───────────────────────────────────
 
-async def read_all_sensors(registry: SensorRegistry,
-                            update_registry: bool = True) -> list[SensorReading]:
+
+async def read_all_sensors(
+    registry: SensorRegistry, update_registry: bool = True
+) -> list[SensorReading]:
     """Read all enabled sensors concurrently."""
     sensors = registry.list_enabled()
     if not sensors:
         return []
 
-    tasks    = [read_sensor(s) for s in sensors]
+    tasks = [read_sensor(s) for s in sensors]
     readings = await asyncio.gather(*tasks, return_exceptions=False)
 
     if update_registry:
@@ -510,6 +589,7 @@ async def read_all_sensors(registry: SensorRegistry,
 
 
 # ── Hardware context for agent system prompt ──────────────────────
+
 
 def build_hardware_context(registry: SensorRegistry) -> str:
     """
@@ -526,6 +606,10 @@ def build_hardware_context(registry: SensorRegistry) -> str:
         if s.last_reading and not s.last_reading.get("error"):
             vals = s.last_reading.get("values", {})
             if vals:
-                last = " (last: " + ", ".join(f"{k}={v}" for k, v in list(vals.items())[:2]) + ")"
+                last = (
+                    " (last: "
+                    + ", ".join(f"{k}={v}" for k, v in list(vals.items())[:2])
+                    + ")"
+                )
         lines.append(f"  - {s.name} ({s.type}): {s.description}{last}")
     return "\n".join(lines)

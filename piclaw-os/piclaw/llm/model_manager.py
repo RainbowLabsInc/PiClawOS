@@ -3,11 +3,7 @@ PiClaw OS – Model Manager
 Download, verify and manage local GGUF models.
 """
 
-import asyncio
-import hashlib
 import logging
-import os
-import sys
 from pathlib import Path
 
 import aiohttp
@@ -18,15 +14,15 @@ log = logging.getLogger("piclaw.model")
 
 MODELS = {
     "gemma2b-q4": {
-        "name":    "Gemma 2B Instruct Q4  ★ Standard",
-        "url":     MODEL_URL,
-        "path":    DEFAULT_MODEL_PATH,
+        "name": "Gemma 2B Instruct Q4  ★ Standard",
+        "url": MODEL_URL,
+        "path": DEFAULT_MODEL_PATH,
         "size_gb": 1.6,
-        "desc":    "Empfohlen für Pi 5 – beste Qualität, ~10-15s Antwortzeit",
+        "desc": "Empfohlen für Pi 5 – beste Qualität, ~10-15s Antwortzeit",
     },
     "phi3-mini-q4": {
-        "name":    "Phi-3 Mini 4K Instruct Q4",
-        "url":     (
+        "name": "Phi-3 Mini 4K Instruct Q4",
+        "url": (
             "https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF"
             "/resolve/main/Phi-3-mini-4k-instruct-Q4_K_M.gguf"
         ),
@@ -34,19 +30,19 @@ MODELS = {
             "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf"
             "/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
         ),
-        "path":    DEFAULT_MODEL_PATH.parent / "phi3-mini-q4.gguf",
+        "path": DEFAULT_MODEL_PATH.parent / "phi3-mini-q4.gguf",
         "size_gb": 2.2,
-        "desc":    "Gut für komplexe Aufgaben, ~30-90s Antwortzeit",
+        "desc": "Gut für komplexe Aufgaben, ~30-90s Antwortzeit",
     },
     "tinyllama-q4": {
-        "name":    "TinyLlama 1.1B Q4  (schnellstes Modell)",
-        "url":     (
+        "name": "TinyLlama 1.1B Q4  (schnellstes Modell)",
+        "url": (
             "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"
             "/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
         ),
-        "path":    DEFAULT_MODEL_PATH.parent / "tinyllama-q4.gguf",
+        "path": DEFAULT_MODEL_PATH.parent / "tinyllama-q4.gguf",
         "size_gb": 0.7,
-        "desc":    "Sehr schnell ~5s, begrenzte Intelligenz – gut als Fallback",
+        "desc": "Sehr schnell ~5s, begrenzte Intelligenz – gut als Fallback",
     },
 }
 
@@ -66,7 +62,9 @@ async def download_model(model_id: str = DEFAULT_MODEL_ID) -> str:
         return f"Model already downloaded: {dest} ({size_mb} MB)"
 
     log.info("Downloading %s (%.1f GB)…", info["name"], info["size_gb"])
-    print(f"\n📥 Downloading {info['name']} ({info['size_gb']:.1f} GB)…")  # intentional progress output
+    print(
+        f"\n📥 Downloading {info['name']} ({info['size_gb']:.1f} GB)…"
+    )  # intentional progress output
     print(f"   → {dest}\n")
     log.info("Model download start: %s → %s", info["name"], dest)
 
@@ -85,7 +83,9 @@ async def download_model(model_id: str = DEFAULT_MODEL_ID) -> str:
                 try:
                     resp = await session.get(url)
                     if resp.status in (401, 403):
-                        log.warning("URL %s: HTTP %s – versuche Fallback", url, resp.status)
+                        log.warning(
+                            "URL %s: HTTP %s – versuche Fallback", url, resp.status
+                        )
                         await resp.release()
                         resp = None
                         continue
@@ -105,10 +105,10 @@ async def download_model(model_id: str = DEFAULT_MODEL_ID) -> str:
                     f.write(chunk)
                     downloaded += len(chunk)
                     if total:
-                        pct  = downloaded / total * 100
+                        pct = downloaded / total * 100
                         done = int(pct / 2)
-                        bar  = "█" * done + "░" * (50 - done)
-                        mb   = downloaded // 1_048_576
+                        bar = "█" * done + "░" * (50 - done)
+                        mb = downloaded // 1_048_576
                         print(f"\r  [{bar}] {pct:.1f}% ({mb} MB)", end="", flush=True)
 
         log.info("Downloaded: %s", dest)
@@ -119,6 +119,7 @@ async def download_model(model_id: str = DEFAULT_MODEL_ID) -> str:
         # Config automatisch aktualisieren damit doctor + agent den richtigen Pfad kennen
         try:
             from piclaw.config import load as _load, save as _save
+
             _cfg = _load()
             if _cfg.llm.backend == "local":
                 _cfg.llm.model = str(dest)
@@ -141,9 +142,12 @@ async def download_model(model_id: str = DEFAULT_MODEL_ID) -> str:
 def list_models() -> str:
     lines = ["Verfügbare lokale Modelle:\n"]
     for mid, info in MODELS.items():
-        path    = Path(info["path"])
-        status  = f"✅ installiert ({path.stat().st_size//1_048_576} MB)" \
-                  if path.exists() else "⬇  nicht heruntergeladen"
+        path = Path(info["path"])
+        status = (
+            f"✅ installiert ({path.stat().st_size // 1_048_576} MB)"
+            if path.exists()
+            else "⬇  nicht heruntergeladen"
+        )
         default = "  ← Standard" if mid == DEFAULT_MODEL_ID else ""
         lines.append(
             f"  piclaw model download {mid}{default}\n"

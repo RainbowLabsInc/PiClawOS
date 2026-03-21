@@ -39,10 +39,10 @@ _SECS_PER_DAY = 86_400  # Sekunden pro Tag
 
 logger = logging.getLogger(__name__)
 
-CONFIG_DIR    = Path("/etc/piclaw")
-BACKUP_DIR    = Path("/var/lib/piclaw/backups")
+CONFIG_DIR = Path("/etc/piclaw")
+BACKUP_DIR = Path("/var/lib/piclaw/backups")
 BACKUP_PREFIX = "piclaw-backup"
-MAX_BACKUPS   = 10   # älteste werden automatisch gelöscht
+MAX_BACKUPS = 10  # älteste werden automatisch gelöscht
 
 
 # ── Was wird gesichert ────────────────────────────────────────────
@@ -57,7 +57,7 @@ BACKUP_TARGETS = [
 
 BACKUP_OPTIONAL = [
     CONFIG_DIR / "metrics.db",
-    CONFIG_DIR / "memory",        # QMD Verzeichnis
+    CONFIG_DIR / "memory",  # QMD Verzeichnis
 ]
 
 
@@ -71,7 +71,9 @@ class BackupInfo(NamedTuple):
 
     @property
     def datetime_str(self) -> str:
-        return datetime.fromtimestamp(self.ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        return datetime.fromtimestamp(self.ts, tz=timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S UTC"
+        )
 
     @property
     def age_str(self) -> str:
@@ -87,6 +89,7 @@ class BackupInfo(NamedTuple):
 
 def _write_manifest(manifest_path: Path, info: dict) -> None:
     from piclaw.fileutils import atomic_write_json
+
     atomic_write_json(manifest_path, info)
 
 
@@ -103,6 +106,7 @@ def _read_manifest(tar_path: Path) -> dict:
 
 
 # ── Backup erstellen ──────────────────────────────────────────────
+
 
 async def create_backup(
     include_metrics: bool = False,
@@ -156,19 +160,28 @@ async def create_backup(
             manifest_path = Path(tmpdir) / "manifest.json"
             _write_manifest(manifest_path, manifest)
 
-            with tarfile.open(output_path, "w:gz", compresslevel=6, encoding="utf-8") as tar:
+            with tarfile.open(
+                output_path, "w:gz", compresslevel=6, encoding="utf-8"
+            ) as tar:
                 tar.add(manifest_path, arcname="manifest.json")
                 for source, arcname in files_to_backup:
                     try:
                         tar.add(source, arcname=arcname)
                     except PermissionError:
-                        logger.warning("Backup: Kein Zugriff auf %s (übersprungen)", source)
+                        logger.warning(
+                            "Backup: Kein Zugriff auf %s (übersprungen)", source
+                        )
 
         return output_path
 
     result = await asyncio.to_thread(_build)
     size_kb = round(result.stat().st_size / 1024, 1)
-    logger.info("Backup erstellt: %s (%s KB, %d Dateien)", result.name, size_kb, len(files_to_backup))
+    logger.info(
+        "Backup erstellt: %s (%s KB, %d Dateien)",
+        result.name,
+        size_kb,
+        len(files_to_backup),
+    )
 
     # USB-Stick Kopie
     await _copy_to_usb(result)
@@ -181,12 +194,13 @@ async def create_backup(
 
 async def _copy_to_usb(backup_path: Path) -> bool:
     """Kopiert Backup auf angeschlossenen USB-Stick (falls vorhanden)."""
+
     def _find_usb() -> Path | None:
         for base in [Path("/media"), Path("/mnt")]:
             if not base.exists():
                 continue
             for user_dir in base.iterdir():
-                for mount in (user_dir.iterdir() if user_dir.is_dir() else [user_dir]):
+                for mount in user_dir.iterdir() if user_dir.is_dir() else [user_dir]:
                     if mount.is_mount() and not str(mount).endswith("boot"):
                         return mount
         return None
@@ -210,8 +224,11 @@ async def _copy_to_usb(backup_path: Path) -> bool:
 
 async def _cleanup_old_backups(out_dir: Path) -> None:
     """Löscht überzählige alte Backups."""
+
     def _clean():
-        backups = sorted(out_dir.glob(f"{BACKUP_PREFIX}_*.tar.gz"), key=lambda p: p.stat().st_mtime)
+        backups = sorted(
+            out_dir.glob(f"{BACKUP_PREFIX}_*.tar.gz"), key=lambda p: p.stat().st_mtime
+        )
         while len(backups) > MAX_BACKUPS:
             old = backups.pop(0)
             old.unlink()
@@ -221,6 +238,7 @@ async def _cleanup_old_backups(out_dir: Path) -> None:
 
 
 # ── Backups auflisten ─────────────────────────────────────────────
+
 
 def list_backups(search_dirs: list[Path] | None = None) -> list[BackupInfo]:
     """Listet alle gefundenen Backups auf, neueste zuerst."""
@@ -245,18 +263,21 @@ def list_backups(search_dirs: list[Path] | None = None) -> list[BackupInfo]:
                 continue
             seen.add(key)
             manifest = _read_manifest(f)
-            infos.append(BackupInfo(
-                path=f,
-                ts=manifest.get("ts", int(f.stat().st_mtime)),
-                size_kb=round(f.stat().st_size / 1024, 1),
-                version=manifest.get("version", "?"),
-                files=len(manifest.get("files", [])),
-            ))
+            infos.append(
+                BackupInfo(
+                    path=f,
+                    ts=manifest.get("ts", int(f.stat().st_mtime)),
+                    size_kb=round(f.stat().st_size / 1024, 1),
+                    version=manifest.get("version", "?"),
+                    files=len(manifest.get("files", [])),
+                )
+            )
 
     return sorted(infos, key=lambda i: i.ts, reverse=True)
 
 
 # ── Restore ───────────────────────────────────────────────────────
+
 
 async def restore_backup(
     backup_path: Path | None = None,
@@ -288,7 +309,7 @@ async def restore_backup(
                 if not member.name.startswith("config/"):
                     continue
 
-                rel_name = member.name[len("config/"):]
+                rel_name = member.name[len("config/") :]
                 dest = CONFIG_DIR / rel_name
 
                 if dry_run:
@@ -310,8 +331,12 @@ async def restore_backup(
 
     await asyncio.to_thread(_restore)
 
-    logger.info("Restore %s: %d Dateien, %d Fehler",
-                "(DRY RUN) " if dry_run else "", len(restored), len(errors))
+    logger.info(
+        "Restore %s: %d Dateien, %d Fehler",
+        "(DRY RUN) " if dry_run else "",
+        len(restored),
+        len(errors),
+    )
 
     return {
         "ok": len(errors) == 0,
@@ -325,14 +350,17 @@ async def restore_backup(
 
 # ── CLI-Hilfsfunktionen ───────────────────────────────────────────
 
+
 def format_backup_list(backups: list[BackupInfo]) -> str:
     if not backups:
         return "  Keine Backups gefunden.\n  Erstelle eines mit: piclaw backup"
 
-    lines = [f"  {'#':<3} {'Datum':<22} {'Größe':>8}  {'Dateien':>8}  {'Alter':<12}  Pfad"]
+    lines = [
+        f"  {'#':<3} {'Datum':<22} {'Größe':>8}  {'Dateien':>8}  {'Alter':<12}  Pfad"
+    ]
     lines.append("  " + "─" * 80)
     for i, b in enumerate(backups):
         lines.append(
-            f"  {i+1:<3} {b.datetime_str:<22} {b.size_kb:>7.0f}KB  {b.files:>8}  {b.age_str:<12}  {b.path.name}"
+            f"  {i + 1:<3} {b.datetime_str:<22} {b.size_kb:>7.0f}KB  {b.files:>8}  {b.age_str:<12}  {b.path.name}"
         )
     return "\n".join(lines)

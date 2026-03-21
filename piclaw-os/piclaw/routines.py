@@ -17,6 +17,7 @@ Eigene Routinen:
 
 Persistenz: /etc/piclaw/routines.json
 """
+
 from __future__ import annotations
 
 import json
@@ -25,25 +26,29 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from piclaw.proactive import ProactiveRunner
 
 log = logging.getLogger("piclaw.routines")
 
 
 # ── Datenmodell ───────────────────────────────────────────────────
 
+
 @dataclass
 class Routine:
-    id:          str
-    name:        str
-    enabled:     bool
-    cron:        str        # cron expression
-    action:      str        # "briefing" | "ha_scene" | "agent_prompt" | "notify"
-    params:      dict       # action-specific params
-    channel:     str = "all"    # "all" | "telegram" | "discord" | "whatsapp"
-    conditions:  dict = field(default_factory=dict)  # optional conditions
-    last_run:    str = ""
-    run_count:   int = 0
+    id: str
+    name: str
+    enabled: bool
+    cron: str  # cron expression
+    action: str  # "briefing" | "ha_scene" | "agent_prompt" | "notify"
+    params: dict  # action-specific params
+    channel: str = "all"  # "all" | "telegram" | "discord" | "whatsapp"
+    conditions: dict = field(default_factory=dict)  # optional conditions
+    last_run: str = ""
+    run_count: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -54,7 +59,7 @@ class Routine:
 
     def describe(self) -> str:
         status = "✓" if self.enabled else "✗"
-        last   = f"  (zuletzt: {self.last_run[:16]})" if self.last_run else ""
+        last = f"  (zuletzt: {self.last_run[:16]})" if self.last_run else ""
         return f"[{status}] {self.name}  [{self.cron}]  → {self.action}{last}"
 
 
@@ -62,48 +67,48 @@ class Routine:
 
 DEFAULT_ROUTINES: list[dict] = [
     {
-        "id":      "morning_briefing",
-        "name":    "Morgen-Briefing",
-        "enabled": False,       # deaktiviert bis Nutzer es anschaltet
-        "cron":    "0 7 * * *", # täglich 07:00
-        "action":  "briefing",
-        "params":  {"type": "morning"},
+        "id": "morning_briefing",
+        "name": "Morgen-Briefing",
+        "enabled": False,  # deaktiviert bis Nutzer es anschaltet
+        "cron": "0 7 * * *",  # täglich 07:00
+        "action": "briefing",
+        "params": {"type": "morning"},
         "channel": "all",
         "conditions": {},
         "last_run": "",
         "run_count": 0,
     },
     {
-        "id":      "evening_check",
-        "name":    "Abend-Check",
+        "id": "evening_check",
+        "name": "Abend-Check",
         "enabled": False,
-        "cron":    "0 22 * * *", # täglich 22:00
-        "action":  "briefing",
-        "params":  {"type": "evening"},
+        "cron": "0 22 * * *",  # täglich 22:00
+        "action": "briefing",
+        "params": {"type": "evening"},
         "channel": "all",
         "conditions": {},
         "last_run": "",
         "run_count": 0,
     },
     {
-        "id":      "weekly_report",
-        "name":    "Wochenbericht",
+        "id": "weekly_report",
+        "name": "Wochenbericht",
         "enabled": False,
-        "cron":    "0 8 * * 1", # Montags 08:00
-        "action":  "briefing",
-        "params":  {"type": "weekly"},
+        "cron": "0 8 * * 1",  # Montags 08:00
+        "action": "briefing",
+        "params": {"type": "weekly"},
         "channel": "all",
         "conditions": {},
         "last_run": "",
         "run_count": 0,
     },
     {
-        "id":      "temp_check",
-        "name":    "Temperatur-Check",
+        "id": "temp_check",
+        "name": "Temperatur-Check",
         "enabled": False,
-        "cron":    "*/30 * * * *", # alle 30 Minuten
-        "action":  "agent_prompt",
-        "params":  {
+        "cron": "*/30 * * * *",  # alle 30 Minuten
+        "action": "agent_prompt",
+        "params": {
             "prompt": (
                 "Prüfe die CPU-Temperatur des Pi. "
                 "Falls sie über 80°C liegt, sende eine Warnung. "
@@ -117,12 +122,12 @@ DEFAULT_ROUTINES: list[dict] = [
         "run_count": 0,
     },
     {
-        "id":      "network_check",
-        "name":    "Netzwerk-Überwachung",
+        "id": "network_check",
+        "name": "Netzwerk-Überwachung",
         "enabled": False,
-        "cron":    "*/15 * * * *", # alle 15 Minuten
-        "action":  "agent_prompt",
-        "params":  {
+        "cron": "*/15 * * * *",  # alle 15 Minuten
+        "action": "agent_prompt",
+        "params": {
             "prompt": (
                 "Prüfe das Netzwerk auf neue Geräte (check_new_devices). "
                 "Falls neue Geräte gefunden wurden, liste sie auf und melde sie. "
@@ -140,6 +145,7 @@ DEFAULT_ROUTINES: list[dict] = [
 
 # ── Routinen-Registry ─────────────────────────────────────────────
 
+
 class RoutineRegistry:
     def __init__(self, path: Path):
         self._path = path
@@ -151,9 +157,7 @@ class RoutineRegistry:
             try:
                 data = json.loads(self._path.read_text(encoding="utf-8"))
                 self._routines = {
-                    d["id"]: Routine.from_dict(d)
-                    for d in data
-                    if "id" in d
+                    d["id"]: Routine.from_dict(d) for d in data if "id" in d
                 }
                 log.info("Routinen geladen: %d", len(self._routines))
                 return
@@ -170,7 +174,10 @@ class RoutineRegistry:
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         from piclaw.fileutils import safe_write_json
-        safe_write_json(self._path, [r.to_dict() for r in self._routines.values()], label="routines")
+
+        safe_write_json(
+            self._path, [r.to_dict() for r in self._routines.values()], label="routines"
+        )
 
     def all(self) -> list[Routine]:
         return list(self._routines.values())
@@ -221,7 +228,7 @@ class RoutineRegistry:
     def mark_ran(self, routine_id: str) -> None:
         r = self._routines.get(routine_id)
         if r:
-            r.last_run  = datetime.now().isoformat()
+            r.last_run = datetime.now().isoformat()
             r.run_count += 1
             self._save()
 
@@ -234,13 +241,13 @@ class RoutineRegistry:
         channel: str = "all",
     ) -> Routine:
         r = Routine(
-            id         = str(uuid.uuid4())[:8],
-            name       = name,
-            enabled    = True,
-            cron       = cron,
-            action     = action,
-            params     = params,
-            channel    = channel,
+            id=str(uuid.uuid4())[:8],
+            name=name,
+            enabled=True,
+            cron=cron,
+            action=action,
+            params=params,
+            channel=channel,
         )
         self.add(r)
         return r
@@ -291,14 +298,23 @@ TOOL_DEFS = [
         parameters={
             "type": "object",
             "properties": {
-                "name":    {"type": "string", "description": "Name der Routine"},
-                "cron":    {"type": "string", "description": "Cron-Ausdruck, z.B. '0 7 * * *' für täglich 7 Uhr"},
-                "action":  {
+                "name": {"type": "string", "description": "Name der Routine"},
+                "cron": {
+                    "type": "string",
+                    "description": "Cron-Ausdruck, z.B. '0 7 * * *' für täglich 7 Uhr",
+                },
+                "action": {
                     "type": "string",
                     "description": "briefing | agent_prompt | notify | ha_scene",
                 },
-                "prompt":  {"type": "string", "description": "Was der Agent tun soll (für action=agent_prompt)"},
-                "message": {"type": "string", "description": "Feste Nachricht (für action=notify)"},
+                "prompt": {
+                    "type": "string",
+                    "description": "Was der Agent tun soll (für action=agent_prompt)",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Feste Nachricht (für action=notify)",
+                },
                 "channel": {
                     "type": "string",
                     "description": "Empfänger: all | telegram | discord | whatsapp",
@@ -367,8 +383,13 @@ def build_handlers(registry: RoutineRegistry, runner: "ProactiveRunner") -> dict
         return f"Routine '{name}' nicht gefunden."
 
     async def routine_create(
-        name: str, cron: str, action: str,
-        prompt: str = "", message: str = "", channel: str = "all", **_
+        name: str,
+        cron: str,
+        action: str,
+        prompt: str = "",
+        message: str = "",
+        channel: str = "all",
+        **_,
     ) -> str:
         params: dict[str, Any] = {}
         if action == "agent_prompt":
@@ -394,6 +415,7 @@ def build_handlers(registry: RoutineRegistry, runner: "ProactiveRunner") -> dict
 
     async def briefing_now(briefing_type: str = "status", **_) -> str:
         from piclaw.briefing import generate_briefing
+
         msg = await generate_briefing(briefing_type, runner.cfg, runner.llm)
         if runner.hub:
             await runner.hub.send_all(msg)
@@ -401,10 +423,10 @@ def build_handlers(registry: RoutineRegistry, runner: "ProactiveRunner") -> dict
         return msg
 
     return {
-        "routine_list":    routine_list,
-        "routine_enable":  routine_enable,
+        "routine_list": routine_list,
+        "routine_enable": routine_enable,
         "routine_disable": routine_disable,
-        "routine_create":  routine_create,
+        "routine_create": routine_create,
         "routine_run_now": routine_run_now,
-        "briefing_now":    briefing_now,
+        "briefing_now": briefing_now,
     }
