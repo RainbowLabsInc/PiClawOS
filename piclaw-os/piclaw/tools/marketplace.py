@@ -405,7 +405,7 @@ async def marketplace_search(
     if not notify_all:
         _save_seen(new_seen)
 
-    log.info("Marketplace '%s': %d gesamt, %d neu", query, len(all_results), len(new_results))
+    log.info("Marketplace '%s' in %s: %d total", query, location, len(all_results))
     return {
         "new":                new_results,
         "total_found":        len(all_results),

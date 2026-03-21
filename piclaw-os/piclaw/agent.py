@@ -539,6 +539,18 @@ class Agent:
                         break
 
         mp_kwargs = self._detect_marketplace_intent(user_input)
+        if mp_kwargs:
+            log.info("Marketplace intent detected: %s", mp_kwargs)
+
+            # If we have a clear query AND location/radius, execute directly
+            if mp_kwargs.get("query") and (mp_kwargs.get("location") or mp_kwargs.get("radius_km")):
+                log.info("Executing marketplace shortcut for: '%s'", mp_kwargs['query'])
+                handler = self._handlers.get("marketplace_search")
+                if handler:
+                    return await handler(**mp_kwargs, notify_all=True)
+
+            # Otherwise delegate
+            return await self._delegate_to_search_assistant(user_input)
 
         # Follow-up detection: "erhöhe", "vergrößer", "erweitere", "nochmal", "zeig mehr"
         if not mp_kwargs and _prev_mp_context:
