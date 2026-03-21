@@ -21,7 +21,6 @@ CLI:
   piclaw backup restore  → Neuestes Backup wiederherstellen
   piclaw backup restore --file backup.tar.gz → Spezifisches Backup
 """
-from __future__ import annotations
 
 import asyncio
 import json
