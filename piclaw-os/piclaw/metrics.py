@@ -168,6 +168,36 @@ class MetricsDB:
             ).fetchall()
         return [{"ts": r["bucket"], "name": name, "value": round(r["value"], 2), "unit": r["unit"]} for r in rows]
 
+    def query_summary(self, names: list[str], since_s: int = 86400) -> dict[str, dict[str, float]]:
+        """
+        Berechnet Durchschnitt und Maximum für mehrere Metriken gleichzeitig.
+        Gibt ein Dictionary zurück: { "metric_name": {"avg": 42.5, "max": 60.0} }
+        """
+        if not names:
+            return {}
+
+        since_ts = int(time.time()) - since_s
+        placeholders = ",".join("?" for _ in names)
+        query = f"""
+            SELECT name, AVG(value) as avg_val, MAX(value) as max_val
+            FROM metrics
+            WHERE name IN ({placeholders}) AND ts >= ?
+            GROUP BY name
+        """
+
+        params = tuple(names) + (since_ts,)
+
+        result: dict[str, dict[str, float]] = {}
+        with self._conn() as con:
+            rows = con.execute(query, params).fetchall()
+            for row in rows:
+                if row["avg_val"] is not None and row["max_val"] is not None:
+                    result[row["name"]] = {
+                        "avg": round(row["avg_val"], 1),
+                        "max": round(row["max_val"], 1),
+                    }
+        return result
+
     def list_metrics(self) -> list[str]:
         """Alle bekannten Metrik-Namen."""
         with self._conn() as con:
