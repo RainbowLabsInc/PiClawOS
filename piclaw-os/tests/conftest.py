@@ -21,6 +21,7 @@ def patch_config_dir(tmp_path_factory):
     This prevents tests from reading/writing /etc/piclaw.
     """
     cfg_dir = tmp_path_factory.mktemp("piclaw_config")
+    import piclaw.config  # Import to ensure the module is loaded
     with patch("piclaw.config.CONFIG_DIR", cfg_dir):
         yield cfg_dir
 
