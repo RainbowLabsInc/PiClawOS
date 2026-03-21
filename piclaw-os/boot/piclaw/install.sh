@@ -275,6 +275,8 @@ if [[ -d "$INSTALL_DIR" ]]; then
 fi
 
 mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$LOG_DIR" "$CONFIG_DIR/memory"
+chown -R root:root "$LOG_DIR" 2>/dev/null || true
+chmod 755 "$LOG_DIR"
 
 # System-User anlegen
 if ! id "$PICLAW_USER" &>/dev/null; then
@@ -283,6 +285,7 @@ if ! id "$PICLAW_USER" &>/dev/null; then
     ok "System-User '$PICLAW_USER' angelegt"
 else
     ok "System-User '$PICLAW_USER' bereits vorhanden"
+chown -R "$PICLAW_USER":"$PICLAW_USER" "$LOG_DIR"
 fi
 
 # Watchdog-User (isoliert, kein Login)
