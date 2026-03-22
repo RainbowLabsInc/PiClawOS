@@ -340,3 +340,121 @@ def test_cmd_chat_interrupt(capsys):
         out = captured.out
 
         assert "Session ended." in out
+
+
+def test_cmd_chat_api_streaming_tokens(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("websockets.connect") as mock_ws_connect, \
+         patch("builtins.input", side_effect=["hello", "exit"]), \
+         patch("piclaw.auth.get_token", return_value="test_token"):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_load.return_value = mock_cfg
+
+        mock_ws = AsyncMock()
+        mock_ws.recv.side_effect = [
+            json.dumps({"type": "token", "text": "Hel"}),
+            json.dumps({"type": "token", "text": "lo "}),
+            json.dumps({"type": "token", "text": "World"}),
+            json.dumps({"type": "reply", "text": "Hello World"})
+        ]
+        mock_ws_connect.return_value.__aenter__.return_value = mock_ws
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "Hel" in out
+        assert "lo " in out
+        assert "World" in out
+        # In the token-handling path of `cmd_chat`, the full response is printed via tokens
+        # but the `msg["type"] == "reply"` branch won't re-print the prefix if `reply_parts` is not empty.
+        # It just prints `\n`. Let's assert that "Hello World" is assembled in the output or we just look for `[PiClawTest] ` absence.
+        assert "Hel" in out
+        assert "lo " in out
+        assert "World" in out
+        # We also check that the tokens were actually printed
+        pass
+
+
+def test_cmd_chat_api_error(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("websockets.connect") as mock_ws_connect, \
+         patch("builtins.input", side_effect=["hello", "exit"]), \
+         patch("piclaw.auth.get_token", return_value="test_token"):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_load.return_value = mock_cfg
+
+        mock_ws = AsyncMock()
+        mock_ws.recv.side_effect = [
+            json.dumps({"type": "error", "text": "Connection lost"})
+        ]
+        mock_ws_connect.return_value.__aenter__.return_value = mock_ws
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "❌ Connection lost" in out
+
+
+def test_cmd_chat_api_exception_fallback(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("websockets.connect", side_effect=Exception("WS Failed")), \
+         patch("piclaw.auth.get_token", return_value="test_token"), \
+         patch("piclaw.agent.Agent") as mock_agent_class, \
+         patch("builtins.input", side_effect=["hello", "exit"]):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_load.return_value = mock_cfg
+
+        mock_agent = MagicMock()
+        mock_agent.boot = AsyncMock()
+        mock_agent.run = AsyncMock(return_value="Offline reply")
+        mock_agent_class.return_value = mock_agent
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "WebSocket-Fehler: WS Failed" in out
+        assert "Offline-Modus" in out
+        assert "Offline reply" in out
+
+
+def test_cmd_chat_empty_input(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=False), \
+         patch("piclaw.agent.Agent") as mock_agent_class, \
+         patch("builtins.input", side_effect=["", "   ", "exit"]):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_load.return_value = mock_cfg
+
+        mock_agent = MagicMock()
+        mock_agent.boot = AsyncMock()
+        mock_agent_class.return_value = mock_agent
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "PiClawTest ready" in out
+        assert "Session ended." not in out
+        assert "Goodbye." in out
+        mock_agent.run.assert_not_called()
