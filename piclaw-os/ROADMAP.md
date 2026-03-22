@@ -66,7 +66,11 @@ Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network
   - Tools: `scrape_url()`, `scrape_css()`, `stealth_fetch()`
 - [x] Add `scrapling[fetchers]` to `install.sh` dependencies
 
-### v0.20 — Self-Improving Memory (ClawHub Skill)
+### v0.20 — Phantom Engine (Advanced Autonomous Browsing)
+- [ ] **v2 (Synthetic State & SQLite Personas):** Move beyond stateless scraping to bypass advanced anti-bot protections (Cloudflare, DataDome) by maintaining "Personas" (synthetic browser histories, cookies, and local storage). To save RAM on the Pi 5 and avoid polluting the semantic QMD index with raw JSON blobs, offload these persistent states into a dedicated SQLite database (`/etc/piclaw/ipc/personas.db`). When `stealth_fetch` is called, hydrate a fresh browser with a persona, scrape, update the state, and serialize it back to disk.
+- [ ] **v3 (Tor Routing):** Route these synthesized, pre-warmed persona sessions through the Tor network for maximum untraceability and geographic proxy rotation.
+
+### v0.21 — Self-Improving Memory (ClawHub Skill)
 - [ ] Dameon learns from explicit corrections ("no, that was wrong")
 - [ ] Tiered memory: HOT (≤100 lines, always loaded) / WARM / COLD
 - [ ] Pattern promotion: after 3 identical corrections → permanent rule in HOT
@@ -74,12 +78,12 @@ Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network
 - [ ] Conflict resolution: more specific pattern wins (project > domain > global)
 - [ ] Inspired by: https://clawhub.ai (Self-Improving Memory skill)
 
-### v0.21 — LLM Improvements
+### v0.22 — LLM Improvements
 - [ ] Ollama integration (llama3.2:3b as a better local option)
 - [ ] Refined thermal routing
 - [ ] Optimise `n_threads` for Pi 5
 
-### v0.22 — Token Efficiency (for premium models)
+### v0.23 — Token Efficiency (for premium models)
 - [ ] **Tool routing** — classifier detects if request needs tools; skip tool definitions if not (saves ~3000 tokens per simple message)
 - [ ] **Lazy memory injection** — only inject QMD context when request references past events or decisions
 - [ ] **System prompt caching** — SOUL.md + BASE_CAPABILITIES sent once per session, not every turn
