@@ -328,6 +328,19 @@ async def _validate_discord_token(token: str) -> tuple[bool, str]:
         return False, str(e)[:120]
 
 
+async def _validate_agentmail(api_key: str) -> tuple[bool, str]:
+    try:
+        from piclaw.config import AgentMailConfig
+        from piclaw.tools.agentmail import agentmail_list_inboxes
+        test_cfg = AgentMailConfig(api_key=api_key)
+        res = await agentmail_list_inboxes(test_cfg)
+        if "Error" in res or "❌" in res:
+            return False, res[:120]
+        return True, "Gültig"
+    except Exception as e:
+        return False, str(e)[:120]
+
+
 async def _validate_ollama(base_url: str, model: str) -> tuple[bool, str]:
     try:
         import aiohttp
@@ -1556,28 +1569,7 @@ def step_agentmail(state: WizardState, step: int, total: int) -> None:
 
     _spinner("API-Key prüfen")
 
-    # We test it by listing inboxes
-    try:
-        from piclaw.config import AgentMailConfig
-        from piclaw.tools.agentmail import agentmail_list_inboxes
-        test_cfg = AgentMailConfig(api_key=api_key)
-
-        async def _test():
-            return await agentmail_list_inboxes(test_cfg)
-
-        loop = asyncio.new_event_loop()
-        res = loop.run_until_complete(_test())
-        loop.close()
-
-        if "Error" in res or "❌" in res:
-            ok = False
-            msg = res
-        else:
-            ok = True
-            msg = "Gültig"
-    except Exception as e:
-        ok = False
-        msg = str(e)[:120]
+    ok, msg = _test_async(_validate_agentmail(api_key))
 
     _clear_line()
     if ok:
