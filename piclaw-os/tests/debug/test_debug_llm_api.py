@@ -1,3 +1,4 @@
+import pytest
 """
 PiClaw Debug – LLM API & tool_choice
 Prüft welche api.py tatsächlich geladen wird und ob tool_choice korrekt gesetzt ist.
@@ -57,6 +58,7 @@ except Exception as e:
 
 section("4. Minimaler API-Test (ohne Tools)")
 import asyncio
+@pytest.mark.asyncio
 async def test_api():
     try:
         from piclaw.llm.api import OpenAIBackend
@@ -83,6 +85,7 @@ async def test_api():
 asyncio.run(test_api())
 
 section("5. API-Test MIT Tools")
+@pytest.mark.asyncio
 async def test_with_tools():
     try:
         from piclaw.llm.api import OpenAIBackend

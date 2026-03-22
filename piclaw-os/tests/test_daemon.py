@@ -15,7 +15,7 @@ def test_daemon_run_happy_path():
          patch("piclaw.daemon.logging.StreamHandler") as mock_stream_handler, \
          patch("piclaw.daemon.logging.FileHandler") as mock_file_handler, \
          patch("piclaw.daemon.asyncio.run") as mock_asyncio_run, \
-         patch("piclaw.daemon._daemon_main") as mock_daemon_main:
+         patch("piclaw.daemon._daemon_main", new_callable=MagicMock) as mock_daemon_main:
 
         # Setup mocks
         # We need to mock _daemon_main such that it's just a regular function mock
@@ -26,6 +26,8 @@ def test_daemon_run_happy_path():
 
         mock_file_inst = MagicMock()
         mock_file_handler.return_value = mock_file_inst
+
+        mock_daemon_main.return_value = 'dummy_coro_object'
 
         # Call the function
         run()
@@ -48,13 +50,7 @@ def test_daemon_run_happy_path():
         # Verify the argument passed to asyncio.run is what _daemon_main returned
         # Because it's an async function mock, it returns a coroutine.
         args, kwargs = mock_asyncio_run.call_args
-        import inspect
-        assert inspect.iscoroutine(args[0])
-        # Manually close it to avoid the RuntimeWarning in tests
-        try:
-            args[0].close()
-        except Exception:
-            pass
+        assert args[0] == 'dummy_coro_object'
 
 def test_daemon_run_mkdir_permission_error():
     """Test that if LOG_DIR.mkdir fails, the exception propagates."""
@@ -75,7 +71,7 @@ def test_daemon_run_asyncio_run_error():
          patch("piclaw.daemon.logging.StreamHandler"), \
          patch("piclaw.daemon.logging.FileHandler"), \
          patch("piclaw.daemon.asyncio.run", side_effect=RuntimeError("Loop error")), \
-         patch("piclaw.daemon._daemon_main"):
+         patch("piclaw.daemon._daemon_main", new_callable=MagicMock):
 
         with pytest.raises(RuntimeError, match="Loop error"):
             run()
