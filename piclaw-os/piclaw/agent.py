@@ -112,7 +112,7 @@ class Agent:
         self._telegram_send = lambda text: None  # replaced by messaging hub
         self._build_tools()
 
-        # Parallel processing queue (v0.14)
+        # Parallel processing queue (v0.15)
         self._queue: asyncio.Queue[AgentTask] = asyncio.Queue()
         self._workers: list[asyncio.Task] = []
 
@@ -403,7 +403,7 @@ class Agent:
         history: list[Message] | None = None,
         on_token=None,
     ) -> str:
-        """Enqueue a request and wait for the result (Parallel Queue v0.14)."""
+        """Enqueue a request and wait for the result (Parallel Queue v0.15)."""
         self._register_late_tools()
         self._start_workers()  # Ensure workers are running
 
@@ -782,7 +782,7 @@ class Agent:
     async def boot(self):
         """Boot LLM router, memory, heartbeat, and sub-agents."""
         log.info(
-            "PiClaw Agent v0.14.x booting (Marketplace Search Assistant active)..."
+            "PiClaw Agent v0.15.x booting (Marketplace Search Assistant active)..."
         )
         await self.llm.boot()
         self._start_workers()

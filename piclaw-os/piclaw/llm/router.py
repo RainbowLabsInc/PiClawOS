@@ -20,7 +20,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 from piclaw.config import PiClawConfig
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, LLMResponse
@@ -93,14 +93,14 @@ class SmartRouter(LLMBackend):
             max_tokens=1024,
             temperature=cfg.llm.temperature,
         )
-        self._api: Optional[LLMBackend] = self._build_api_backend()
+        self._api: LLMBackend | None = self._build_api_backend()
         self._active: LLMBackend = self._local  # start with local
 
         self._api_failures = 0
         self._boot_complete = asyncio.Event()
-        self._recheck_task: Optional[asyncio.Task] = None
+        self._recheck_task: asyncio.Task | None = None
 
-    def _build_api_backend(self) -> Optional[LLMBackend]:
+    def _build_api_backend(self) -> LLMBackend | None:
         cfg = self.cfg.llm
         if not cfg.api_key:
             return None

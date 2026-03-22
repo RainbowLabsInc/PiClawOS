@@ -18,7 +18,6 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 from piclaw.config import CONFIG_DIR
 
@@ -183,7 +182,7 @@ def write_job(job: CrawlJob):
         )
 
 
-def get_job(job_id: str) -> Optional[CrawlJob]:
+def get_job(job_id: str) -> CrawlJob | None:
     init_jobs_db()
     with _conn(JOBS_DB) as con:
         row = con.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()

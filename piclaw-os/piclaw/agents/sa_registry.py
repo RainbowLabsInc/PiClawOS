@@ -24,7 +24,6 @@ import logging
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from typing import Optional
 
 from piclaw.config import CONFIG_DIR
 
@@ -84,8 +83,8 @@ class SubAgentDef:
     created_by: str = "mainagent"
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    last_run: Optional[str] = None
-    last_status: Optional[str] = None  # ok | error | running | timeout
+    last_run: str | None = None
+    last_status: str | None = None  # ok | error | running | timeout
 
 
 class SubAgentRegistry:
@@ -121,7 +120,7 @@ class SubAgentRegistry:
         self._save()
         return agent.id
 
-    def get(self, id_or_name: str) -> Optional[SubAgentDef]:
+    def get(self, id_or_name: str) -> SubAgentDef | None:
         # Try by ID first, then by name
         if id_or_name in self._agents:
             return self._agents[id_or_name]

@@ -14,7 +14,6 @@ Known device database covers ~40 common hobby sensors and modules.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 log = logging.getLogger("piclaw.hardware.i2c_scan")
 
@@ -170,7 +169,7 @@ class I2CDevice:
 class I2CScanResult:
     bus: int
     devices: list[I2CDevice] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
     simulated: bool = False
 
     @property

@@ -28,7 +28,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Callable, Awaitable
+from typing import Callable, Awaitable
 from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.hardware.thermal")
@@ -121,12 +121,12 @@ def make_status(
 
 
 # ── Module-level state ────────────────────────────────────────────
-_current_status: Optional[ThermalStatus] = None
-_alert_sent_for_state: Optional[ThermalState] = None
+_current_status: ThermalStatus | None = None
+_alert_sent_for_state: ThermalState | None = None
 _fan_on: bool = False
 
 
-def get_thermal_state() -> Optional[ThermalStatus]:
+def get_thermal_state() -> ThermalStatus | None:
     """
     Return current thermal status. Fast, non-blocking.
     Called by MultiLLMRouter before choosing local vs cloud backend.
@@ -174,10 +174,10 @@ def _calc_fan_duty(temp_c: float) -> float:
 
 
 async def run_thermal_monitor(
-    notify_fn: Optional[Callable[[str], Awaitable]] = None,
-    memory_fn: Optional[Callable[[str], Awaitable]] = None,
+    notify_fn: Callable[[str], Awaitable] | None = None,
+    memory_fn: Callable[[str], Awaitable] | None = None,
     fan_enabled: bool = False,
-    stop_event: Optional[asyncio.Event] = None,
+    stop_event: asyncio.Event | None = None,
 ):
     """
     Background task: polls temperature, updates _current_status,

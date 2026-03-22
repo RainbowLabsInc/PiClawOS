@@ -14,7 +14,6 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Optional
 from urllib.parse import quote_plus
 
 import aiohttp
@@ -230,7 +229,7 @@ def _clean_query(query: str) -> str:
 # ── Preis-Parser ───────────────────────────────────────────────────────────────
 
 
-def _parse_price(text: str) -> Optional[float]:
+def _parse_price(text: str) -> float | None:
     """Extrahiert Preis aus Text wie '149 €', '1.299,00 €', 'VB 80 €'"""
     text = text.replace(".", "").replace(",", ".")
     match = RE_PARSE_PRICE.search(text)
@@ -248,10 +247,10 @@ def _parse_price(text: str) -> Optional[float]:
 async def _search_kleinanzeigen(
     session: aiohttp.ClientSession,
     query: str,
-    max_price: Optional[float] = None,
-    location: Optional[str] = None,
+    max_price: float | None = None,
+    location: str | None = None,
     max_results: int = 10,
-    radius_km: Optional[int] = None,
+    radius_km: int | None = None,
 ) -> list[dict]:
     """Sucht auf Kleinanzeigen.de (ehemals eBay Kleinanzeigen)."""
     results = []
@@ -392,7 +391,7 @@ async def _fetch_ebay_html(url: str) -> str | None:
 async def _search_ebay(
     session: aiohttp.ClientSession,
     query: str,
-    max_price: Optional[float] = None,
+    max_price: float | None = None,
     max_results: int = 10,
 ) -> list[dict]:
     """Sucht auf eBay.de – nutzt Scrapling → aiohttp → Tandem Kaskade."""
@@ -503,12 +502,12 @@ async def _search_web(
 
 async def marketplace_search(
     query: str,
-    platforms: Optional[list[str]] = None,
-    max_price: Optional[float] = None,
-    location: Optional[str] = None,
+    platforms: list[str] | None = None,
+    max_price: float | None = None,
+    location: str | None = None,
     max_results: int = 10,
     notify_all: bool = True,
-    radius_km: Optional[int] = None,
+    radius_km: int | None = None,
 ) -> dict:
     """
     Durchsucht Marktplätze nach neuen Inseraten.
