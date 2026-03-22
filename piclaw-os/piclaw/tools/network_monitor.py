@@ -18,6 +18,10 @@ logger = logging.getLogger("piclaw.tools.network_monitor")
 
 KNOWN_DEVICES_FILE = CONFIG_DIR / "known_devices.json"
 
+# Pre-compiled regexes for performance
+RE_NMAP_HOST = re.compile(r"Nmap scan report for (?:(.+) \()?([\d\.]+)\)?")
+RE_NMAP_MAC = re.compile(r"MAC Address: ([0-9A-F:]+) \((.+)\)", re.IGNORECASE)
+
 
 @dataclass
 class NetworkDevice:
@@ -133,7 +137,7 @@ async def scan_devices(ip_range: str = "") -> list[NetworkDevice]:
     for line in output.splitlines():
         # Nmap scan report for 192.168.1.1
         # Nmap scan report for router.local (192.168.1.1)
-        m_host = re.search(r"Nmap scan report for (?:(.+) \()?([\d\.]+)\)?", line)
+        m_host = RE_NMAP_HOST.search(line)
         if m_host:
             current_dev = NetworkDevice(
                 ip=m_host.group(2), hostname=m_host.group(1) or "unknown"
@@ -142,7 +146,7 @@ async def scan_devices(ip_range: str = "") -> list[NetworkDevice]:
             devices.append(current_dev)
             continue
 
-        m_mac = re.search(r"MAC Address: ([0-9A-F:]+) \((.+)\)", line, re.IGNORECASE)
+        m_mac = RE_NMAP_MAC.search(line)
         if m_mac and current_dev:
             current_dev.mac = m_mac.group(1)
             current_dev.vendor = m_mac.group(2)
