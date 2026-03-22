@@ -156,6 +156,10 @@ class Agent:
 
         _reg(scrapling_mod.TOOL_DEFS, scrapling_mod.build_handlers())
 
+        # Stealth Marketplace Fallback (v0.20)
+        from piclaw.tools import stealth_marketplace as stealth_mp_mod
+        _reg(stealth_mp_mod.TOOL_DEFS, stealth_mp_mod.build_handlers())
+
         # HTTP tool
         from piclaw.tools import http as http_mod
 
@@ -621,7 +625,7 @@ class Agent:
             name="SearchAssistant",
             description=f"Marketplace Search: {request}",
             mission=SEARCH_ASSISTANT_MISSION_TEMPLATE,
-            tools=["marketplace_search"],
+            tools=["marketplace_search", "marketplace_stealth_crawl"],
             schedule="once",
             notify=True,
             created_by="mainagent",
