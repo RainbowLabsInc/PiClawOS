@@ -96,21 +96,25 @@ async def scrape_css(url: str, selector: str, attribute: str = None) -> str:
         log.error("scrape_css error: %s", e)
         return f"[ERROR] Failed to scrape css from {url}: {e}"
 
+def _run_stealth_fetch(url: str, as_markdown: bool) -> str:
+    from scrapling import StealthyFetcher
+    # Synchronous stealth fetcher wrapped to run in an executor
+    fetcher = StealthyFetcher()
+    response = fetcher.get(url)
+    if as_markdown:
+        try:
+            return response.markdown[:4000]
+        except AttributeError:
+            pass
+    return response.text[:4000]
+
+
 async def stealth_fetch(url: str, as_markdown: bool = True) -> str:
     """Fetches a URL using StealthyFetcher for heavy protections."""
+    import asyncio
     try:
-        from scrapling import AsyncStealthyFetcher
-        # Note: StealthyFetcher might be slower due to browser emulation
-        fetcher = AsyncStealthyFetcher()
-        response = await fetcher.get(url)
-
-        if as_markdown:
-            try:
-                return response.markdown[:4000]
-            except AttributeError:
-                pass
-
-        return response.text[:4000]
+        # Offload the synchronous StealthyFetcher to prevent blocking the event loop
+        return await asyncio.to_thread(_run_stealth_fetch, url, as_markdown)
     except ImportError:
         return "[ERROR] 'scrapling' library is not installed."
     except Exception as e:
