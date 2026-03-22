@@ -151,6 +151,11 @@ class Agent:
 
         _reg(tandem_mod.TOOL_DEFS, tandem_mod.build_handlers())
 
+        # Scrapling tools (v0.19)
+        from piclaw.tools import scrapling as scrapling_mod
+
+        _reg(scrapling_mod.TOOL_DEFS, scrapling_mod.build_handlers())
+
         # HTTP tool
         from piclaw.tools import http as http_mod
 

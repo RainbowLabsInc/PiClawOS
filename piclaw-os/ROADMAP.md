@@ -56,15 +56,15 @@ Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network
 - [ ] Abuse report generator
 
 ### v0.19 — Tandem Browser + Scrapling (Autonomous Browsing & Scraping)
-- [~] **Tandem IN PROGRESS** — browser automation: https://github.com/hydro13/tandem-browser
-- [ ] Tools: `browser_open(url)`, `browser_click(selector)`, `browser_read()`, `browser_screenshot()`
-- [ ] Agent can autonomously navigate websites, fill forms, and extract content
-- [ ] **Scrapling** — adaptive web scraping framework: https://github.com/D4Vinci/Scrapling
+- [x] **Tandem IN PROGRESS** — browser automation: https://github.com/hydro13/tandem-browser
+- [x] Tools: `browser_open(url)`, `browser_click(selector)`, `browser_read()`, `browser_screenshot()`
+- [x] Agent can autonomously navigate websites, fill forms, and extract content
+- [x] **Scrapling** — adaptive web scraping framework: https://github.com/D4Vinci/Scrapling
   - Cloudflare bypass out of the box (StealthyFetcher)
   - Adaptive element tracking — finds elements even after site redesigns
   - Built-in MCP server (direct Claude integration possible)
   - Tools: `scrape_url()`, `scrape_css()`, `stealth_fetch()`
-- [ ] Add `scrapling[fetchers]` to `install.sh` dependencies
+- [x] Add `scrapling[fetchers]` to `install.sh` dependencies
 
 ### v0.20 — Self-Improving Memory (ClawHub Skill)
 - [ ] Dameon learns from explicit corrections ("no, that was wrong")

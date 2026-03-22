@@ -353,6 +353,7 @@ VENV="$INSTALL_DIR/.venv"
     "discord.py>=2.3" \
     "aiomqtt>=2.0" \
     "agentmail>=0.4.0" \
+    "scrapling[fetchers]>=0.4.0" \
     2>/dev/null || true
 
 # Threema Gateway (optional)
