@@ -1,6 +1,11 @@
 import asyncio
 import pytest
-from piclaw.tools.marketplace import marketplace_search, _parse_price, format_results
+from piclaw.tools.marketplace import (
+    marketplace_search,
+    _parse_price,
+    format_results,
+    format_results_telegram,
+)
 
 def test_parse_price():
     assert _parse_price("149 €") == 149.0
@@ -37,3 +42,84 @@ def test_markdown_escaping():
     output = format_results(results)
     # Check if title is escaped correctly
     assert "Item \\[with\\] brackets" in output
+
+def test_format_results_telegram_empty():
+    results = {"query": "test query", "new": []}
+    output = format_results_telegram(results)
+    assert output == "🔍 Keine neuen Inserate für *test query*."
+
+def test_format_results_telegram_no_max_price():
+    results = {
+        "query": "test query",
+        "new": [
+            {
+                "platform": "kleinanzeigen",
+                "title": "Test Item 1 [Brackets]",
+                "url": "http://test.com/1",
+                "price_text": "50 €",
+                "location": "Berlin",
+            },
+            {
+                "platform": "ebay",
+                "title": "Test Item 2",
+                "url": "http://test.com/2",
+                "price_text": "100 €",
+            },
+            {
+                "platform": "web",
+                "title": "Test Item 3",
+                "url": "http://test.com/3",
+                "location": "Hamburg",
+            },
+            {
+                "platform": "unknown",
+                "title": "Test Item 4",
+                "url": "http://test.com/4",
+            },
+        ],
+    }
+    output = format_results_telegram(results)
+
+    assert "🛒 *4 neue Inserate* für _test query_" in output
+    assert "(max." not in output
+    assert "📌 [Test Item 1 \\[Brackets\\]](http://test.com/1) · 50 € · Berlin" in output
+    assert "🛍️ [Test Item 2](http://test.com/2) · 100 €" in output
+    assert "🌐 [Test Item 3](http://test.com/3) · Hamburg" in output
+    assert "🔗 [Test Item 4](http://test.com/4)" in output
+
+def test_format_results_telegram_with_max_price():
+    results = {
+        "query": "test query",
+        "max_price": 200.0,
+        "new": [
+            {
+                "platform": "ebay",
+                "title": "Test Item",
+                "url": "http://test.com",
+            }
+        ],
+    }
+    output = format_results_telegram(results)
+
+    # Needs to match exactly the generated line
+    assert "🛒 *1 neue Inserate* für _test query_\n(max. 200 €)" in output
+
+def test_format_results_telegram_truncation():
+    # Create 15 dummy items
+    items = []
+    for i in range(15):
+        items.append({
+            "platform": "ebay",
+            "title": f"Item {i}",
+            "url": f"http://test.com/{i}",
+        })
+
+    results = {"query": "test query", "new": items}
+    output = format_results_telegram(results)
+
+    # Count how many items are displayed
+    item_count = output.count("🛍️")
+    assert item_count == 10
+
+    # Check truncation message
+    assert "\n_... und 5 weitere_" in output
