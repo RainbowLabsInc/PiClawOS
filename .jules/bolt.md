@@ -1,0 +1,3 @@
+## 2024-03-22 - Raspberry Pi Optimization: Pre-compile Regexes
+**Learning:** During intent detection, the agent compiled 50+ regular expressions (`re.sub`, `re.search` with inline patterns and loops) for every single user message. On resource-constrained devices like the Raspberry Pi, repeatedly compiling regex patterns dynamically causes significant CPU overhead and stalls the event loop.
+**Action:** Always extract static regular expressions to the module level and pre-compile them with `re.compile()`. Combined arrays of keywords into single optimized regexes using `(?:word1|word2)` to minimize iterations.

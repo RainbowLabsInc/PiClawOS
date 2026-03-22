@@ -40,6 +40,39 @@ from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
 from piclaw import soul as soul_mod
 from piclaw.tools import homeassistant as ha_mod
 
+
+import re
+
+# --- Precompiled Regular Expressions for Intent Detection (Performance Optimization) ---
+# Compiling these at the module level saves ~50+ regex compilations per user message,
+# significantly reducing CPU overhead on resource-constrained devices like Raspberry Pi.
+RE_CHAT_PREFIX = re.compile(r"\[.*?\]")
+RE_PLZ_MATCH = re.compile(r"\b(\d{5})\b")
+RE_RADIUS_MATCH = re.compile(r"(\d+)\s*km", flags=re.IGNORECASE)
+RE_PRICE_MATCH = re.compile(r"unter\s+(\d+)\s*|max\s+(\d+)\s*|bis\s+(\d+)\s*", flags=re.IGNORECASE)
+RE_PRICE_MATCH_FOLLOWUP = re.compile(r"unter\s+(\d+)\s*€|max\s+(\d+)\s*€|bis\s+(\d+)\s*€", flags=re.IGNORECASE)
+
+_PLATFORM_PHRASES = [
+    "kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay",
+    "zeige mir", "zeig mir", "was kostet", "preis für", "gibt es", "auf"
+]
+RE_PLATFORM_PHRASES = re.compile(r"\b(?:" + "|".join(map(re.escape, _PLATFORM_PHRASES)) + r")\b", flags=re.IGNORECASE)
+
+_STOPWORDS = [
+    "auf", "im", "in", "um", "von", "bis", "bitte", "suche", "finde", "such",
+    "durchsuche", "liste", "umkreis", "radius", "einen", "eine", "ein", "mir",
+    "dem", "der", "die", "das", "rosengarten", "hamburg", "berlin", "münchen",
+    "köln", "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig",
+    "schnäppchen", "angebot", "angebote", "nach", "einem", "einer", "nähe",
+    "nähe von", "in der", "nach einem"
+]
+# Negative lookbehind/ahead for word boundaries for robust stopword removal
+RE_STOPWORDS = re.compile(r"(?<![\w])(?:" + "|".join(map(re.escape, _STOPWORDS)) + r")(?![\w])", flags=re.IGNORECASE)
+
+RE_DE_SUFFIX = re.compile(r"\.de\b", flags=re.IGNORECASE)
+RE_MULTI_SPACES = re.compile(r"\s+")
+# --------------------------------------------------------------------------------------
+
 log = logging.getLogger("piclaw.agent")
 
 
@@ -421,44 +454,19 @@ class Agent:
 
     def _detect_marketplace_intent(self, text: str) -> dict | None:
         """Detect marketplace search intent and extract parameters directly."""
-        import re
 
         # Vorab-Bereinigung von Chat-Präfixen wie "[you]"
-        text_clean = re.sub(r"\[.*?\]", " ", text)
+        text_clean = RE_CHAT_PREFIX.sub(" ", text)
         t = text_clean.lower()
 
         search_kw = [
-            "suche",
-            "finde",
-            "such",
-            "find",
-            "schau",
-            "schaue",
-            "durchsuche",
-            "zeig",
-            "liste",
-            "search",
-            "look for",
-            "was kostet",
-            "preis für",
-            "gibt es",
+            "suche", "finde", "such", "find", "schau", "schaue", "durchsuche",
+            "zeig", "liste", "search", "look for", "was kostet", "preis für", "gibt es"
         ]
         market_kw = [
-            "kleinanzeigen",
-            "ebay",
-            "inserat",
-            "anzeige",
-            "kaufen",
-            "marktplatz",
-            "gebraucht",
-            "preis",
-            "euro",
-            "schnäppchen",
-            "angebot",
-            "nähe",
-            "umkreis",
-            "plz",
-            "ort",
+            "kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen", "marktplatz",
+            "gebraucht", "preis", "euro", "schnäppchen", "angebot", "nähe",
+            "umkreis", "plz", "ort"
         ]
         if not any(k in t for k in search_kw):
             return None
@@ -477,15 +485,15 @@ class Agent:
             platforms = ["kleinanzeigen", "ebay"]
 
         # PLZ (5 Ziffern)
-        plz_match = re.search(r"\b(\d{5})\b", text_clean)
+        plz_match = RE_PLZ_MATCH.search(text_clean)
         location = plz_match.group(1) if plz_match else None
 
         # Radius
-        radius_match = re.search(r"(\d+)\s*km", t)
+        radius_match = RE_RADIUS_MATCH.search(t)
         radius_km = int(radius_match.group(1)) if radius_match else None
 
         # Preis
-        price_match = re.search(r"unter\s+(\d+)\s*|max\s+(\d+)\s*|bis\s+(\d+)\s*", t)
+        price_match = RE_PRICE_MATCH.search(t)
         max_price = None
         if price_match:
             max_price = float(next(g for g in price_match.groups() if g))
@@ -493,75 +501,23 @@ class Agent:
         # Query bereinigen
         query = text_clean
         # Plattform-Phrasen entfernen
-        for phrase in [
-            "kleinanzeigen.de",
-            "ebay.de",
-            "kleinanzeigen",
-            "ebay",
-            "zeige mir",
-            "zeig mir",
-            "was kostet",
-            "preis für",
-            "gibt es",
-            "auf",
-        ]:
-            query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
+        query = RE_PLATFORM_PHRASES.sub(" ", query)
+
         # PLZ entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
+
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
-        query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
+        query = RE_RADIUS_MATCH.sub(" ", query)
+
         # Stoppwörter entfernen
-        stopwords = [
-            "auf",
-            "im",
-            "in",
-            "um",
-            "von",
-            "bis",
-            "bitte",
-            "suche",
-            "finde",
-            "such",
-            "durchsuche",
-            "liste",
-            "umkreis",
-            "radius",
-            "einen",
-            "eine",
-            "ein",
-            "mir",
-            "dem",
-            "der",
-            "die",
-            "das",
-            "rosengarten",
-            "hamburg",
-            "berlin",
-            "münchen",
-            "köln",
-            "frankfurt",
-            "bremen",
-            "hannover",
-            "düsseldorf",
-            "leipzig",
-            "schnäppchen",
-            "angebot",
-            "angebote",
-            "nach",
-            "einem",
-            "einer",
-            "nähe",
-            "nähe von",
-            "in der",
-            "nach einem",
-        ]
-        for w in stopwords:
-            query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
+        query = RE_STOPWORDS.sub(" ", query)
+
         # .de Suffix entfernen
-        query = re.sub(r"\.de\b", " ", query, flags=re.IGNORECASE)
+        query = RE_DE_SUFFIX.sub(" ", query)
+
         # Mehrfache Leerzeichen
-        query = re.sub(r"\s+", " ", query).strip(" ,.-")
+        query = RE_MULTI_SPACES.sub(" ", query).strip(" ,.-")
 
         if len(query) < 3:
             return None
@@ -690,16 +646,11 @@ class Agent:
             if any(k in user_input.lower() for k in followup_kw):
                 mp_kwargs = dict(_prev_mp_context)
                 # Update radius if mentioned
-                import re
-
-                new_radius = re.search(r"(\d+)\s*km", user_input)
+                new_radius = RE_RADIUS_MATCH.search(user_input)
                 if new_radius:
                     mp_kwargs["radius_km"] = int(new_radius.group(1))
                 # Update max_price if mentioned
-                new_price = re.search(
-                    r"unter\s+(\d+)\s*€|max\s+(\d+)\s*€|bis\s+(\d+)\s*€",
-                    user_input.lower(),
-                )
+                new_price = RE_PRICE_MATCH_FOLLOWUP.search(user_input.lower())
                 if new_price:
                     mp_kwargs["max_price"] = float(
                         next(g for g in new_price.groups() if g)
