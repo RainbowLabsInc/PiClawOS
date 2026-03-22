@@ -161,6 +161,12 @@ class Agent:
 
         _reg(installer_mod.TOOL_DEFS, installer_mod.build_handlers())
 
+        # AgentMail tools (nur wenn konfiguriert)
+        if self.cfg.agentmail.api_key:
+            from piclaw.tools import agentmail as agentmail_mod
+            _reg(agentmail_mod.TOOL_DEFS, agentmail_mod.build_handlers(self.cfg.agentmail))
+            log.info("AgentMail tools registered (%d)", len(agentmail_mod.TOOL_DEFS))
+
         # Home Assistant tools (nur wenn konfiguriert)
         self._ha_client = ha_mod.get_client()
         if self._ha_client:

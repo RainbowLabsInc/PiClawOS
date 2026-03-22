@@ -140,6 +140,25 @@ DEFAULT_ROUTINES: list[dict] = [
         "last_run": "",
         "run_count": 0,
     },
+    {
+        "id": "email_check",
+        "name": "E-Mail Überwachung",
+        "enabled": False,
+        "cron": "*/15 * * * *",  # alle 15 Minuten
+        "action": "agent_prompt",
+        "params": {
+            "prompt": (
+                "Prüfe, ob es neue ungelesene E-Mails gibt (nutze agentmail_list_inboxes und dann agentmail_list_messages). "
+                "Falls neue E-Mails da sind, fasse sie kurz zusammen und melde sie. "
+                "Falls keine da sind oder du keinen Zugriff auf AgentMail hast, schweige."
+            ),
+            "silent_on_ok": True,
+        },
+        "channel": "all",
+        "conditions": {},
+        "last_run": "",
+        "run_count": 0,
+    },
 ]
 
 

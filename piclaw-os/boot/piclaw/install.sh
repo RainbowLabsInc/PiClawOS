@@ -352,6 +352,7 @@ VENV="$INSTALL_DIR/.venv"
 "$VENV/bin/pip" install --quiet \
     "discord.py>=2.3" \
     "aiomqtt>=2.0" \
+    "agentmail>=0.4.0" \
     2>/dev/null || true
 
 # Threema Gateway (optional)
