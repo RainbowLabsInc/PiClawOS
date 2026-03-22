@@ -42,9 +42,9 @@ TOOL_DEFS = [
 ]
 
 
-async def _run(cmd: str, timeout: int = 120) -> tuple[int, str]:
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
+async def _run(cmd: list[str], timeout: int = 120) -> tuple[int, str]:
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -61,9 +61,14 @@ async def _run(cmd: str, timeout: int = 120) -> tuple[int, str]:
 
 async def system_update(target: str, cfg: UpdaterConfig) -> str:
     if target == "check":
+        # Using a wrapper script or bash explicitly is needed for complex pipelines
+        # To avoid shell injection, we pass the commands via bash -c
         rc, out = await _run(
-            f"cd {INSTALL_DIR} && git fetch origin && "
-            "git log HEAD..origin/main --oneline 2>/dev/null || echo '(up to date)'"
+            [
+                "bash",
+                "-c",
+                f"cd {INSTALL_DIR} && git fetch origin && git log HEAD..origin/main --oneline 2>/dev/null || echo '(up to date)'"
+            ]
         )
         if not out.strip() or "(up to date)" in out:
             return "✅ PiClaw ist aktuell."
@@ -77,7 +82,7 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
         results = []
 
         # 1. git pull
-        rc, out = await _run(f"cd {INSTALL_DIR} && git pull origin main 2>&1")
+        rc, out = await _run(["git", "-C", str(INSTALL_DIR), "pull", "origin", "main"])
         # Hinweis: pip install -e zeigt auf piclaw-os/ – kein sync nötig
         results.append(f"git pull: {out[:200]}")
         if rc != 0:
@@ -87,14 +92,18 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
 
         # 2. pip install -e . (nur wenn sich pyproject.toml geändert hat)
         rc2, out2 = await _run(
-            f"cd {INSTALL_DIR} && git diff HEAD@{{1}} HEAD -- piclaw-os/pyproject.toml | grep -q '^[+-]' && "
-            f"{VENV_PIP} install -e {INSTALL_DIR}/piclaw-os -q 2>&1 || echo 'dependencies unchanged'"
+            [
+                "bash",
+                "-c",
+                f"cd {INSTALL_DIR} && git diff HEAD@{{1}} HEAD -- piclaw-os/pyproject.toml | grep -q '^[+-]' && "
+                f"{VENV_PIP} install -e {INSTALL_DIR}/piclaw-os -q 2>&1 || echo 'dependencies unchanged'"
+            ]
         )
         if out2 and "dependencies unchanged" not in out2:
             results.append(f"pip: {out2[:200]}")
 
         # 3. sudo systemctl restart
-        rc3, out3 = await _run("sudo systemctl restart piclaw-api piclaw-agent 2>&1")
+        rc3, out3 = await _run(["sudo", "systemctl", "restart", "piclaw-api", "piclaw-agent"])
         if rc3 == 0:
             results.append("✅ Services neu gestartet")
         else:
@@ -104,9 +113,13 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
 
     elif target == "system":
         log.info("Running apt upgrade...")
+        # To preserve environment variables like DEBIAN_FRONTEND safely
         rc, out = await _run(
-            "DEBIAN_FRONTEND=noninteractive apt-get update -qq && "
-            "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y 2>&1",
+            [
+                "bash",
+                "-c",
+                "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y"
+            ],
             timeout=300,
         )
         return f"[exit {rc}]\n{out}"

@@ -250,8 +250,10 @@ class Watchdog:
         alerts = []
         for svc in WATCHED_SERVICES:
             try:
-                proc = await asyncio.create_subprocess_shell(
-                    f"systemctl is-active {svc} 2>/dev/null",
+                proc = await asyncio.create_subprocess_exec(
+                    "systemctl",
+                    "is-active",
+                    svc,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.DEVNULL,
                 )

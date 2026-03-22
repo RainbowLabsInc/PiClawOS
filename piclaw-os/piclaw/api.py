@@ -450,13 +450,15 @@ async def services(_: str = Depends(require_auth)):
         return []
     result = []
     for name in _cfg.services.managed:
-        proc = await asyncio.create_subprocess_shell(
-            f"systemctl is-active {name} 2>/dev/null || echo inactive",
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl",
+            "is-active",
+            name,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
         out, _ = await proc.communicate()
-        state = out.decode().strip()
+        state = out.decode().strip() if proc.returncode == 0 else "inactive"
         result.append({"name": name, "state": state, "active": state == "active"})
     return result
 

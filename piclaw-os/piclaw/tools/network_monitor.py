@@ -102,12 +102,22 @@ async def _run_nmap(args: list[str]) -> str:
 async def _get_local_range() -> str:
     """Attempts to find the local network range (default fallback: 192.168.1.0/24)."""
     try:
-        proc = await asyncio.create_subprocess_shell(
-            "ip -4 route show default | awk '{print $3}'",
+        proc = await asyncio.create_subprocess_exec(
+            "ip",
+            "-4",
+            "route",
+            "show",
+            "default",
             stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
         out, _ = await proc.communicate()
-        gateway = out.decode().strip()
+        gateway = ""
+        if out:
+            # Equivalent to awk '{print $3}'
+            parts = out.decode().strip().split()
+            if len(parts) >= 3:
+                gateway = parts[2]
         if gateway:
             # Simple assumption: /24 network
             base = ".".join(gateway.split(".")[:3])
