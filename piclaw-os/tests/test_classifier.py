@@ -2,6 +2,7 @@
 Tests for the Task Classifier (Stage 1 – pattern matching).
 No LLM required – fully offline.
 """
+
 import pytest
 from piclaw.llm.classifier import TaskClassifier, ClassificationResult
 
@@ -13,7 +14,6 @@ def clf():
 
 
 class TestPatternMatching:
-
     def test_coding_python(self, clf):
         r = clf.classify_sync("Write a Python function to read a CSV file")
         assert "coding" in r.tags
@@ -94,7 +94,6 @@ class TestPatternMatching:
 
 
 class TestEdgeCases:
-
     def test_empty_string(self, clf):
         r = clf.classify_sync("")
         assert "general" in r.tags

@@ -2,6 +2,7 @@
 Tests for LLM routing logic (MultiLLMRouter + LLMRegistry).
 Uses mocked backends – no real LLM calls.
 """
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from piclaw.llm.registry import BackendConfig, LLMRegistry
@@ -9,13 +10,16 @@ from piclaw.llm.registry import BackendConfig, LLMRegistry
 
 def make_backend(name, tags, priority=5, enabled=True):
     return BackendConfig(
-        name=name, provider="openai", model="gpt-4o",
-        tags=tags, priority=priority, enabled=enabled,
+        name=name,
+        provider="openai",
+        model="gpt-4o",
+        tags=tags,
+        priority=priority,
+        enabled=enabled,
     )
 
 
 class TestBackendConfig:
-
     def test_has_tag_case_insensitive(self):
         b = make_backend("x", ["Coding", "GERMAN"])
         assert b.has_tag("coding")
@@ -34,16 +38,16 @@ class TestBackendConfig:
 
 
 class TestLLMRegistryFindByTags:
-
     @pytest.fixture
     def reg(self, tmp_path):
         with patch("piclaw.llm.registry.REGISTRY_FILE", tmp_path / "r.json"):
             from piclaw.llm.registry import LLMRegistry
+
             reg = LLMRegistry()
-            reg.add(make_backend("coder",   ["coding", "python"],  priority=8))
-            reg.add(make_backend("general", ["general"],           priority=5))
-            reg.add(make_backend("writer",  ["writing", "creative"], priority=6))
-            reg.add(make_backend("disabled", ["coding"],           enabled=False))
+            reg.add(make_backend("coder", ["coding", "python"], priority=8))
+            reg.add(make_backend("general", ["general"], priority=5))
+            reg.add(make_backend("writer", ["writing", "creative"], priority=6))
+            reg.add(make_backend("disabled", ["coding"], enabled=False))
             return reg
 
     def test_find_returns_matching_backends(self, reg):
@@ -82,7 +86,7 @@ class TestClassifierRouterIntegration:
             from piclaw.llm.classifier import TaskClassifier
 
             reg = LLMRegistry()
-            reg.add(make_backend("coder",   ["coding"],  priority=9))
+            reg.add(make_backend("coder", ["coding"], priority=9))
             reg.add(make_backend("general", ["general"], priority=3))
 
             clf = TaskClassifier()

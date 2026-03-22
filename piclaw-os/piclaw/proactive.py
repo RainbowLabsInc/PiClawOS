@@ -118,7 +118,7 @@ class ProactiveRunner:
 
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=30)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def _run_routine_safe(self, routine) -> None:
@@ -146,7 +146,7 @@ class ProactiveRunner:
 
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=300)  # alle 5 Min
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def _check_thresholds(self, cooldown_minutes: int) -> None:
@@ -251,7 +251,7 @@ class ProactiveRunner:
                     if silent and _looks_ok(result):
                         log.debug("Routine '%s': alles OK, still.", routine.name)
                         return result
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     result = f"Routine '{routine.name}' Timeout."
                 except Exception as e:
                     result = f"Fehler: {e}"

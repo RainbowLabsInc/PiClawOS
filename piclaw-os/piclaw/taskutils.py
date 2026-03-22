@@ -12,7 +12,7 @@ Lösung: _TASKS Set hält starke Referenzen, räumt nach done() automatisch auf.
 
 import asyncio
 import logging
-from typing import Coroutine
+from collections.abc import Coroutine
 
 log = logging.getLogger("piclaw.tasks")
 

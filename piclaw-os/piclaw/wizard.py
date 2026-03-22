@@ -103,12 +103,12 @@ def _header(step: int, total: int, title: str, icon: str = "◆") -> None:
     bar_done = (
         f"{FG_BLUE}{'#' * filled}{R}"
         if not _UTF8
-        else f"{FG_BLUE}{'\u2588' * filled}{R}"
+        else FG_BLUE + ("\u2588" * filled) + R
     )
     bar_empty = (
         f"{FG_GRAY}{'.' * (20 - filled)}{R}"
         if not _UTF8
-        else f"{FG_GRAY}{'\u2591' * (20 - filled)}{R}"
+        else FG_GRAY + ("\u2591" * (20 - filled)) + R
     )
     pct = round((step / total) * 100)
     print(
@@ -278,7 +278,7 @@ async def _validate_llm(
             timeout=45,
         )
         return True, (resp.content or "OK")[:80]
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False, "Timeout -- API erreichbar?"
     except Exception as e:
         msg = str(e)
@@ -467,7 +467,11 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
     provider = _choice(
         "Welchen Anbieter möchtest du verwenden?",
         [
-            ("1", "API-Key (Auto-Detect)", "Anthropic / OpenAI / Gemini / Mistral / Fireworks / NVIDIA NIM"),
+            (
+                "1",
+                "API-Key (Auto-Detect)",
+                "Anthropic / OpenAI / Gemini / Mistral / Fireworks / NVIDIA NIM",
+            ),
             ("2", "Ollama (lokal)", "eigener Server · kein API-Key"),
             ("3", "Gemma 2B (Pi)", "offline · ~1.5 GB RAM · schnell"),  # Standard
             ("e", "Behalten", f"aktuell: {cfg.llm.backend}"),
@@ -494,7 +498,9 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
         _spinner("API-Key wird geprueft (Auto-Detect)...")
         try:
             loop = asyncio.new_event_loop()
-            detected_backend, base_url, model = loop.run_until_complete(detect_provider_and_model(key))
+            detected_backend, base_url, model = loop.run_until_complete(
+                detect_provider_and_model(key)
+            )
         except Exception as e:
             _clear_line()
             _err(f"Auto-Detect fehlgeschlagen: {e}")
@@ -507,9 +513,7 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
         _ok(f"Erkannt: {detected_backend} / {model}")
 
         _spinner("Verbindung testen")
-        ok, msg = _test_async(
-            _validate_llm(detected_backend, key, model, base_url)
-        )
+        ok, msg = _test_async(_validate_llm(detected_backend, key, model, base_url))
         _clear_line()
 
         if ok:

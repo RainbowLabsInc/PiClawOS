@@ -30,7 +30,7 @@ import shutil
 import tarfile
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from typing import NamedTuple
 
@@ -71,9 +71,7 @@ class BackupInfo(NamedTuple):
 
     @property
     def datetime_str(self) -> str:
-        return datetime.fromtimestamp(self.ts, tz=timezone.utc).strftime(
-            "%Y-%m-%d %H:%M:%S UTC"
-        )
+        return datetime.fromtimestamp(self.ts, tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     @property
     def age_str(self) -> str:
@@ -121,7 +119,7 @@ async def create_backup(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     ts = int(time.time())
-    dt = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    dt = datetime.fromtimestamp(ts, tz=UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"{BACKUP_PREFIX}_{dt}.tar.gz"
     output_path = out_dir / filename
 

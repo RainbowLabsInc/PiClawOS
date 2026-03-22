@@ -180,9 +180,13 @@ class Watchdog:
         alerts = []
         temp = None
         try:
+
             def _read_pi_temp():
-                with open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8") as f:
+                with open(
+                    "/sys/class/thermal/thermal_zone0/temp", encoding="utf-8"
+                ) as f:
                     return int(f.read()) / 1000
+
             temp = await asyncio.to_thread(_read_pi_temp)
         except OSError:
             try:
@@ -276,7 +280,7 @@ class Watchdog:
                     )
                 else:
                     self._service_fail_counts[svc] = 0
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 log.warning("Service check '%s' timeout – systemctl hängt", svc)
                 try:
                     proc.kill()
@@ -360,6 +364,7 @@ class Watchdog:
             return alerts
 
         try:
+
             def _find_executables():
                 found_alerts = []
                 _now = time.time()
@@ -377,11 +382,11 @@ class Watchdog:
                     WatchdogAlert(
                         severity=AlertSeverity.WARNING,
                         category="security",
-                            message=f"New executable in skills dir: {p.name}",
-                            detail=str(p),
-                            hostname=self._hostname,
-                        )
+                        message=f"New executable in skills dir: {p.name}",
+                        detail=str(p),
+                        hostname=self._hostname,
                     )
+                )
         except Exception as e:
             log.error("Executable scan: %s", e)
         return alerts
@@ -449,9 +454,13 @@ class Watchdog:
             load = await asyncio.to_thread(psutil.getloadavg)
             temp = None
             try:
+
                 def _read_temp():
-                    with open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8") as f:
+                    with open(
+                        "/sys/class/thermal/thermal_zone0/temp", encoding="utf-8"
+                    ) as f:
                         return int(f.read()) / 1000
+
                 temp = await asyncio.to_thread(_read_temp)
             except OSError:
                 pass  # thermal_zone0 not present on non-Pi
@@ -565,7 +574,7 @@ class Watchdog:
 
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=check_interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         log.info("Watchdog stopped.")

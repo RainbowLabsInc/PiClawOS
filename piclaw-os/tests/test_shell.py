@@ -5,9 +5,11 @@ from unittest.mock import patch, MagicMock
 from piclaw.config import ShellConfig
 from piclaw.tools.shell import build_handlers, run_shell, system_info, _is_allowed
 
+
 @pytest.fixture
 def shell_cfg():
     return ShellConfig()
+
 
 class TestBuildHandlers:
     @pytest.mark.asyncio
@@ -29,7 +31,9 @@ class TestBuildHandlers:
 
     @pytest.mark.asyncio
     @patch("piclaw.tools.shell.system_info")
-    async def test_system_info_handler_calls_system_info(self, mock_system_info, shell_cfg):
+    async def test_system_info_handler_calls_system_info(
+        self, mock_system_info, shell_cfg
+    ):
         handlers = build_handlers(shell_cfg)
         mock_system_info.return_value = "mock_sys_info"
 
@@ -37,6 +41,7 @@ class TestBuildHandlers:
 
         mock_system_info.assert_called_once_with()
         assert result == "mock_sys_info"
+
 
 class TestRunShell:
     @pytest.mark.asyncio
@@ -86,7 +91,7 @@ class TestRunShell:
         mock_proc = MagicMock()
         mock_create_subprocess_shell.return_value = mock_proc
 
-        mock_wait_for.side_effect = asyncio.TimeoutError()
+        mock_wait_for.side_effect = TimeoutError()
 
         result = await run_shell("sleep 10", cfg)
 
@@ -104,8 +109,14 @@ class TestSystemInfo:
     @patch("psutil.getloadavg", return_value=(0.1, 0.2, 0.3))
     @patch("builtins.open")
     async def test_system_info_success(
-        self, mock_open, mock_getloadavg, mock_boot_time, mock_disk_usage,
-        mock_virtual_memory, mock_cpu_freq, mock_cpu_percent
+        self,
+        mock_open,
+        mock_getloadavg,
+        mock_boot_time,
+        mock_disk_usage,
+        mock_virtual_memory,
+        mock_cpu_freq,
+        mock_cpu_percent,
     ):
         # Mock CPU Freq
         mock_freq = MagicMock()
@@ -115,20 +126,23 @@ class TestSystemInfo:
         # Mock Virtual Memory
         mock_vmem = MagicMock()
         mock_vmem.used = 1_048_576 * 1024  # 1024 MB
-        mock_vmem.total = 1_048_576 * 4096 # 4096 MB
+        mock_vmem.total = 1_048_576 * 4096  # 4096 MB
         mock_vmem.percent = 25.0
         mock_virtual_memory.return_value = mock_vmem
 
         # Mock Disk Usage
         mock_disk = MagicMock()
         mock_disk.used = 1_073_741_824 * 10  # 10 GB
-        mock_disk.total = 1_073_741_824 * 100 # 100 GB
+        mock_disk.total = 1_073_741_824 * 100  # 100 GB
         mock_disk.percent = 10.0
         mock_disk_usage.return_value = mock_disk
 
         # Mock Boot Time
         from datetime import datetime, timedelta
-        mock_boot_time.return_value = (datetime.now() - timedelta(hours=1, minutes=30)).timestamp()
+
+        mock_boot_time.return_value = (
+            datetime.now() - timedelta(hours=1, minutes=30)
+        ).timestamp()
 
         # Mock Temp file
         mock_file = MagicMock()

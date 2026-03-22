@@ -1,4 +1,5 @@
 """Tests für piclaw.metrics – Zeitreihen-Engine."""
+
 import asyncio
 import time
 from pathlib import Path
@@ -15,6 +16,7 @@ def db(tmp_path):
 
 # ── MetricPoint ───────────────────────────────────────────────────
 
+
 def test_metricpoint_defaults():
     p = MetricPoint("cpu_percent", 42.5)
     assert p.name == "cpu_percent"
@@ -28,6 +30,7 @@ def test_metricpoint_tags_json():
     p = MetricPoint("cpu", 50.0, tags={"host": "piclaw"})
     j = p.tags_json()
     import json
+
     data = json.loads(j)
     assert data["host"] == "piclaw"
 
@@ -38,6 +41,7 @@ def test_metricpoint_empty_tags_json():
 
 
 # ── MetricsDB ─────────────────────────────────────────────────────
+
 
 def test_db_write_and_read(db):
     ts = int(time.time())
@@ -145,6 +149,7 @@ def test_db_vacuum(db):
 
 
 # ── MetricsCollector ──────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_collector_collects(tmp_path):

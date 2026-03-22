@@ -2,11 +2,13 @@ import asyncio
 import pytest
 from piclaw.tools.marketplace import marketplace_search, _parse_price, format_results
 
+
 def test_parse_price():
     assert _parse_price("149 €") == 149.0
     assert _parse_price("1.299,00 €") == 1299.0
     assert _parse_price("VB 80 €") == 80.0
     assert _parse_price("Geschenkt") is None
+
 
 @pytest.mark.asyncio
 async def test_duplicate_results(tmp_path, monkeypatch):
@@ -16,7 +18,15 @@ async def test_duplicate_results(tmp_path, monkeypatch):
 
     # Mock searches to return same item twice
     async def mock_search(*args, **kwargs):
-        return [{"id": "123", "platform": "test", "title": "Item 1", "price": 10.0, "url": "http://test"}]
+        return [
+            {
+                "id": "123",
+                "platform": "test",
+                "title": "Item 1",
+                "price": 10.0,
+                "url": "http://test",
+            }
+        ]
 
     monkeypatch.setattr("piclaw.tools.marketplace._search_kleinanzeigen", mock_search)
     monkeypatch.setattr("piclaw.tools.marketplace._search_ebay", mock_search)
@@ -29,10 +39,18 @@ async def test_duplicate_results(tmp_path, monkeypatch):
     assert results["new_count"] == 1
     assert len(results["new"]) == 1
 
+
 def test_markdown_escaping():
     results = {
         "query": "test",
-        "new": [{"platform": "web", "title": "Item [with] brackets", "url": "http://test", "price_text": "10 €"}]
+        "new": [
+            {
+                "platform": "web",
+                "title": "Item [with] brackets",
+                "url": "http://test",
+                "price_text": "10 €",
+            }
+        ],
     }
     output = format_results(results)
     # Check if title is escaped correctly

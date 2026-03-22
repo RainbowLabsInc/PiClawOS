@@ -8,11 +8,13 @@ from piclaw.agent import Agent
 from piclaw.config import PiClawConfig
 from piclaw.agents.sa_registry import SubAgentDef
 
+
 @pytest.fixture
 def mock_cfg():
     cfg = PiClawConfig()
     cfg.llm.backend = "mock"
     return cfg
+
 
 @pytest.mark.asyncio
 async def test_installer_delegation(mock_cfg):
@@ -35,6 +37,7 @@ async def test_installer_delegation(mock_cfg):
     assert "tandem-browser" in installer.description
     assert "shell" in installer.tools
     assert "installer_confirm" in installer.tools
+
 
 @pytest.mark.asyncio
 async def test_installer_confirm_tool(tmp_path, monkeypatch):
@@ -60,6 +63,7 @@ async def test_installer_confirm_tool(tmp_path, monkeypatch):
     assert not req_file.exists()
     assert not res_file.exists()
 
+
 @pytest.mark.asyncio
 async def test_watchdog_installer_hang(tmp_path, monkeypatch):
     from piclaw.agents.watchdog import Watchdog
@@ -72,6 +76,7 @@ async def test_watchdog_installer_hang(tmp_path, monkeypatch):
     lock_file.write_text("lock")
     import time
     import os
+
     # Backdate mtime by 20 minutes
     old_ts = time.time() - 1200
     os.utime(lock_file, (old_ts, old_ts))
@@ -82,6 +87,7 @@ async def test_watchdog_installer_hang(tmp_path, monkeypatch):
     assert len(alerts) == 1
     assert alerts[0].message == "Installer Hang Detected"
     assert alerts[0].severity == "critical"
+
 
 @pytest.mark.asyncio
 async def test_installer_lock_creation_and_cleanup(mock_cfg, tmp_path, monkeypatch):
@@ -96,7 +102,9 @@ async def test_installer_lock_creation_and_cleanup(mock_cfg, tmp_path, monkeypat
 
     monkeypatch.setattr(piclaw.agents.watchdog, "INSTALLER_LOCK_FILE", test_lock)
     monkeypatch.setattr(piclaw.agent, "INSTALLER_LOCK_FILE", test_lock, raising=False)
-    monkeypatch.setattr(piclaw.agents.runner, "INSTALLER_LOCK_FILE", test_lock, raising=False)
+    monkeypatch.setattr(
+        piclaw.agents.runner, "INSTALLER_LOCK_FILE", test_lock, raising=False
+    )
 
     # Setup agent
     agent = Agent(mock_cfg)
@@ -110,6 +118,7 @@ async def test_installer_lock_creation_and_cleanup(mock_cfg, tmp_path, monkeypat
 
     # Store the callback
     cleanup_callbacks = []
+
     def mock_add_done_callback(cb):
         cleanup_callbacks.append(cb)
 
@@ -117,10 +126,12 @@ async def test_installer_lock_creation_and_cleanup(mock_cfg, tmp_path, monkeypat
 
     async def mock_start_agent(aid):
         agent.sa_runner._tasks[aid] = mock_task
+
         # Simulate runner.py registering the cleanup
         def _cleanup(t):
             if test_lock.exists():
                 test_lock.unlink()
+
         mock_task.add_done_callback(_cleanup)
         return "Started"
 
@@ -140,6 +151,7 @@ async def test_installer_lock_creation_and_cleanup(mock_cfg, tmp_path, monkeypat
     # Check lock file removed
     assert not test_lock.exists(), f"Lock file {test_lock} still exists"
 
+
 def test_build_handlers(monkeypatch):
     from piclaw.tools.installer import build_handlers
 
@@ -150,7 +162,9 @@ def test_build_handlers(monkeypatch):
         mock_called_with.update(kwargs)
         return "YES"
 
-    monkeypatch.setattr("piclaw.tools.installer.installer_confirm", mock_installer_confirm)
+    monkeypatch.setattr(
+        "piclaw.tools.installer.installer_confirm", mock_installer_confirm
+    )
 
     handlers = build_handlers()
 
@@ -161,6 +175,7 @@ def test_build_handlers(monkeypatch):
 
     # Verify the lambda correctly proxies arguments
     import asyncio
+
     result = asyncio.run(handlers["installer_confirm"](plan="test plan"))
 
     assert result == "YES"

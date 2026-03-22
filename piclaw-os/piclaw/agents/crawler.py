@@ -194,7 +194,7 @@ class WebCrawler:
                 self._do_crawl(job),
                 timeout=job.timeout_sec,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             msg = f"[TIMEOUT] Job exceeded {job.timeout_sec}s"
             log.warning(msg)
             return msg
@@ -313,7 +313,7 @@ class WebCrawler:
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=sleep)
                 break  # stop event fired
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # normal: time to run
 
             fresh = get_job(job.id)

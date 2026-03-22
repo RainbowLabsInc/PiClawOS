@@ -67,21 +67,21 @@ class ThrottleStatus:
 
 @dataclass
 class PiClocks:
-    arm_mhz: Optional[float] = None  # CPU clock
-    core_mhz: Optional[float] = None  # GPU/VideoCore clock
-    h264_mhz: Optional[float] = None  # H264 block
-    isp_mhz: Optional[float] = None  # ISP
-    v3d_mhz: Optional[float] = None  # 3D engine
-    uart_hz: Optional[float] = None  # UART
-    pwm_hz: Optional[float] = None  # PWM
+    arm_mhz: float | None = None  # CPU clock
+    core_mhz: float | None = None  # GPU/VideoCore clock
+    h264_mhz: float | None = None  # H264 block
+    isp_mhz: float | None = None  # ISP
+    v3d_mhz: float | None = None  # 3D engine
+    uart_hz: float | None = None  # UART
+    pwm_hz: float | None = None  # PWM
 
 
 @dataclass
 class PiVoltages:
-    core_v: Optional[float] = None  # GPU/SoC core
-    sdram_c_v: Optional[float] = None  # SDRAM controller
-    sdram_i_v: Optional[float] = None  # SDRAM I/O
-    sdram_p_v: Optional[float] = None  # SDRAM phy
+    core_v: float | None = None  # GPU/SoC core
+    sdram_c_v: float | None = None  # SDRAM controller
+    sdram_i_v: float | None = None  # SDRAM I/O
+    sdram_p_v: float | None = None  # SDRAM phy
 
 
 @dataclass
@@ -92,13 +92,13 @@ class PiInfo:
     ram_mb: int = 0
     simulated: bool = False  # True if vcgencmd not available
 
-    temp_celsius: Optional[float] = None
-    temp_gpu_c: Optional[float] = None
+    temp_celsius: float | None = None
+    temp_gpu_c: float | None = None
     under_voltage: bool = False
-    throttled: Optional[ThrottleStatus] = None
-    clocks: Optional[PiClocks] = None
-    voltages: Optional[PiVoltages] = None
-    gpu_mem_mb: Optional[int] = None
+    throttled: ThrottleStatus | None = None
+    clocks: PiClocks | None = None
+    voltages: PiVoltages | None = None
+    gpu_mem_mb: int | None = None
 
     def to_dict(self) -> dict:
         d = {
@@ -164,7 +164,7 @@ class PiInfo:
 # ── vcgencmd helpers ──────────────────────────────────────────────
 
 
-def _vcgencmd(cmd: str) -> Optional[str]:
+def _vcgencmd(cmd: str) -> str | None:
     """Run vcgencmd synchronously. Returns stdout or None."""
     try:
         result = subprocess.run(
@@ -177,7 +177,7 @@ def _vcgencmd(cmd: str) -> Optional[str]:
     return None
 
 
-def _parse_measure(raw: Optional[str]) -> Optional[float]:
+def _parse_measure(raw: str | None) -> float | None:
     """Parse 'measure_clock arm=1200000000' → 1200.0 (MHz)."""
     if not raw:
         return None
@@ -187,7 +187,7 @@ def _parse_measure(raw: Optional[str]) -> Optional[float]:
     return None
 
 
-def _parse_volt(raw: Optional[str]) -> Optional[float]:
+def _parse_volt(raw: str | None) -> float | None:
     """Parse 'volt=0.8625V' → 0.8625"""
     if not raw:
         return None
@@ -197,7 +197,7 @@ def _parse_volt(raw: Optional[str]) -> Optional[float]:
     return None
 
 
-def _parse_throttle(raw: Optional[str]) -> Optional[ThrottleStatus]:
+def _parse_throttle(raw: str | None) -> ThrottleStatus | None:
     """Parse 'throttled=0x50005' → ThrottleStatus"""
     if not raw:
         return None
@@ -272,7 +272,7 @@ def _read_model_info() -> tuple[str, str, str, int]:
 # ── CPU Temperature (works without vcgencmd) ──────────────────────
 
 
-def _read_cpu_temp() -> Optional[float]:
+def _read_cpu_temp() -> float | None:
     """Read CPU temperature in Celsius from /sys."""
     paths = [
         "/sys/class/thermal/thermal_zone0/temp",
@@ -393,6 +393,6 @@ def is_throttled() -> bool:
     return bool(val & THROTTLE_CURRENT_MASK)
 
 
-def current_temp() -> Optional[float]:
+def current_temp() -> float | None:
     """Quick synchronous read of CPU temp in Celsius."""
     return _read_cpu_temp()

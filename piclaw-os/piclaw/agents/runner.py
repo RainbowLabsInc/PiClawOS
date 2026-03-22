@@ -25,7 +25,8 @@ import asyncio
 import logging
 import traceback
 from datetime import datetime
-from typing import Optional, Callable, Awaitable
+from typing import Optional
+from collections.abc import Callable, Awaitable
 
 from piclaw.agents.sa_registry import SubAgentDef, SubAgentRegistry
 from piclaw.llm.base import Message, LLMBackend, ToolCall, ToolDefinition
@@ -49,8 +50,8 @@ class SubAgentRunner:
         llm: LLMBackend,
         tool_defs: list[ToolDefinition],
         handlers: dict[str, Callable],
-        notify: Optional[Callable[[str], Awaitable]] = None,
-        memory_log: Optional[Callable[[str], Awaitable]] = None,
+        notify: Callable[[str], Awaitable] | None = None,
+        memory_log: Callable[[str], Awaitable] | None = None,
     ):
         self.registry = registry
         self.llm = llm
@@ -163,7 +164,7 @@ class SubAgentRunner:
                 await self._execute(agent)
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=CONTINUOUS_SLEEP)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
 
         elif schedule.startswith("interval:"):
@@ -176,7 +177,7 @@ class SubAgentRunner:
                 await self._execute(agent)
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=interval)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
 
         elif schedule.startswith("cron:"):
@@ -202,7 +203,7 @@ class SubAgentRunner:
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=delay)
                     break  # stop event fired
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
             await self._execute(agent)
 
@@ -225,7 +226,7 @@ class SubAgentRunner:
                 agent.name,
                 (datetime.now() - start).seconds,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             result = f"Sub-agent '{agent.name}' timed out after {agent.timeout}s."
             status = "timeout"
             log.warning(result)

@@ -50,7 +50,7 @@ async def _run(cmd: str, timeout: int = 120) -> tuple[int, str]:
     )
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         return 1, "[TIMEOUT]"
     combined = out.decode(errors="replace").strip()

@@ -97,7 +97,7 @@ class QMDBackend:
             if proc.returncode != 0:
                 log.debug("qmd %s: %.200s", " ".join(args[:2]), err.decode())
             return out.decode(errors="replace")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.debug("qmd timeout – args: %s", " ".join(args))
             return ""
         except Exception as e:

@@ -21,7 +21,7 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, Awaitable
+from collections.abc import Callable, Awaitable
 
 log = logging.getLogger("piclaw.messaging")
 

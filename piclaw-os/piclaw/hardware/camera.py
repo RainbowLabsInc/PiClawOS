@@ -139,7 +139,7 @@ async def capture_snapshot(
         if result.returncode == 0 and output.exists():
             logger.info("Snapshot (libcamera): %s", output)
             return output
-    except (FileNotFoundError, asyncio.TimeoutError):
+    except (TimeoutError, FileNotFoundError):
         pass
 
     # Fallback: fswebcam (USB-Webcam)
@@ -161,7 +161,7 @@ async def capture_snapshot(
         if output.exists():
             logger.info("Snapshot (fswebcam): %s", output)
             return output
-    except (FileNotFoundError, asyncio.TimeoutError):
+    except (TimeoutError, FileNotFoundError):
         pass
 
     # Fallback: raspistill (ältere Pis)
@@ -186,7 +186,7 @@ async def capture_snapshot(
         if output.exists():
             logger.info("Snapshot (raspistill): %s", output)
             return output
-    except (FileNotFoundError, asyncio.TimeoutError):
+    except (TimeoutError, FileNotFoundError):
         pass
 
     raise RuntimeError(
@@ -306,7 +306,7 @@ class TimelapseController:
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=cfg.interval_s)
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         logger.info("Timelapse '%s' beendet: %d Frames", cfg.name, frame)

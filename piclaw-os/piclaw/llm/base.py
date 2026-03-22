@@ -2,15 +2,16 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import AsyncIterator, Optional
+from typing import Optional
+from collections.abc import AsyncIterator
 
 
 @dataclass
 class Message:
     role: str
     content: str
-    tool_call_id: Optional[str] = None
-    tool_name: Optional[str] = None
+    tool_call_id: str | None = None
+    tool_name: str | None = None
 
 
 @dataclass

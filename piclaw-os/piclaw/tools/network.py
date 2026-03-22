@@ -45,7 +45,7 @@ async def _run(cmd: str, timeout: int = 15) -> str:
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         return "[TIMEOUT]"
     out = stdout.decode(errors="replace").strip()

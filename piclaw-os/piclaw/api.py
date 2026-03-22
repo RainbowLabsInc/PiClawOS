@@ -1192,7 +1192,7 @@ async def wizard_test_llm(_: str = Depends(require_auth)):
             timeout=15,
         )
         return {"ok": True, "response": str(resp)[:100]}
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"ok": False, "error": "Timeout (>15s) – API erreichbar?"}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}

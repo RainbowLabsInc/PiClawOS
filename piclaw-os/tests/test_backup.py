@@ -1,4 +1,5 @@
 """Tests für piclaw.backup – Backup & Restore."""
+
 import asyncio
 import json
 import tarfile
@@ -42,6 +43,7 @@ def backup_dir(tmp_path):
 
 # ── Manifest ──────────────────────────────────────────────────────
 
+
 def test_write_read_manifest(tmp_path):
     manifest = {"version": "0.10.0", "ts": 12345, "files": ["a", "b"]}
     path = tmp_path / "manifest.json"
@@ -73,6 +75,7 @@ def test_read_manifest_missing(tmp_path):
 
 
 # ── BackupInfo ────────────────────────────────────────────────────
+
 
 def test_backup_info_datetime_str():
     info = BackupInfo(
@@ -107,6 +110,7 @@ def test_backup_info_age_str():
 
 # ── create_backup ────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_create_backup_basic(tmp_path, monkeypatch):
     """Backup erstellen – minimale Konfiguration."""
@@ -121,10 +125,14 @@ async def test_create_backup_basic(tmp_path, monkeypatch):
     backup_dir = tmp_path / "backups"
     monkeypatch.setattr(backup_mod, "CONFIG_DIR", config_dir)
     monkeypatch.setattr(backup_mod, "BACKUP_DIR", backup_dir)
-    monkeypatch.setattr(backup_mod, "BACKUP_TARGETS", [
-        config_dir / "config.toml",
-        config_dir / "SOUL.md",
-    ])
+    monkeypatch.setattr(
+        backup_mod,
+        "BACKUP_TARGETS",
+        [
+            config_dir / "config.toml",
+            config_dir / "SOUL.md",
+        ],
+    )
 
     result = await create_backup(output_dir=backup_dir, note="test backup")
 
@@ -143,6 +151,7 @@ async def test_create_backup_basic(tmp_path, monkeypatch):
 async def test_create_backup_size(tmp_path, monkeypatch):
     """Backup-Datei sollte > 0 Bytes sein."""
     import piclaw.backup as backup_mod
+
     config_dir = tmp_path / "etc" / "piclaw"
     config_dir.mkdir(parents=True)
     (config_dir / "config.toml").write_text("test = true\n")
@@ -156,6 +165,7 @@ async def test_create_backup_size(tmp_path, monkeypatch):
 
 
 # ── list_backups ─────────────────────────────────────────────────
+
 
 def test_list_backups_empty(tmp_path):
     result = list_backups([tmp_path])
@@ -180,6 +190,7 @@ def test_list_backups_sorted(tmp_path):
 
 
 # ── restore_backup ────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_restore_dry_run(tmp_path, monkeypatch):
@@ -227,6 +238,7 @@ async def test_restore_missing_file():
 
 # ── format_backup_list ───────────────────────────────────────────
 
+
 def test_format_backup_list_empty():
     output = format_backup_list([])
     assert "Keine Backups" in output
@@ -237,7 +249,7 @@ def test_format_backup_list_with_entries():
     now = int(time.time())
     backups = [
         BackupInfo(Path("/tmp/b1.tar.gz"), now - 3600, 42.0, "0.10.0", 5),
-        BackupInfo(Path("/tmp/b2.tar.gz"), now - 7200, 38.5, "0.9.0",  4),
+        BackupInfo(Path("/tmp/b2.tar.gz"), now - 7200, 38.5, "0.9.0", 4),
     ]
     output = format_backup_list(backups)
     assert "b1.tar.gz" in output

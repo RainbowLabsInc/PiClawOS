@@ -1,4 +1,5 @@
 """Tests for piclaw.tools.network_monitor"""
+
 import asyncio
 import json
 import pytest
@@ -17,6 +18,7 @@ MAC Address: 11:22:33:44:55:66 (Raspberry Pi Foundation)
 Nmap done: 256 IP addresses (2 hosts up) scanned in 2.10 seconds
 """
 
+
 @pytest.mark.asyncio
 async def test_scan_devices_parsing():
     with patch("piclaw.tools.network_monitor._run_nmap", return_value=NMAP_OUTPUT):
@@ -31,12 +33,14 @@ async def test_scan_devices_parsing():
         assert devices[1].hostname == "unknown"
         assert devices[1].mac == "11:22:33:44:55:66"
 
+
 @pytest.mark.asyncio
 async def test_check_new_devices(tmp_path):
     known_file = tmp_path / "known_devices.json"
-    with patch("piclaw.tools.network_monitor.KNOWN_DEVICES_FILE", known_file), \
-         patch("piclaw.tools.network_monitor._run_nmap", return_value=NMAP_OUTPUT):
-
+    with (
+        patch("piclaw.tools.network_monitor.KNOWN_DEVICES_FILE", known_file),
+        patch("piclaw.tools.network_monitor._run_nmap", return_value=NMAP_OUTPUT),
+    ):
         # First run: all are new
         new_devs = await check_new_devices()
         assert len(new_devs) == 2
@@ -46,7 +50,10 @@ async def test_check_new_devices(tmp_path):
         assert len(new_devs) == 0
 
         # Add a new device to output
-        new_output = NMAP_OUTPUT + "\nNmap scan report for 192.168.1.100\nHost is up.\nMAC Address: 00:00:00:00:00:00 (NewDevice)\n"
+        new_output = (
+            NMAP_OUTPUT
+            + "\nNmap scan report for 192.168.1.100\nHost is up.\nMAC Address: 00:00:00:00:00:00 (NewDevice)\n"
+        )
         with patch("piclaw.tools.network_monitor._run_nmap", return_value=new_output):
             new_devs = await check_new_devices()
             assert len(new_devs) == 1

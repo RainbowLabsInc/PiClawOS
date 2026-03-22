@@ -54,7 +54,7 @@ class Routine:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Routine":
+    def from_dict(cls, d: dict) -> Routine:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
     def describe(self) -> str:
@@ -355,7 +355,7 @@ TOOL_DEFS = [
 ]
 
 
-def build_handlers(registry: RoutineRegistry, runner: "ProactiveRunner") -> dict:
+def build_handlers(registry: RoutineRegistry, runner: ProactiveRunner) -> dict:
     """Baut die Tool-Handler für den Agent."""
 
     async def routine_list(**_) -> str:

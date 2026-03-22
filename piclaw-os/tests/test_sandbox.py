@@ -1,6 +1,7 @@
 """
 Tests for the sub-agent sandboxing system.
 """
+
 import pytest
 from piclaw.agents.sandbox import (
     filter_tools_for_subagent,
@@ -12,6 +13,7 @@ from piclaw.agents.sandbox import (
 
 
 # ── Mock ToolDefinition ───────────────────────────────────────────
+
 
 class FakeTool:
     def __init__(self, name: str):
@@ -31,8 +33,8 @@ def names(tool_list) -> list[str]:
 
 # ── Tier 1: Always blocked ────────────────────────────────────────
 
-class TestBlockedAlways:
 
+class TestBlockedAlways:
     def test_shell_exec_always_blocked(self):
         all_tools = tools("shell_exec", "read_file", "get_temp")
         result = filter_tools_for_subagent(all_tools, [], trusted=False)
@@ -45,7 +47,9 @@ class TestBlockedAlways:
 
     def test_shell_exec_blocked_even_if_explicitly_listed(self):
         all_tools = tools("shell_exec", "read_file")
-        result = filter_tools_for_subagent(all_tools, ["shell_exec", "read_file"], trusted=True)
+        result = filter_tools_for_subagent(
+            all_tools, ["shell_exec", "read_file"], trusted=True
+        )
         assert "shell_exec" not in names(result)
         assert "read_file" in names(result)
 
@@ -56,7 +60,9 @@ class TestBlockedAlways:
 
     def test_all_tier1_tools_blocked(self):
         all_tools = tools(*BLOCKED_ALWAYS)
-        result = filter_tools_for_subagent(all_tools, list(BLOCKED_ALWAYS), trusted=True)
+        result = filter_tools_for_subagent(
+            all_tools, list(BLOCKED_ALWAYS), trusted=True
+        )
         assert len(result) == 0
 
     def test_watchdog_stop_blocked(self):
@@ -67,8 +73,8 @@ class TestBlockedAlways:
 
 # ── Tier 2: Blocked by default ───────────────────────────────────
 
-class TestBlockedByDefault:
 
+class TestBlockedByDefault:
     def test_service_stop_blocked_by_default(self):
         all_tools = tools("service_stop", "get_temp")
         result = filter_tools_for_subagent(all_tools, [], trusted=False)
@@ -97,22 +103,31 @@ class TestBlockedByDefault:
 
     def test_tier2_all_blocked_without_trust(self):
         all_tools = tools(*BLOCKED_BY_DEFAULT)
-        result = filter_tools_for_subagent(all_tools, list(BLOCKED_BY_DEFAULT), trusted=False)
+        result = filter_tools_for_subagent(
+            all_tools, list(BLOCKED_BY_DEFAULT), trusted=False
+        )
         assert len(result) == 0
 
 
 # ── Safe tools pass through ───────────────────────────────────────
 
-class TestSafeTools:
 
+class TestSafeTools:
     def test_safe_tools_always_available(self):
         safe = tools("get_temp", "read_file", "memory_search", "http_get")
         result = filter_tools_for_subagent(safe, [], trusted=False)
-        assert set(names(result)) == {"get_temp", "read_file", "memory_search", "http_get"}
+        assert set(names(result)) == {
+            "get_temp",
+            "read_file",
+            "memory_search",
+            "http_get",
+        }
 
     def test_explicit_allowlist_limits_to_listed(self):
         all_tools = tools("get_temp", "read_file", "memory_search", "network_info")
-        result = filter_tools_for_subagent(all_tools, ["get_temp", "read_file"], trusted=False)
+        result = filter_tools_for_subagent(
+            all_tools, ["get_temp", "read_file"], trusted=False
+        )
         assert "get_temp" in names(result)
         assert "read_file" in names(result)
         assert "memory_search" not in names(result)
@@ -128,14 +143,14 @@ class TestSafeTools:
     def test_case_insensitive_matching(self):
         all_tools = tools("Shell_Exec", "Get_Temp")
         result = filter_tools_for_subagent(all_tools, [], trusted=True)
-        assert "Shell_Exec" not in names(result)   # tier-1
+        assert "Shell_Exec" not in names(result)  # tier-1
         assert "Get_Temp" in names(result)
 
 
 # ── explain_restrictions ─────────────────────────────────────────
 
-class TestExplainRestrictions:
 
+class TestExplainRestrictions:
     def test_tier1_explanation(self):
         msg = explain_restrictions("shell_exec")
         assert "tier 1" in msg.lower() or "blocked" in msg.lower()
@@ -156,8 +171,8 @@ class TestExplainRestrictions:
 
 # ── audit_agent_tools ─────────────────────────────────────────────
 
-class TestAuditAgentTools:
 
+class TestAuditAgentTools:
     def test_audit_shows_blocked_and_allowed(self):
         audit = audit_agent_tools(
             "TestBot",

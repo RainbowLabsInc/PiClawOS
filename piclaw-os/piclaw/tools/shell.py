@@ -65,7 +65,7 @@ async def run_shell(command: str, cfg: ShellConfig) -> str:
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=cfg.timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             return f"[TIMEOUT] Exceeded {cfg.timeout}s"
         out = stdout.decode(errors="replace").strip()
@@ -92,9 +92,11 @@ async def system_info() -> str:
 
     # Temperature (Pi-specific)
     try:
+
         def _read_temp():
             with open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8") as _f:
                 return _f.read().strip()
+
         temp_raw = await asyncio.to_thread(_read_temp)
         lines.append(f"CPU Temp  : {int(temp_raw) / 1000:.1f}°C")
     except Exception:

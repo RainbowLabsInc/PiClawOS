@@ -1,6 +1,7 @@
 """
 Tests for piclaw.auth – token generation, verification, FastAPI dependencies.
 """
+
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
@@ -17,7 +18,6 @@ def reset_token():
 
 
 class TestTokenGeneration:
-
     def test_generate_token_length(self):
         token = auth.generate_token()
         # token_urlsafe(32) produces 43-char base64url string
@@ -31,11 +31,11 @@ class TestTokenGeneration:
         token = auth.generate_token()
         # Should only contain URL-safe chars
         import re
-        assert re.match(r'^[A-Za-z0-9\-_]+$', token)
+
+        assert re.match(r"^[A-Za-z0-9\-_]+$", token)
 
 
 class TestVerification:
-
     def test_verify_correct_token(self):
         auth.set_token("my-secret-token")
         assert auth.verify("my-secret-token") is True
@@ -63,6 +63,7 @@ class TestVerification:
     def test_timing_safe(self):
         """verify() uses secrets.compare_digest – ensure it's called (not ==)."""
         import secrets
+
         auth.set_token("token")
         with patch("secrets.compare_digest", return_value=True) as mock:
             auth.verify("token")

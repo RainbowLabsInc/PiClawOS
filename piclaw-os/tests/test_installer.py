@@ -2,6 +2,7 @@ from pathlib import Path
 
 from piclaw.tools.installer import get_ipc_paths
 
+
 def test_get_ipc_paths(monkeypatch, tmp_path):
     # Mock CONFIG_DIR
     monkeypatch.setattr("piclaw.tools.installer.CONFIG_DIR", tmp_path)

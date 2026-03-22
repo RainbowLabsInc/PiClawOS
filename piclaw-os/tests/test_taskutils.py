@@ -2,12 +2,7 @@ import asyncio
 import pytest
 from unittest.mock import patch
 
-from piclaw.taskutils import (
-    create_background_task,
-    active_tasks,
-    cancel_all,
-    _TASKS
-)
+from piclaw.taskutils import create_background_task, active_tasks, cancel_all, _TASKS
 
 
 @pytest.fixture(autouse=True)
@@ -54,12 +49,15 @@ async def test_create_background_task_success():
 @pytest.mark.asyncio
 async def test_create_background_task_exception_with_logging():
     """Test that exceptions are caught and logged when log_errors=True."""
+
     async def failing_coro():
         await asyncio.sleep(0.01)
         raise ValueError("Intentional test error")
 
     with patch("piclaw.taskutils.log.error") as mock_log:
-        task = create_background_task(failing_coro(), name="failing_task", log_errors=True)
+        task = create_background_task(
+            failing_coro(), name="failing_task", log_errors=True
+        )
 
         assert task in _TASKS
 
@@ -86,12 +84,15 @@ async def test_create_background_task_exception_with_logging():
 @pytest.mark.asyncio
 async def test_create_background_task_exception_without_logging():
     """Test that exceptions are NOT logged when log_errors=False."""
+
     async def failing_coro():
         await asyncio.sleep(0.01)
         raise ValueError("Intentional test error")
 
     with patch("piclaw.taskutils.log.error") as mock_log:
-        task = create_background_task(failing_coro(), name="silent_failing_task", log_errors=False)
+        task = create_background_task(
+            failing_coro(), name="silent_failing_task", log_errors=False
+        )
 
         try:
             await task
@@ -107,6 +108,7 @@ async def test_create_background_task_exception_without_logging():
 @pytest.mark.asyncio
 async def test_active_tasks():
     """Test active_tasks returns correct task names."""
+
     async def sleeping_coro():
         await asyncio.sleep(0.1)
 
@@ -127,6 +129,7 @@ async def test_active_tasks():
 @pytest.mark.asyncio
 async def test_cancel_all():
     """Test cancel_all cancels all tasks and clears the set."""
+
     async def sleeping_coro():
         try:
             await asyncio.sleep(0.5)

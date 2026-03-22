@@ -911,7 +911,9 @@ def cmd_update(args: list):
     result = asyncio.run(system_update(target=sub, cfg=cfg.updater))
     print(f"  {result}\n")
 
+
 # ── Debug ──────────────────────────────────────────────────────────
+
 
 def cmd_debug(args: list):
     """piclaw debug – run debug/test scripts via pytest"""
@@ -949,7 +951,9 @@ def cmd_debug(args: list):
         selected = entries
     else:
         try:
-            selected = [entries[int(x.strip()) - 1] for x in choice.split(",") if x.strip()]
+            selected = [
+                entries[int(x.strip()) - 1] for x in choice.split(",") if x.strip()
+            ]
         except (ValueError, IndexError):
             print("  ❌ Ungültige Auswahl")
             return
@@ -973,7 +977,7 @@ def cmd_debug(args: list):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(base_dir),
-                env={"PYTHONPATH": str(base_dir), **os.environ}
+                env={"PYTHONPATH": str(base_dir), **os.environ},
             )
             out, _ = await proc.communicate()
             output = out.decode("utf-8", errors="replace")
@@ -1314,4 +1318,3 @@ def cmd_briefing(args: list):
         print()
 
     asyncio.run(_run())
-

@@ -4,7 +4,7 @@ Provides email capabilities for AI agents using the AgentMail service.
 """
 
 import logging
-from typing import List
+
 
 from piclaw.config import AgentMailConfig
 from piclaw.llm.base import ToolDefinition
@@ -141,7 +141,7 @@ async def agentmail_list_inboxes(cfg: AgentMailConfig) -> str:
 async def agentmail_send_email(
     cfg: AgentMailConfig,
     inbox_id: str,
-    to: List[str],
+    to: list[str],
     subject: str,
     text: str,
     html: str = None,

@@ -7,7 +7,7 @@ import logging
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable
+from collections.abc import Callable
 
 from piclaw.config import PiClawConfig, CRASH_DIR
 from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall
@@ -714,7 +714,7 @@ class Agent:
         # Memory-Recall: kurzer Timeout damit Agent immer antwortet
         try:
             messages = await asyncio.wait_for(self.memory.enrich(messages), timeout=8.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.debug("Memory enrich timeout – weiter ohne Memory-Kontext")
         except Exception as _me:
             log.debug("Memory enrich error: %s", _me)

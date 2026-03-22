@@ -170,7 +170,7 @@ class I2CDevice:
 class I2CScanResult:
     bus: int
     devices: list[I2CDevice] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
     simulated: bool = False
 
     @property

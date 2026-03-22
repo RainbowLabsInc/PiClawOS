@@ -2,6 +2,7 @@
 Tests for SubAgentRegistry and LLMRegistry.
 Uses tmp_path to avoid touching /etc/piclaw.
 """
+
 import json
 import pytest
 from unittest.mock import patch
@@ -10,18 +11,20 @@ from pathlib import Path
 
 # ── SubAgentRegistry ──────────────────────────────────────────────
 
-class TestSubAgentRegistry:
 
+class TestSubAgentRegistry:
     @pytest.fixture
     def registry(self, tmp_path):
         """A fresh registry backed by a tmp directory."""
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             return SubAgentRegistry(), reg_file
 
     def _make_agent(self, name="TestAgent"):
         from piclaw.agents.sa_registry import SubAgentDef
+
         return SubAgentDef(
             name=name,
             description=f"{name} description",
@@ -33,6 +36,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             agent = self._make_agent("Alpha")
             aid = reg.add(agent)
@@ -45,6 +49,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             agent = self._make_agent("Beta")
             reg.add(agent)
@@ -56,6 +61,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             reg.add(self._make_agent("CaseSensitive"))
             assert reg.get("casesensitive") is not None
@@ -65,6 +71,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             assert reg.get("DoesNotExist") is None
 
@@ -72,6 +79,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             agent = self._make_agent("Gamma")
             reg.add(agent)
@@ -82,6 +90,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             assert reg.remove("Ghost") is False
 
@@ -89,6 +98,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             agent = self._make_agent("Delta")
             reg.add(agent)
@@ -103,6 +113,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg1 = SubAgentRegistry()
             agent = self._make_agent("Persistent")
             reg1.add(agent)
@@ -117,6 +128,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             for name in ["First", "Second", "Third"]:
                 reg.add(self._make_agent(name))
@@ -127,6 +139,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             a1 = self._make_agent("Enabled")
             a2 = self._make_agent("Disabled")
@@ -141,6 +154,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             agent = self._make_agent("Runner")
             reg.add(agent)
@@ -154,6 +168,7 @@ class TestSubAgentRegistry:
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
             from piclaw.agents.sa_registry import SubAgentRegistry
+
             reg = SubAgentRegistry()
             reg.add(self._make_agent("JsonAgent"))
             data = json.loads(reg_file.read_text())
@@ -166,26 +181,32 @@ class TestSubAgentRegistry:
 
 # ── LLMRegistry ───────────────────────────────────────────────────
 
-class TestLLMRegistry:
 
+class TestLLMRegistry:
     @pytest.fixture
     def registry(self, tmp_path):
         reg_file = tmp_path / "llm_registry.json"
         with patch("piclaw.llm.registry.REGISTRY_FILE", reg_file):
             from piclaw.llm.registry import LLMRegistry
+
             return LLMRegistry()
 
     def _make_backend(self, name="test-llm", tags=None):
         from piclaw.llm.registry import BackendConfig
+
         return BackendConfig(
-            name=name, provider="openai", model="gpt-4o",
-            tags=tags or ["coding", "general"], priority=5,
+            name=name,
+            provider="openai",
+            model="gpt-4o",
+            tags=tags or ["coding", "general"],
+            priority=5,
         )
 
     def test_add_and_get(self, tmp_path):
         reg_file = tmp_path / "llm_registry.json"
         with patch("piclaw.llm.registry.REGISTRY_FILE", reg_file):
             from piclaw.llm.registry import LLMRegistry
+
             reg = LLMRegistry()
             reg.add(self._make_backend("llm-one"))
             found = reg.get("llm-one")
@@ -196,6 +217,7 @@ class TestLLMRegistry:
         reg_file = tmp_path / "llm_registry.json"
         with patch("piclaw.llm.registry.REGISTRY_FILE", reg_file):
             from piclaw.llm.registry import LLMRegistry
+
             reg = LLMRegistry()
             reg.add(self._make_backend("coder", tags=["coding", "python"]))
             reg.add(self._make_backend("writer", tags=["writing", "creative"]))
@@ -208,25 +230,46 @@ class TestLLMRegistry:
         reg_file = tmp_path / "llm_registry.json"
         with patch("piclaw.llm.registry.REGISTRY_FILE", reg_file):
             from piclaw.llm.registry import LLMRegistry, BackendConfig
+
             reg = LLMRegistry()
-            low  = BackendConfig(name="low",  provider="openai", model="gpt-3.5", tags=["coding"], priority=3)
-            high = BackendConfig(name="high", provider="openai", model="gpt-4o",  tags=["coding"], priority=9)
-            reg.add(low); reg.add(high)
+            low = BackendConfig(
+                name="low",
+                provider="openai",
+                model="gpt-3.5",
+                tags=["coding"],
+                priority=3,
+            )
+            high = BackendConfig(
+                name="high",
+                provider="openai",
+                model="gpt-4o",
+                tags=["coding"],
+                priority=9,
+            )
+            reg.add(low)
+            reg.add(high)
             results = reg.find_by_tags(["coding"])
             assert results[0].name == "high"
 
     def test_has_tag(self, tmp_path):
         from piclaw.llm.registry import BackendConfig
-        b = BackendConfig(name="t", provider="openai", model="gpt-4o",
-                          tags=["Coding", "German"])
+
+        b = BackendConfig(
+            name="t", provider="openai", model="gpt-4o", tags=["Coding", "German"]
+        )
         assert b.has_tag("coding")
         assert b.has_tag("CODING")
         assert not b.has_tag("writing")
 
     def test_tag_overlap(self, tmp_path):
         from piclaw.llm.registry import BackendConfig
-        b = BackendConfig(name="t", provider="openai", model="gpt-4o",
-                          tags=["coding", "analysis", "german"])
+
+        b = BackendConfig(
+            name="t",
+            provider="openai",
+            model="gpt-4o",
+            tags=["coding", "analysis", "german"],
+        )
         assert b.tag_overlap(["coding", "german"]) == 2
         assert b.tag_overlap(["writing"]) == 0
         assert b.tag_overlap([]) == 0
@@ -235,6 +278,7 @@ class TestLLMRegistry:
         reg_file = tmp_path / "llm_registry.json"
         with patch("piclaw.llm.registry.REGISTRY_FILE", reg_file):
             from piclaw.llm.registry import LLMRegistry
+
             reg = LLMRegistry()
             reg.add(self._make_backend("to-remove"))
             assert "removed" in reg.remove("to-remove")
@@ -244,9 +288,18 @@ class TestLLMRegistry:
         reg_file = tmp_path / "llm_registry.json"
         with patch("piclaw.llm.registry.REGISTRY_FILE", reg_file):
             from piclaw.llm.registry import LLMRegistry, BackendConfig
+
             reg = LLMRegistry()
-            reg.add(BackendConfig(name="en", provider="openai", model="gpt-4o", enabled=True))
-            reg.add(BackendConfig(name="dis", provider="openai", model="gpt-4o", enabled=False))
+            reg.add(
+                BackendConfig(
+                    name="en", provider="openai", model="gpt-4o", enabled=True
+                )
+            )
+            reg.add(
+                BackendConfig(
+                    name="dis", provider="openai", model="gpt-4o", enabled=False
+                )
+            )
             enabled = reg.list_enabled()
             assert any(b.name == "en" for b in enabled)
             assert not any(b.name == "dis" for b in enabled)

@@ -7,18 +7,20 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 from piclaw.cli import cmd_doctor
 
-def test_cmd_doctor_happy_path(capsys):
-    with patch("piclaw.config.load") as mock_load, \
-         patch("piclaw.agent.Agent") as mock_agent_class, \
-         patch("psutil.virtual_memory") as mock_vmem, \
-         patch("psutil.disk_usage") as mock_disk, \
-         patch("socket.gethostname") as mock_hostname, \
-         patch("platform.python_version", return_value="3.11.2"), \
-         patch("platform.platform", return_value="Linux-Pi5"), \
-         patch("builtins.open") as mock_open, \
-         patch("piclaw.soul.get_path") as mock_soul_path, \
-         patch("piclaw.agents.sa_registry.SubAgentRegistry") as mock_registry:
 
+def test_cmd_doctor_happy_path(capsys):
+    with (
+        patch("piclaw.config.load") as mock_load,
+        patch("piclaw.agent.Agent") as mock_agent_class,
+        patch("psutil.virtual_memory") as mock_vmem,
+        patch("psutil.disk_usage") as mock_disk,
+        patch("socket.gethostname") as mock_hostname,
+        patch("platform.python_version", return_value="3.11.2"),
+        patch("platform.platform", return_value="Linux-Pi5"),
+        patch("builtins.open") as mock_open,
+        patch("piclaw.soul.get_path") as mock_soul_path,
+        patch("piclaw.agents.sa_registry.SubAgentRegistry") as mock_registry,
+    ):
         # Mock config
         mock_cfg = MagicMock()
         mock_cfg.agent_name = "PiClaw"
@@ -35,12 +37,12 @@ def test_cmd_doctor_happy_path(capsys):
         # Mock psutil
         mock_mem = MagicMock()
         mock_mem.used = 1048576 * 100  # 100 MB
-        mock_mem.total = 1048576 * 1000 # 1000 MB
+        mock_mem.total = 1048576 * 1000  # 1000 MB
         mock_vmem.return_value = mock_mem
 
         mock_d = MagicMock()
         mock_d.used = 1073741824 * 10  # 10 GB
-        mock_d.total = 1073741824 * 100 # 100 GB
+        mock_d.total = 1073741824 * 100  # 100 GB
         mock_disk.return_value = mock_d
 
         mock_hostname.return_value = "raspberrypi"
@@ -91,18 +93,20 @@ def test_cmd_doctor_happy_path(capsys):
         assert "aiohttp     : ✅" in out
         assert "fastapi     : ✅" in out
 
-def test_cmd_doctor_llm_failure(capsys):
-    with patch("piclaw.config.load") as mock_load, \
-         patch("piclaw.agent.Agent") as mock_agent_class, \
-         patch("psutil.virtual_memory") as mock_vmem, \
-         patch("psutil.disk_usage") as mock_disk, \
-         patch("socket.gethostname") as mock_hostname, \
-         patch("platform.python_version", return_value="3.11.2"), \
-         patch("platform.platform", return_value="Linux-Pi5"), \
-         patch("builtins.open") as mock_open, \
-         patch("piclaw.soul.get_path") as mock_soul_path, \
-         patch("piclaw.agents.sa_registry.SubAgentRegistry") as mock_registry:
 
+def test_cmd_doctor_llm_failure(capsys):
+    with (
+        patch("piclaw.config.load") as mock_load,
+        patch("piclaw.agent.Agent") as mock_agent_class,
+        patch("psutil.virtual_memory") as mock_vmem,
+        patch("psutil.disk_usage") as mock_disk,
+        patch("socket.gethostname") as mock_hostname,
+        patch("platform.python_version", return_value="3.11.2"),
+        patch("platform.platform", return_value="Linux-Pi5"),
+        patch("builtins.open") as mock_open,
+        patch("piclaw.soul.get_path") as mock_soul_path,
+        patch("piclaw.agents.sa_registry.SubAgentRegistry") as mock_registry,
+    ):
         # Mock config
         mock_cfg = MagicMock()
         mock_cfg.agent_name = "PiClaw"
@@ -153,18 +157,20 @@ def test_cmd_doctor_llm_failure(capsys):
         assert "LLM health  : ❌ UNREACHABLE (check API key)" in out
         assert "Sub-Agents  : ⬜ None defined" in out
 
-def test_cmd_doctor_local_llm_missing(capsys):
-    with patch("piclaw.config.load") as mock_load, \
-         patch("piclaw.agent.Agent") as mock_agent_class, \
-         patch("psutil.virtual_memory") as mock_vmem, \
-         patch("psutil.disk_usage") as mock_disk, \
-         patch("socket.gethostname") as mock_hostname, \
-         patch("platform.python_version", return_value="3.11.2"), \
-         patch("platform.platform", return_value="Linux-Pi5"), \
-         patch("builtins.open") as mock_open, \
-         patch("piclaw.soul.get_path") as mock_soul_path, \
-         patch("piclaw.agents.sa_registry.SubAgentRegistry") as mock_registry:
 
+def test_cmd_doctor_local_llm_missing(capsys):
+    with (
+        patch("piclaw.config.load") as mock_load,
+        patch("piclaw.agent.Agent") as mock_agent_class,
+        patch("psutil.virtual_memory") as mock_vmem,
+        patch("psutil.disk_usage") as mock_disk,
+        patch("socket.gethostname") as mock_hostname,
+        patch("platform.python_version", return_value="3.11.2"),
+        patch("platform.platform", return_value="Linux-Pi5"),
+        patch("builtins.open") as mock_open,
+        patch("piclaw.soul.get_path") as mock_soul_path,
+        patch("piclaw.agents.sa_registry.SubAgentRegistry") as mock_registry,
+    ):
         # Mock config
         mock_cfg = MagicMock()
         mock_cfg.agent_name = "PiClaw"
@@ -217,12 +223,13 @@ def test_cmd_doctor_local_llm_missing(capsys):
 
 
 def test_cmd_chat_api_success(capsys):
-    with patch("piclaw.config.load") as mock_load, \
-         patch("piclaw.cli._api_running", return_value=True), \
-         patch("websockets.connect") as mock_ws_connect, \
-         patch("builtins.input", side_effect=["hello", "help", "exit"]), \
-         patch("piclaw.auth.get_token", return_value="test_token"):
-
+    with (
+        patch("piclaw.config.load") as mock_load,
+        patch("piclaw.cli._api_running", return_value=True),
+        patch("websockets.connect") as mock_ws_connect,
+        patch("builtins.input", side_effect=["hello", "help", "exit"]),
+        patch("piclaw.auth.get_token", return_value="test_token"),
+    ):
         mock_cfg = MagicMock()
         mock_cfg.agent_name = "PiClawTest"
         mock_cfg.api.port = 8000
@@ -235,7 +242,7 @@ def test_cmd_chat_api_success(capsys):
         # when an AsyncMock side_effect list is exhausted, or it might just error out. Let's fix this properly.
         mock_ws.recv.side_effect = [
             json.dumps({"type": "thinking"}),
-            json.dumps({"type": "reply", "text": "Hi there!"})
+            json.dumps({"type": "reply", "text": "Hi there!"}),
         ]
         mock_ws_connect.return_value.__aenter__.return_value = mock_ws
 
@@ -255,20 +262,21 @@ def test_cmd_chat_api_success(capsys):
 
 
 def test_cmd_chat_api_no_token(capsys):
-    with patch("piclaw.config.load") as mock_load, \
-         patch("piclaw.cli._api_running", return_value=True), \
-         patch("piclaw.auth.get_token", return_value=None):
-
+    with (
+        patch("piclaw.config.load") as mock_load,
+        patch("piclaw.cli._api_running", return_value=True),
+        patch("piclaw.auth.get_token", return_value=None),
+    ):
         mock_cfg = MagicMock()
         mock_cfg.agent_name = "PiClawTest"
         mock_cfg.api.port = 8000
         mock_cfg.api.secret_key = None
         mock_load.return_value = mock_cfg
 
-
-        with patch("piclaw.agent.Agent") as mock_agent_class, \
-             patch("builtins.input", side_effect=["exit"]):
-
+        with (
+            patch("piclaw.agent.Agent") as mock_agent_class,
+            patch("builtins.input", side_effect=["exit"]),
+        ):
             mock_agent = MagicMock()
             mock_agent.boot = AsyncMock()
             mock_agent_class.return_value = mock_agent
@@ -283,11 +291,12 @@ def test_cmd_chat_api_no_token(capsys):
 
 
 def test_cmd_chat_direct_fallback(capsys):
-    with patch("piclaw.config.load") as mock_load, \
-         patch("piclaw.cli._api_running", return_value=False), \
-         patch("piclaw.agent.Agent") as mock_agent_class, \
-         patch("builtins.input", side_effect=["hello", "help", "exit"]):
-
+    with (
+        patch("piclaw.config.load") as mock_load,
+        patch("piclaw.cli._api_running", return_value=False),
+        patch("piclaw.agent.Agent") as mock_agent_class,
+        patch("builtins.input", side_effect=["hello", "help", "exit"]),
+    ):
         mock_cfg = MagicMock()
         mock_cfg.agent_name = "PiClawTest"
         mock_load.return_value = mock_cfg
@@ -309,9 +318,9 @@ def test_cmd_chat_direct_fallback(capsys):
         assert "Commands:" in out  # From the HELP print
         assert "Goodbye." in out
 
-
         from piclaw.llm import Message as _Msg
-        history_calls = mock_agent.run.call_args.kwargs['history']
+
+        history_calls = mock_agent.run.call_args.kwargs["history"]
         assert len(history_calls) == 2
         assert history_calls[0].role == "user"
         assert history_calls[0].content == "hello"
@@ -319,13 +328,13 @@ def test_cmd_chat_direct_fallback(capsys):
         assert history_calls[1].content == "Direct reply!"
 
 
-
 def test_cmd_chat_interrupt(capsys):
-    with patch("piclaw.config.load") as mock_load, \
-         patch("piclaw.cli._api_running", return_value=False), \
-         patch("piclaw.agent.Agent") as mock_agent_class, \
-         patch("builtins.input", side_effect=KeyboardInterrupt):
-
+    with (
+        patch("piclaw.config.load") as mock_load,
+        patch("piclaw.cli._api_running", return_value=False),
+        patch("piclaw.agent.Agent") as mock_agent_class,
+        patch("builtins.input", side_effect=KeyboardInterrupt),
+    ):
         mock_cfg = MagicMock()
         mock_cfg.agent_name = "PiClawTest"
         mock_load.return_value = mock_cfg
