@@ -58,7 +58,38 @@ TOOL_DEFS = [
             "required": ["ip", "log_snippet"],
         },
     ),
+    ToolDefinition(
+        name="deploy_honey_trap",
+        description="Deploys an active, asynchronous honeypot server on a specific port to ensnare and waste the time of automated attacker scanners. Choose from 'labyrinth' (endless SSH banner to trap brute-forcers), 'sinkhole' (endless gzip bomb to crash HTTP scanners), or 'rickroll' (301 redirect).",
+        parameters={
+            "type": "object",
+            "properties": {
+                "port": {"type": "integer", "description": "The port to deploy the trap on (e.g., 2222, 8080)."},
+                "trap_type": {"type": "string", "description": "The type of trap: 'labyrinth', 'sinkhole', or 'rickroll'."}
+            },
+            "required": ["port", "trap_type"],
+        },
+    ),
+    ToolDefinition(
+        name="stop_honey_trap",
+        description="Stops an active honey trap running on a specific port.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "port": {"type": "integer", "description": "The port of the trap to stop."}
+            },
+            "required": ["port"],
+        },
+    ),
+    ToolDefinition(
+        name="list_honey_traps",
+        description="Lists all currently active honey traps on the system.",
+        parameters={"type": "object", "properties": {}},
+    ),
 ]
+
+# Global dictionary to hold references to our running asyncio honey trap servers
+_ACTIVE_TRAPS = {}
 
 
 async def _run_command(cmd: str, *args: str) -> str:
@@ -151,10 +182,153 @@ PiClaw OS Automated Security Systems
     return report
 
 
+async def _handle_labyrinth(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    """Endless SSH Tarpit: Drip-feeds data to keep attacker connection alive forever."""
+    addr = writer.get_extra_info('peername')
+    logger.info("Trap [Labyrinth] sprung on %s", addr)
+    try:
+        # Endless loop dripping one line of fake SSH banner every 10 seconds
+        while True:
+            writer.write(b"SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u2\r\n")
+            await writer.drain()
+            await asyncio.sleep(10)
+    except Exception:
+        # Client disconnected or timeout
+        pass
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def _handle_sinkhole(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    """Gzip Bomb Sinkhole: Overwhelms HTTP scanners by sending a massive payload of zeros."""
+    addr = writer.get_extra_info('peername')
+    logger.info("Trap [Sinkhole] sprung on %s", addr)
+    try:
+        # Read the HTTP request (so the client starts listening for our response)
+        await asyncio.wait_for(reader.read(1024), timeout=5)
+
+        # Send a valid HTTP 200 response claiming the content is gzip encoded
+        response_headers = (
+            "HTTP/1.1 200 OK\r\n"
+            "Server: nginx/1.24.0\r\n"
+            "Content-Type: text/html\r\n"
+            "Content-Encoding: gzip\r\n"
+            "Connection: keep-alive\r\n\r\n"
+        )
+        writer.write(response_headers.encode())
+        await writer.drain()
+
+        import gzip
+        import io
+
+        # We construct a modest chunk of zeroes, compress it, and stream it endlessly
+        chunk = b"0" * (1024 * 1024)  # 1 MB of zeroes
+        out = io.BytesIO()
+        with gzip.GzipFile(fileobj=out, mode='w') as f:
+            f.write(chunk)
+        compressed_chunk = out.getvalue()
+
+        # Send gigabytes of compressed data to crash their scanner's RAM when decompressed
+        for _ in range(1000):
+            writer.write(compressed_chunk)
+            await writer.drain()
+            await asyncio.sleep(0.1)  # small delay to ensure continuous streaming
+    except Exception:
+        pass
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def _handle_rickroll(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    """HTTP Redirect: Swiftly directs curious browsers to Rick Astley."""
+    addr = writer.get_extra_info('peername')
+    logger.info("Trap [Rickroll] sprung on %s", addr)
+    try:
+        await asyncio.wait_for(reader.read(1024), timeout=5)
+        response = (
+            "HTTP/1.1 301 Moved Permanently\r\n"
+            "Location: https://www.youtube.com/watch?v=dQw4w9WgXcQ\r\n"
+            "Connection: close\r\n\r\n"
+        )
+        writer.write(response.encode())
+        await writer.drain()
+    except Exception:
+        pass
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def deploy_honey_trap(port: int, trap_type: str) -> str:
+    """Spins up an active honeypot server on the requested port."""
+    if port in _ACTIVE_TRAPS:
+        return f"A trap is already running on port {port}."
+
+    trap_type = trap_type.lower()
+    handlers = {
+        "labyrinth": _handle_labyrinth,
+        "sinkhole": _handle_sinkhole,
+        "rickroll": _handle_rickroll,
+    }
+
+    handler = handlers.get(trap_type)
+    if not handler:
+        return f"Invalid trap_type '{trap_type}'. Available types: labyrinth, sinkhole, rickroll."
+
+    try:
+        server = await asyncio.start_server(handler, '0.0.0.0', port)
+        _ACTIVE_TRAPS[port] = {
+            "server": server,
+            "type": trap_type,
+        }
+        logger.info("Honey trap '%s' successfully deployed on port %d", trap_type, port)
+        return f"🍯 SUCCESS: A '{trap_type}' honey trap has been actively deployed and is listening on port {port}!"
+    except Exception as e:
+        logger.error("Failed to deploy trap on port %d: %s", port, e)
+        return f"Failed to deploy trap on port {port}: {e}"
+
+
+async def stop_honey_trap(port: int) -> str:
+    """Stops a specific honey trap."""
+    if port not in _ACTIVE_TRAPS:
+        return f"No active trap found on port {port}."
+
+    trap = _ACTIVE_TRAPS.pop(port)
+    server = trap["server"]
+    server.close()
+    await server.wait_closed()
+    return f"🛑 Honey trap on port {port} ({trap['type']}) has been disabled."
+
+
+async def list_honey_traps() -> str:
+    """Lists all active traps."""
+    if not _ACTIVE_TRAPS:
+        return "No honey traps are currently active."
+
+    lines = ["Active Honey Traps:"]
+    for p, t in _ACTIVE_TRAPS.items():
+        lines.append(f" - Port {p}: {t['type']}")
+    return "\n".join(lines)
+
+
 def build_handlers():
     return {
         "whois_lookup": whois_lookup,
         "block_ip": block_ip,
         "tarpit_ip": tarpit_ip,
         "generate_abuse_report": generate_abuse_report,
+        "deploy_honey_trap": deploy_honey_trap,
+        "stop_honey_trap": stop_honey_trap,
+        "list_honey_traps": list_honey_traps,
     }

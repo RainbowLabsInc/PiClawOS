@@ -5,8 +5,18 @@ from piclaw.tools.network_security import (
     block_ip,
     tarpit_ip,
     generate_abuse_report,
+    deploy_honey_trap,
+    stop_honey_trap,
+    list_honey_traps,
+    _ACTIVE_TRAPS,
     _run_command,
 )
+
+@pytest.fixture(autouse=True)
+def clean_traps():
+    """Ensure _ACTIVE_TRAPS is empty before each test."""
+    _ACTIVE_TRAPS.clear()
+    yield
 
 @pytest.fixture
 def mock_run_command():
@@ -94,3 +104,39 @@ async def test_run_command_error(mock_wait_for, mock_create_subprocess_exec):
 
     result = await _run_command("iptables", "-L")
     assert "[ERROR] Command failed: permission denied" in result
+
+@pytest.mark.asyncio
+async def test_honey_trap_lifecycle():
+    # Test deploying a trap
+    res = await deploy_honey_trap(9999, "rickroll")
+    assert "SUCCESS" in res
+    assert 9999 in _ACTIVE_TRAPS
+    assert _ACTIVE_TRAPS[9999]["type"] == "rickroll"
+
+    # Test listing traps
+    list_res = await list_honey_traps()
+    assert "Active Honey Traps" in list_res
+    assert "Port 9999" in list_res
+    assert "rickroll" in list_res
+
+    # Test duplicate trap
+    dup_res = await deploy_honey_trap(9999, "sinkhole")
+    assert "already running" in dup_res
+
+    # Test invalid trap
+    inv_res = await deploy_honey_trap(8888, "invalid_trap")
+    assert "Invalid trap_type" in inv_res
+
+    # Test stopping the trap
+    stop_res = await stop_honey_trap(9999)
+    assert "has been disabled" in stop_res
+    assert 9999 not in _ACTIVE_TRAPS
+
+    # Test stopping nonexistent trap
+    stop_none = await stop_honey_trap(1234)
+    assert "No active trap found" in stop_none
+
+@pytest.mark.asyncio
+async def test_list_empty_traps():
+    res = await list_honey_traps()
+    assert "No honey traps are currently active" in res
