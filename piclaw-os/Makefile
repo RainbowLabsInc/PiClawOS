@@ -26,7 +26,7 @@ sdcard: sync
 release: sync sdcard
 	@echo "→ Validating ZIP ..."
 	@unzip -p piclaw-sdcard-v$(VERSION).zip \
-		piclaw-os/boot/piclaw/piclaw-src/pyproject.toml | grep "0.15" && echo "✅ Version OK"
+		piclaw-os/boot/piclaw/piclaw-src/pyproject.toml | grep "0.15.1" && echo "✅ Version OK"
 
 clean:
 	@rm -f piclaw-sdcard-v*.zip

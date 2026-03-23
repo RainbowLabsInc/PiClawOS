@@ -1,6 +1,6 @@
 # PiClaw OS — Roadmap
 
-## Status: v0.15 (March 2026)
+## Status: v0.15.1 (March 2026)
 Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network monitor, multi-LLM registry, installer sub-agent and Tandem browser merged.
 
 ---
