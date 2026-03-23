@@ -6,6 +6,7 @@ Requires 'iptables' and 'whois' to be installed on the host.
 
 import asyncio
 import logging
+import ipaddress
 
 from piclaw.llm.base import ToolDefinition
 
@@ -182,10 +183,30 @@ PiClaw OS Automated Security Systems
     return report
 
 
+def _is_local_ip(ip: str) -> bool:
+    """Returns True if the IP address belongs to a local/private network (RFC 1918) or loopback."""
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        return ip_obj.is_private or ip_obj.is_loopback
+    except ValueError:
+        return False  # Not a valid IP string
+
+
 async def _handle_labyrinth(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     """Endless SSH Tarpit: Drip-feeds data to keep attacker connection alive forever."""
     addr = writer.get_extra_info('peername')
-    logger.info("Trap [Labyrinth] sprung on %s", addr)
+    ip = addr[0] if addr else "unknown"
+
+    if _is_local_ip(ip):
+        logger.info("Trap [Labyrinth] aborted for local IP %s. (Safety Override)", ip)
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return
+
+    logger.info("Trap [Labyrinth] sprung on external IP %s", ip)
     try:
         # Endless loop dripping one line of fake SSH banner every 10 seconds
         while True:
@@ -206,10 +227,26 @@ async def _handle_labyrinth(reader: asyncio.StreamReader, writer: asyncio.Stream
 async def _handle_sinkhole(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     """Gzip Bomb Sinkhole: Overwhelms HTTP scanners by sending a massive payload of zeros."""
     addr = writer.get_extra_info('peername')
-    logger.info("Trap [Sinkhole] sprung on %s", addr)
+    ip = addr[0] if addr else "unknown"
+
     try:
         # Read the HTTP request (so the client starts listening for our response)
         await asyncio.wait_for(reader.read(1024), timeout=5)
+
+        if _is_local_ip(ip):
+            logger.info("Trap [Sinkhole] aborted for local IP %s. (Safety Override)", ip)
+            safe_msg = (
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/plain\r\n"
+                "Connection: close\r\n\r\n"
+                "PiClaw OS: Sinkhole Honey Trap\r\n"
+                "Local LAN detected. Trap deactivated for your safety.\r\n"
+            )
+            writer.write(safe_msg.encode())
+            await writer.drain()
+            return
+
+        logger.info("Trap [Sinkhole] sprung on external IP %s", ip)
 
         # Send a valid HTTP 200 response claiming the content is gzip encoded
         response_headers = (
@@ -250,9 +287,25 @@ async def _handle_sinkhole(reader: asyncio.StreamReader, writer: asyncio.StreamW
 async def _handle_rickroll(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     """HTTP Redirect: Swiftly directs curious browsers to Rick Astley."""
     addr = writer.get_extra_info('peername')
-    logger.info("Trap [Rickroll] sprung on %s", addr)
+    ip = addr[0] if addr else "unknown"
+
     try:
         await asyncio.wait_for(reader.read(1024), timeout=5)
+
+        if _is_local_ip(ip):
+            logger.info("Trap [Rickroll] aborted for local IP %s. (Safety Override)", ip)
+            safe_msg = (
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/plain\r\n"
+                "Connection: close\r\n\r\n"
+                "PiClaw OS: Rickroll Honey Trap\r\n"
+                "Local LAN detected. We're no strangers to love, but you are safe here.\r\n"
+            )
+            writer.write(safe_msg.encode())
+            await writer.drain()
+            return
+
+        logger.info("Trap [Rickroll] sprung on external IP %s", ip)
         response = (
             "HTTP/1.1 301 Moved Permanently\r\n"
             "Location: https://www.youtube.com/watch?v=dQw4w9WgXcQ\r\n"

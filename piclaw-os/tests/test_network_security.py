@@ -10,7 +10,12 @@ from piclaw.tools.network_security import (
     list_honey_traps,
     _ACTIVE_TRAPS,
     _run_command,
+    _is_local_ip,
+    _handle_labyrinth,
+    _handle_sinkhole,
+    _handle_rickroll,
 )
+from unittest.mock import MagicMock
 
 @pytest.fixture(autouse=True)
 def clean_traps():
@@ -140,3 +145,64 @@ async def test_honey_trap_lifecycle():
 async def test_list_empty_traps():
     res = await list_honey_traps()
     assert "No honey traps are currently active" in res
+
+def test_is_local_ip():
+    assert _is_local_ip("127.0.0.1") is True
+    assert _is_local_ip("192.168.1.100") is True
+    assert _is_local_ip("10.0.0.5") is True
+    assert _is_local_ip("172.16.0.1") is True
+
+    assert _is_local_ip("8.8.8.8") is False
+    assert _is_local_ip("142.250.190.46") is False
+
+    assert _is_local_ip("invalid_ip") is False
+
+@pytest.mark.asyncio
+async def test_local_ip_safeguard_labyrinth():
+    reader = AsyncMock()
+    writer = MagicMock()
+    writer.get_extra_info.return_value = ("192.168.1.50", 12345)
+    writer.wait_closed = AsyncMock()
+
+    # Run the handler
+    await _handle_labyrinth(reader, writer)
+
+    # It should have instantly closed without writing the endless banner
+    writer.write.assert_not_called()
+    writer.close.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_local_ip_safeguard_rickroll():
+    reader = AsyncMock()
+    reader.read = AsyncMock(return_value=b"GET / HTTP/1.1\r\n\r\n")
+    writer = MagicMock()
+    writer.get_extra_info.return_value = ("10.0.0.5", 12345)
+    writer.wait_closed = AsyncMock()
+    writer.drain = AsyncMock()
+
+    await _handle_rickroll(reader, writer)
+
+    # The response should be a friendly 200 OK, not a 301 Redirect to youtube
+    writer.write.assert_called_once()
+    output = writer.write.call_args[0][0].decode()
+    assert "200 OK" in output
+    assert "safe here" in output
+    assert "youtube.com" not in output
+
+@pytest.mark.asyncio
+async def test_local_ip_safeguard_sinkhole():
+    reader = AsyncMock()
+    reader.read = AsyncMock(return_value=b"GET / HTTP/1.1\r\n\r\n")
+    writer = MagicMock()
+    writer.get_extra_info.return_value = ("127.0.0.1", 12345)
+    writer.wait_closed = AsyncMock()
+    writer.drain = AsyncMock()
+
+    await _handle_sinkhole(reader, writer)
+
+    # The response should be a friendly 200 OK without gzip
+    writer.write.assert_called_once()
+    output = writer.write.call_args[0][0].decode()
+    assert "200 OK" in output
+    assert "Content-Encoding: gzip" not in output
+    assert "Local LAN detected" in output
