@@ -1,0 +1,3 @@
+## 2025-05-19 - Regex Compilation in Loops
+**Learning:** In Python, using `re.sub()` or `re.search()` with string literals inside frequently executed loops or functions causes the regex engine to parse and compile the pattern repeatedly. This is a common performance anti-pattern, especially on resource-constrained environments like the Raspberry Pi, where CPU cycles are limited. The effect is multiplied when iterating over large lists of stop words or phrases and applying them dynamically.
+**Action:** Always pre-compile regular expressions at the module level using `re.compile()`. When dealing with lists of keywords or phrases to replace, combine them into a single optimized regex (e.g., `(?:word1|word2)`) to drastically minimize loop iterations and overhead.
