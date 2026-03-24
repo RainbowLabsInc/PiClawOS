@@ -18,6 +18,7 @@ from piclaw.tools import network as network_mod
 from piclaw.tools import gpio as gpio_mod
 from piclaw.tools import services as services_mod
 from piclaw.tools import updater as updater_mod
+from piclaw.tools import network_security as net_sec_mod
 from piclaw.tools.scheduler import Scheduler
 
 from piclaw.memory import QMDBackend, MemoryMiddleware
@@ -180,6 +181,13 @@ class Agent:
             }
             _reg(ha_tool_defs, ha_handlers)
             log.info("Home Assistant tools registered (%d)", len(ha_tool_defs))
+
+        # Network Security tools (v0.17)
+        # Needs HA client initialized just above
+        _reg(net_sec_mod.TOOL_DEFS, net_sec_mod.build_handlers(
+            ha_client=self._ha_client if hasattr(self, "_ha_client") else None,
+            notify_fn=self._telegram_send
+        ))
 
         # Routinen-Tools werden lazy registriert (ProactiveRunner startet nach __init__)
         # Siehe: _register_late_tools() wird vor dem ersten run() aufgerufen
