@@ -39,8 +39,41 @@ from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers
 from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
 from piclaw import soul as soul_mod
 from piclaw.tools import homeassistant as ha_mod
+import re
 
 log = logging.getLogger("piclaw.agent")
+
+_PLATFORM_PHRASES = [
+    "kleinanzeigen.de",
+    "ebay.de",
+    "kleinanzeigen",
+    "ebay",
+    "zeige mir",
+    "zeig mir",
+    "was kostet",
+    "preis für",
+    "gibt es",
+    "auf",
+]
+
+_STOPWORDS = [
+    "auf", "im", "in", "um", "von", "bis", "bitte", "suche", "finde", "such",
+    "durchsuche", "liste", "umkreis", "radius", "einen", "eine", "ein", "mir",
+    "dem", "der", "die", "das", "rosengarten", "hamburg", "berlin", "münchen",
+    "köln", "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig",
+    "schnäppchen", "angebot", "angebote", "nach", "einem", "einer", "nähe",
+    "nähe von", "in der", "nach einem",
+]
+
+_RE_PLATFORM_PHRASES = re.compile(
+    r"\b(?:" + "|".join(re.escape(p) for p in sorted(_PLATFORM_PHRASES, key=len, reverse=True)) + r")\b",
+    flags=re.IGNORECASE
+)
+
+_RE_STOPWORDS = re.compile(
+    r"(?<![\w])(?:" + "|".join(re.escape(w) for w in sorted(_STOPWORDS, key=len, reverse=True)) + r")(?![\w])",
+    flags=re.IGNORECASE
+)
 
 
 @dataclass
@@ -492,75 +525,24 @@ class Agent:
 
         # Query bereinigen
         query = text_clean
-        # Plattform-Phrasen entfernen
-        for phrase in [
-            "kleinanzeigen.de",
-            "ebay.de",
-            "kleinanzeigen",
-            "ebay",
-            "zeige mir",
-            "zeig mir",
-            "was kostet",
-            "preis für",
-            "gibt es",
-            "auf",
-        ]:
-            query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
-        # PLZ entfernen
+
+        # 1. Plattform-Phrasen entfernen
+        query = _RE_PLATFORM_PHRASES.sub(" ", query)
+
+        # 2. PLZ entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
-        # Radius-Angaben entfernen (z.B. "20km", "20 km")
+
+        # 3. Radius-Angaben entfernen (z.B. "20km", "20 km")
         query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
-        # Stoppwörter entfernen
-        stopwords = [
-            "auf",
-            "im",
-            "in",
-            "um",
-            "von",
-            "bis",
-            "bitte",
-            "suche",
-            "finde",
-            "such",
-            "durchsuche",
-            "liste",
-            "umkreis",
-            "radius",
-            "einen",
-            "eine",
-            "ein",
-            "mir",
-            "dem",
-            "der",
-            "die",
-            "das",
-            "rosengarten",
-            "hamburg",
-            "berlin",
-            "münchen",
-            "köln",
-            "frankfurt",
-            "bremen",
-            "hannover",
-            "düsseldorf",
-            "leipzig",
-            "schnäppchen",
-            "angebot",
-            "angebote",
-            "nach",
-            "einem",
-            "einer",
-            "nähe",
-            "nähe von",
-            "in der",
-            "nach einem",
-        ]
-        for w in stopwords:
-            query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
-        # .de Suffix entfernen
+
+        # 4. Stoppwörter entfernen
+        query = _RE_STOPWORDS.sub(" ", query)
+
+        # 5. .de Suffix entfernen
         query = re.sub(r"\.de\b", " ", query, flags=re.IGNORECASE)
-        # Mehrfache Leerzeichen
+
+        # 6. Mehrfache Leerzeichen
         query = re.sub(r"\s+", " ", query).strip(" ,.-")
 
         if len(query) < 3:
