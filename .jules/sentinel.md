@@ -1,0 +1,4 @@
+## 2026-03-22 - Command Injection via `create_subprocess_shell` in network tools
+**Vulnerability:** Command injection vulnerability identified in `wifi_connect` and `wifi_disconnect` inside `piclaw-os/piclaw/tools/network.py`. User input (SSID and password) was interpolated directly into an f-string and executed via `asyncio.create_subprocess_shell`.
+**Learning:** The repeated pattern of wrapping shell commands using `create_subprocess_shell` exposes the system to severe command injection if variables are not thoroughly sanitized. The use of `asyncio.create_subprocess_exec` provides parameter separation and is inherently safer, bypassing the shell evaluator.
+**Prevention:** Avoid `asyncio.create_subprocess_shell` entirely for parameterized commands. Instead, use `asyncio.create_subprocess_exec` with a list of string arguments. For shell-specific constructs like pipelines (e.g., `grep`, `cut`), pass them safely via `["bash", "-c", cmd]`.
