@@ -25,11 +25,11 @@ import os
 import secrets
 import shutil
 import subprocess
-
-log = logging.getLogger(__name__)
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # ── SSH / TTY-Erkennung ────────────────────────────────────────────
 # Laeuft der Wizard über SSH oder eine einfache serielle Konsole,
@@ -100,16 +100,15 @@ def _header(step: int, total: int, title: str, icon: str = "◆") -> None:
     _w()
     _rule()
     filled = round((step / total) * 20)
-    bar_done = (
-        f"{FG_BLUE}{'#' * filled}{R}"
-        if not _UTF8
-        else f"{FG_BLUE}{'\u2588' * filled}{R}"
-    )
-    bar_empty = (
-        f"{FG_GRAY}{'.' * (20 - filled)}{R}"
-        if not _UTF8
-        else f"{FG_GRAY}{'\u2591' * (20 - filled)}{R}"
-    )
+    if not _UTF8:
+        bar_done = f"{FG_BLUE}{'#' * filled}{R}"
+        bar_empty = f"{FG_GRAY}{'.' * (20 - filled)}{R}"
+    else:
+        done_char = chr(0x2588)
+        empty_char = chr(0x2591)
+        bar_done = f"{FG_BLUE}{done_char * filled}{R}"
+        bar_empty = f"{FG_GRAY}{empty_char * (20 - filled)}{R}"
+
     pct = round((step / total) * 100)
     print(
         f"  {bar_done}{bar_empty}  {FG_GRAY}{pct}%{R}  {FG_GRAY}Schritt {step}/{total}{R}"
@@ -1131,9 +1130,9 @@ def step_wifi(state: WizardState, step: int, total: int) -> None:
             timeout=5,
         )
         connected = [
-            l
-            for l in result.stdout.strip().split("\n")
-            if "connected" in l and "lo" not in l
+            line
+            for line in result.stdout.strip().split("\n")
+            if "connected" in line and "lo" not in line
         ]
         if connected:
             for c in connected:
@@ -1445,8 +1444,8 @@ def step_soul(state: WizardState, step: int, total: int) -> None:
         # Preview der ersten Zeilen
         preview = soul_path.read_text(encoding="utf-8").strip().split("\n")[:4]
         print(f"\n  {FG_GRAY}Vorschau:{R}")
-        for l in preview:
-            print(f"    {FG_GRAY}{l[:70]}{R}")
+        for line in preview:
+            print(f"    {FG_GRAY}{line[:70]}{R}")
         print()
 
         action = _choice(

@@ -1,9 +1,7 @@
-import logging
-
-log = logging.getLogger(__name__)
 """PiClaw OS – Shell + System Info Tools"""
 
 import asyncio
+import logging
 import shlex
 import traceback
 import psutil
@@ -11,6 +9,8 @@ from datetime import datetime
 
 from piclaw.config import ShellConfig
 from piclaw.llm.base import ToolDefinition
+
+log = logging.getLogger(__name__)
 
 TOOL_DEFS = [
     ToolDefinition(

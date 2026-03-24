@@ -251,10 +251,10 @@ class WebCrawler:
                     # Depth expansion
                     if job.max_depth > 1:
                         same_domain = [
-                            l
-                            for l in links
-                            if urlparse(l).netloc == urlparse(url).netloc
-                            and l not in visited
+                            link
+                            for link in links
+                            if urlparse(link).netloc == urlparse(url).netloc
+                            and link not in visited
                         ]
                         queue.extend(same_domain[:3])
 

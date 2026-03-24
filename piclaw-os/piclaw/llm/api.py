@@ -2,7 +2,6 @@
 
 import json
 import aiohttp
-import asyncio
 from typing import AsyncIterator
 from .base import LLMBackend, ToolCall, LLMResponse
 

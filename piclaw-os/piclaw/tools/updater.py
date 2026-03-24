@@ -69,7 +69,7 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
             return "✅ PiClaw ist aktuell."
         lines = out.strip().splitlines()
         return f"🔄 {len(lines)} Update(s) verfügbar:\n" + "\n".join(
-            f"  {l}" for l in lines
+            f"  {line}" for line in lines
         )
 
     elif target == "piclaw":

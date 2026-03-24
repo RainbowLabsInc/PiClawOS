@@ -28,6 +28,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
+from piclaw.llm.base import ToolDefinition
+
 if TYPE_CHECKING:
     from piclaw.proactive import ProactiveRunner
 
@@ -255,7 +257,6 @@ class RoutineRegistry:
 
 # ── Agent-Tools für Routinen ──────────────────────────────────────
 
-from piclaw.llm.base import ToolDefinition
 
 TOOL_DEFS = [
     ToolDefinition(
