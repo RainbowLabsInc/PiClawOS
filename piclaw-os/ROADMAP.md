@@ -1,11 +1,26 @@
 # PiClaw OS — Roadmap
 
 ## Status: v0.15 (March 2026)
-Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network monitor, multi-LLM registry, installer sub-agent and Tandem browser merged.
+Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network monitor, multi-LLM registry, installer sub-agent, AgentMail, Tandem browser and Scrapling merged.
 
 ---
 
 ## Completed
+
+### v0.19 — Tandem Browser + Scrapling (Autonomous Browsing & Scraping)
+- [x] **Tandem** — browser automation: https://github.com/hydro13/tandem-browser
+- [x] Tools: `browser_open`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_close`
+- [x] Agent can autonomously navigate websites, fill forms, and extract content
+- [x] **Scrapling** — adaptive web scraping framework: https://github.com/D4Vinci/Scrapling
+  - Cloudflare bypass out of the box (StealthyFetcher)
+  - Adaptive element tracking — finds elements even after site redesigns
+- [x] Add `scrapling` to `install.sh` dependencies
+
+### v0.16 — AgentMail (Email Inbox for Dameon)
+- [x] AgentMail integration: https://www.agentmail.to
+- [x] Dameon gets its own email address (e.g. dameon@agentmail.to)
+- [x] Tools: `agentmail_create_inbox()`, `agentmail_list_inboxes()`, `agentmail_send_email()`, `agentmail_list_messages()`
+- [x] Configurable via installer wizard (API key + inbox name)
 
 ### v0.14 — Stability & Parallelism
 - [x] Queue system: agent processes Telegram + CLI requests in parallel (asyncio.Queue)
@@ -35,14 +50,6 @@ Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network
 
 ## Planned
 
-### v0.16 — AgentMail (Email Inbox for Dameon)
-- [ ] AgentMail integration: https://www.agentmail.to
-- [ ] Dameon gets its own email address (e.g. dameon@agentmail.to)
-- [ ] Tools: `email_send()`, `email_list()`, `email_read()`, `email_reply()`
-- [ ] Configurable via installer wizard (API key + inbox name)
-- [ ] Incoming emails → proactive Telegram notification
-- [ ] Use cases: order confirmations, form submissions, alert forwarding
-
 ### v0.17 — Emergency Shutdown
 - [ ] Switchable smart plug on modem (Shelly Plug S or TP-Link Tapo P110)
 - [ ] HA integration already in place (`ha_turn_off`)
@@ -54,17 +61,6 @@ Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network
 - [ ] Automatic IP blocking via nftables
 - [ ] fail2ban integration + status query
 - [ ] Abuse report generator
-
-### v0.19 — Tandem Browser + Scrapling (Autonomous Browsing & Scraping)
-- [~] **Tandem IN PROGRESS** — browser automation: https://github.com/hydro13/tandem-browser
-- [ ] Tools: `browser_open(url)`, `browser_click(selector)`, `browser_read()`, `browser_screenshot()`
-- [ ] Agent can autonomously navigate websites, fill forms, and extract content
-- [ ] **Scrapling** — adaptive web scraping framework: https://github.com/D4Vinci/Scrapling
-  - Cloudflare bypass out of the box (StealthyFetcher)
-  - Adaptive element tracking — finds elements even after site redesigns
-  - Built-in MCP server (direct Claude integration possible)
-  - Tools: `scrape_url()`, `scrape_css()`, `stealth_fetch()`
-- [ ] Add `scrapling[fetchers]` to `install.sh` dependencies
 
 ### v0.20 — Self-Improving Memory (ClawHub Skill)
 - [ ] Dameon learns from explicit corrections ("no, that was wrong")
