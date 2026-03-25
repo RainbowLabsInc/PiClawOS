@@ -915,7 +915,9 @@ def cmd_update(args: list):
 
 def cmd_debug(args: list):
     """piclaw debug – run debug/test scripts via pytest"""
-    import asyncio, os, sys
+    import asyncio
+    import os
+    import sys
     from pathlib import Path
 
     base_dir = Path(__file__).parent.parent

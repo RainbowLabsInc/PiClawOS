@@ -1,8 +1,7 @@
 """Tests for piclaw.tools.tandem"""
-import asyncio
 import json
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from piclaw.tools.tandem import browser_open, browser_snapshot, browser_click
 
 @pytest.mark.asyncio

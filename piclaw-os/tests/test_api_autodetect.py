@@ -1,5 +1,4 @@
 import pytest
-from piclaw.llm.api import detect_provider_and_model
 
 @pytest.mark.asyncio
 async def test_detect_anthropic():

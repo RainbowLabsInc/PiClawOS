@@ -435,26 +435,9 @@ class MetricsCollector:
 
 
 def _read_cpu_temp() -> float | None:
-    """Liest CPU-Temperatur – funktioniert auf Pi und in psutil-Fallback."""
-    # Pi: /sys/class/thermal/thermal_zone0/temp (in Milligrad)
-    try:
-        t = (
-            Path("/sys/class/thermal/thermal_zone0/temp")
-            .read_text(encoding="utf-8")
-            .strip()
-        )
-        return int(t) / 1000.0
-    except OSError:
-        pass  # thermal_zone0 not present on non-Pi
-    # psutil fallback (Linux allgemein)
-    try:
-        temps = psutil.sensors_temperatures()
-        for key in ("coretemp", "cpu_thermal", "cpu-thermal", "acpitz"):
-            if key in temps and temps[key]:
-                return temps[key][0].current
-    except Exception as _e:
-        logger.debug("psutil temp sensors: %s", _e)
-    return None
+    """Liest CPU-Temperatur (effizient über pi_info)."""
+    from piclaw.hardware.pi_info import current_temp
+    return current_temp()
 
 
 # ── Singleton ─────────────────────────────────────────────────────

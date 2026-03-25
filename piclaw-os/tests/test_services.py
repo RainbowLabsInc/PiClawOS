@@ -1,8 +1,7 @@
 """Tests for piclaw.tools.services"""
-import asyncio
 import pytest
 from unittest.mock import AsyncMock, patch
-from piclaw.tools.services import build_handlers, service_status, service_control, service_list
+from piclaw.tools.services import build_handlers
 from piclaw.config import ServicesConfig
 
 @pytest.fixture

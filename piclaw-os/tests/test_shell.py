@@ -3,7 +3,7 @@ import asyncio
 from unittest.mock import patch, MagicMock
 
 from piclaw.config import ShellConfig
-from piclaw.tools.shell import build_handlers, run_shell, system_info, _is_allowed
+from piclaw.tools.shell import build_handlers, run_shell, system_info
 
 @pytest.fixture
 def shell_cfg():
@@ -102,9 +102,9 @@ class TestSystemInfo:
     @patch("psutil.disk_usage")
     @patch("psutil.boot_time")
     @patch("psutil.getloadavg", return_value=(0.1, 0.2, 0.3))
-    @patch("builtins.open")
+    @patch("piclaw.hardware.pi_info.current_temp")
     async def test_system_info_success(
-        self, mock_open, mock_getloadavg, mock_boot_time, mock_disk_usage,
+        self, mock_current_temp, mock_getloadavg, mock_boot_time, mock_disk_usage,
         mock_virtual_memory, mock_cpu_freq, mock_cpu_percent
     ):
         # Mock CPU Freq
@@ -131,9 +131,7 @@ class TestSystemInfo:
         mock_boot_time.return_value = (datetime.now() - timedelta(hours=1, minutes=30)).timestamp()
 
         # Mock Temp file
-        mock_file = MagicMock()
-        mock_file.__enter__.return_value.read.return_value = "45000\n"
-        mock_open.return_value = mock_file
+        mock_current_temp.return_value = 45.0
 
         result = await system_info()
 

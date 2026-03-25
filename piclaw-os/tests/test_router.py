@@ -3,8 +3,8 @@ Tests for LLM routing logic (MultiLLMRouter + LLMRegistry).
 Uses mocked backends – no real LLM calls.
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from piclaw.llm.registry import BackendConfig, LLMRegistry
+from unittest.mock import patch
+from piclaw.llm.registry import BackendConfig
 
 
 def make_backend(name, tags, priority=5, enabled=True):

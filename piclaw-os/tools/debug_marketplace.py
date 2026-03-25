@@ -3,7 +3,9 @@
 PiClaw Marketplace Debugging Script
 Testet jeden Schritt der Marketplace-Pipeline einzeln.
 """
-import sys, asyncio, inspect, re, json
+import sys
+import asyncio
+import inspect
 from pathlib import Path
 
 # Adjust path to find piclaw-os
@@ -73,7 +75,6 @@ print(SEP)
 async def test_direct():
     try:
         from piclaw.tools.marketplace import marketplace_search, format_results
-        import os
         from piclaw.config import CONFIG_DIR
         seen_file = CONFIG_DIR / 'marketplace_seen.json'
 

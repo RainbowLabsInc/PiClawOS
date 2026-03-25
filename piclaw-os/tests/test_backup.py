@@ -1,5 +1,4 @@
 """Tests für piclaw.backup – Backup & Restore."""
-import asyncio
 import json
 import tarfile
 import time

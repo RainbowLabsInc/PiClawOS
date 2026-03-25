@@ -1,4 +1,3 @@
-import asyncio
 import pytest
 from piclaw.tools.marketplace import marketplace_search, _parse_price, format_results
 

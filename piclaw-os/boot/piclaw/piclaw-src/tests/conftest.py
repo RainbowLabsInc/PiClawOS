@@ -4,7 +4,6 @@ Shared pytest fixtures and configuration.
 Patches CONFIG_DIR globally so no test ever touches /etc/piclaw.
 """
 import sys
-import os
 import pytest
 from pathlib import Path
 from unittest.mock import patch

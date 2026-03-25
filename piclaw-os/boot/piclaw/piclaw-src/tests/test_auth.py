@@ -62,7 +62,6 @@ class TestVerification:
 
     def test_timing_safe(self):
         """verify() uses secrets.compare_digest – ensure it's called (not ==)."""
-        import secrets
         auth.set_token("token")
         with patch("secrets.compare_digest", return_value=True) as mock:
             auth.verify("token")
