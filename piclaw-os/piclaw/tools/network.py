@@ -53,6 +53,22 @@ async def _run(cmd: str, timeout: int = 15) -> str:
     return (out + ("\n[stderr] " + err if err else "")).strip()
 
 
+async def _run_exec(args: list[str], timeout: int = 15) -> str:
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return "[TIMEOUT]"
+    out = stdout.decode(errors="replace").strip()
+    err = stderr.decode(errors="replace").strip()
+    return (out + ("\n[stderr] " + err if err else "")).strip()
+
+
 async def network_status() -> str:
     ip_info = await _run("ip -brief addr show")
     wifi_con = await _run("nmcli -t -f NAME,TYPE,STATE,DEVICE connection show --active")
@@ -71,11 +87,10 @@ async def wifi_scan() -> str:
 
 
 async def wifi_connect(ssid: str, password: str = "") -> str:
+    args = ["nmcli", "dev", "wifi", "connect", ssid]
     if password:
-        cmd = f'nmcli dev wifi connect "{ssid}" password "{password}"'
-    else:
-        cmd = f'nmcli dev wifi connect "{ssid}"'
-    return await _run(cmd, timeout=30)
+        args.extend(["password", password])
+    return await _run_exec(args, timeout=30)
 
 
 async def wifi_disconnect() -> str:
@@ -85,7 +100,7 @@ async def wifi_disconnect() -> str:
     )
     if not dev:
         return "No active WiFi device found."
-    return await _run(f"nmcli dev disconnect {dev.strip()}")
+    return await _run_exec(["nmcli", "dev", "disconnect", dev.strip()])
 
 
 HANDLERS = {
