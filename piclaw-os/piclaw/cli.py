@@ -236,18 +236,10 @@ def cmd_doctor():
         print(
             f"  Disk        : {disk.used // 1_073_741_824:.1f} / {disk.total // 1_073_741_824:.1f} GB"
         )
-        try:
-            temp = (
-                int(
-                    open(
-                        "/sys/class/thermal/thermal_zone0/temp", encoding="utf-8"
-                    ).read()
-                )
-                / 1000
-            )
+        from piclaw.hardware.pi_info import current_temp
+        temp = current_temp()
+        if temp is not None:
             print(f"  CPU Temp    : {temp:.1f}°C")
-        except OSError:
-            pass  # thermal_zone0 not present on non-Pi
         # Soul
         from piclaw import soul as soul_mod
 

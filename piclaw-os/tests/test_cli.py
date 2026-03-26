@@ -52,39 +52,41 @@ def test_cmd_doctor_happy_path(capsys):
         mock_open.return_value = mock_file
         mock_open.return_value.__enter__.return_value = mock_file
 
-        # Mock Soul
-        mock_soul = MagicMock()
-        mock_soul.exists.return_value = True
-        mock_soul.stat.return_value.st_size = 1024
-        mock_soul.__str__.return_value = "/path/to/soul.md"
-        mock_soul_path.return_value = mock_soul
+        with patch("piclaw.hardware.pi_info.current_temp", return_value=45.0):
 
-        # Mock Registry
-        mock_reg_inst = MagicMock()
-        agent1 = MagicMock()
-        agent1.last_status = "ok"
-        agent2 = MagicMock()
-        agent2.last_status = "running"
-        mock_reg_inst.list_all.return_value = [agent1, agent2]
-        mock_registry.return_value = mock_reg_inst
+            # Mock Soul
+            mock_soul = MagicMock()
+            mock_soul.exists.return_value = True
+            mock_soul.stat.return_value.st_size = 1024
+            mock_soul.__str__.return_value = "/path/to/soul.md"
+            mock_soul_path.return_value = mock_soul
 
-        # Run function
-        cmd_doctor()
+            # Mock Registry
+            mock_reg_inst = MagicMock()
+            agent1 = MagicMock()
+            agent1.last_status = "ok"
+            agent2 = MagicMock()
+            agent2.last_status = "running"
+            mock_reg_inst.list_all.return_value = [agent1, agent2]
+            mock_registry.return_value = mock_reg_inst
 
-        # Check output
-        captured = capsys.readouterr()
-        out = captured.out
+            # Run function
+            cmd_doctor()
 
-        assert "PiClaw Doctor" in out
-        assert "Agent       : PiClaw" in out
-        assert "LLM backend : api / gpt-4" in out
-        assert "LLM health  : ✅ OK" in out
-        assert "Python      : 3.11.2" in out
-        assert "Platform    : Linux-Pi5" in out
-        assert "Hostname    : raspberrypi" in out
-        assert "Memory      : 100 / 1000 MB" in out
-        assert "Disk        : 10.0 / 100.0 GB" in out
-        assert "CPU Temp    : 45.0°C" in out
+            # Check output
+            captured = capsys.readouterr()
+            out = captured.out
+
+            assert "PiClaw Doctor" in out
+            assert "Agent       : PiClaw" in out
+            assert "LLM backend : api / gpt-4" in out
+            assert "LLM health  : ✅ OK" in out
+            assert "Python      : 3.11.2" in out
+            assert "Platform    : Linux-Pi5" in out
+            assert "Hostname    : raspberrypi" in out
+            assert "Memory      : 100 / 1000 MB" in out
+            assert "Disk        : 10.0 / 100.0 GB" in out
+            assert "CPU Temp    : 45.0°C" in out
         assert "API Token   : ✅ set (piclaw config token)" in out
         assert "Soul        : ✅ /path/to/soul.md (1024 B)" in out
         assert "Sub-Agents  : ✅ 2 defined  (ok=1, error=0, running=1)" in out

@@ -103,8 +103,9 @@ class TestSystemInfo:
     @patch("psutil.boot_time")
     @patch("psutil.getloadavg", return_value=(0.1, 0.2, 0.3))
     @patch("builtins.open")
+    @patch("piclaw.hardware.pi_info.current_temp", return_value=45.0)
     async def test_system_info_success(
-        self, mock_open, mock_getloadavg, mock_boot_time, mock_disk_usage,
+        self, mock_temp, mock_open, mock_getloadavg, mock_boot_time, mock_disk_usage,
         mock_virtual_memory, mock_cpu_freq, mock_cpu_percent
     ):
         # Mock CPU Freq
