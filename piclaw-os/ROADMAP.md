@@ -85,10 +85,6 @@ Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network
 - [ ] **Single model instance** — local model (Gemma 2B) currently loaded in both piclaw-api and piclaw-agent (~4.4 GB total); load only in agent, API delegates via internal call — saves ~2 GB RAM permanently
 
 ---
-
-## Technical Debt
-
-| # | Issue | Priority |
-|---|-------|----------|
-| T1 | llama.cpp verbose output (partially fixed) | Medium |
-| T2 | Installer tool: allow Dameon to pass custom post-install steps | Low |
+### v1.0 Release Candidate / Technical Debt Cleanup
+- [ ] **T1:** Suppress remaining llama.cpp verbose output completely.
+- [ ] **T2:** Enhance the Installer tool to allow Dameon to intelligently pass custom post-install steps.
