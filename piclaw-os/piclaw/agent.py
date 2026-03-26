@@ -146,6 +146,11 @@ class Agent:
 
         _reg(net_mon.TOOL_DEFS, net_mon.build_handlers())
 
+        # Network Security tools (v0.18 prototype)
+        from piclaw.tools import network_security as net_sec
+
+        _reg(net_sec.TOOL_DEFS, net_sec.build_handlers())
+
         # Tandem Browser tools (v0.18)
         from piclaw.tools import tandem as tandem_mod
 
