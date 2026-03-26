@@ -23,6 +23,50 @@ def cleanup_tasks():
 
 
 @pytest.mark.asyncio
+async def test_active_tasks_unnamed():
+    """Test active_tasks returns 'unnamed' for tasks without a name."""
+    async def sleeping_coro():
+        await asyncio.sleep(0.1)
+
+    # Creating a task without specifying a name
+    task = create_background_task(sleeping_coro())
+
+    # asyncio.create_task assigns a default name like "Task-1", so we need to clear it
+    # explicitly to test the 't.get_name() or "unnamed"' fallback logic in active_tasks()
+    task.set_name("")
+
+    active = active_tasks()
+    assert "unnamed" in active
+    assert len(active) == 1
+
+    task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_active_tasks_excludes_done():
+    """Test active_tasks does not include tasks that are already done."""
+    async def quick_coro():
+        return "done"
+
+    async def sleeping_coro():
+        await asyncio.sleep(0.1)
+
+    task1 = create_background_task(quick_coro(), name="done_task")
+    task2 = create_background_task(sleeping_coro(), name="active_task")
+
+    # Wait for the quick task to complete
+    await task1
+
+    # active_tasks should only return the name of the active task
+    active = active_tasks()
+    assert "active_task" in active
+    assert "done_task" not in active
+    assert len(active) == 1
+
+    task2.cancel()
+
+
+@pytest.mark.asyncio
 async def test_create_background_task_success():
     """Test creating a background task and its successful execution."""
     execution_flag = False

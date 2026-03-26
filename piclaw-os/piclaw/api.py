@@ -33,6 +33,16 @@ from contextlib import asynccontextmanager
 
 from piclaw.config import load as load_cfg, save as save_cfg, PiClawConfig
 from piclaw.agent import Agent
+from piclaw.llm.base import Message
+from piclaw.messaging import build_hub, IncomingMessage
+from piclaw.auth import (
+    require_auth,
+    require_auth_ws,
+    set_token,
+    get_token,
+    generate_token,
+)
+from piclaw.taskutils import create_background_task
 
 
 # ── Logging setup for API process ─────────────────────────────────────────────
@@ -58,16 +68,6 @@ def _setup_api_logging() -> None:
 
 
 _setup_api_logging()
-from piclaw.llm.base import Message
-from piclaw.messaging import build_hub, IncomingMessage
-from piclaw.auth import (
-    require_auth,
-    require_auth_ws,
-    set_token,
-    get_token,
-    generate_token,
-)
-from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.api")
 

@@ -37,3 +37,82 @@ def test_markdown_escaping():
     output = format_results(results)
     # Check if title is escaped correctly
     assert "Item \\[with\\] brackets" in output
+
+
+def test_format_results_empty():
+    results = {"query": "Raspberry Pi", "new": []}
+    assert format_results(results) == "Keine neuen Inserate gefunden für 'Raspberry Pi'."
+
+    results_no_new = {"query": "Laptop"}
+    assert format_results(results_no_new) == "Keine neuen Inserate gefunden für 'Laptop'."
+
+
+def test_format_results_header():
+    results = {
+        "query": "Raspberry Pi",
+        "location": "Berlin",
+        "max_price": 50.0,
+        "new": [{"platform": "ebay", "title": "Pi", "price_text": "40 €"}]
+    }
+    output = format_results(results)
+    assert "🛒 1 Inserate für 'Raspberry Pi' in Berlin (max. 50 €)" in output
+    assert "──────────────────────────────────────────────────" in output
+
+
+def test_format_results_platforms():
+    results = {
+        "query": "Test",
+        "new": [
+            {"platform": "kleinanzeigen", "title": "T1"},
+            {"platform": "ebay", "title": "T2"},
+            {"platform": "web", "title": "T3"},
+            {"platform": "unknown_plat", "title": "T4"},
+        ]
+    }
+    output = format_results(results)
+    assert "1. 📌 [Kleinanzeigen] T1" in output
+    assert "2. 🛍️ [eBay] T2" in output
+    assert "3. 🌐 [Web] T3" in output
+    assert "4. 🔗 [unknown_plat] T4" in output
+
+
+def test_format_results_item_details():
+    results = {
+        "query": "Test",
+        "new": [
+            {
+                "platform": "ebay",
+                "title": "Full Item",
+                "price_text": "10 €",
+                "location": "Hamburg",
+                "url": "http://example.com"
+            },
+            {
+                "platform": "ebay",
+                "title": "Minimal Item"
+            }
+        ]
+    }
+    output = format_results(results)
+    assert "1. 🛍️ [eBay] Full Item" in output
+    assert "💶 10 €" in output
+    assert "📍 Hamburg" in output
+    assert "🔗 http://example.com" in output
+
+    assert "2. 🛍️ [eBay] Minimal Item" in output
+    # Ensure no empty lines for missing details by checking the structure
+    parts = output.split("2. 🛍️ [eBay] Minimal Item")
+    assert "💶" not in parts[1]
+    assert "📍" not in parts[1]
+    assert "🔗" not in parts[1]
+
+
+def test_format_results_truncation():
+    results = {
+        "query": "Many Items",
+        "new": [{"platform": "ebay", "title": f"Item {i}"} for i in range(12)]
+    }
+    output = format_results(results)
+    assert "10. 🛍️ [eBay] Item 9" in output
+    assert "11." not in output
+    assert "... und 2 weitere Inserate." in output

@@ -10,8 +10,6 @@ Design rules:
 import asyncio
 import logging
 
-log = logging.getLogger(__name__)
-
 from piclaw.llm.base import ToolDefinition
 from piclaw.agents.ipc import (
     CrawlJob,
@@ -25,6 +23,8 @@ from piclaw.agents.ipc import (
     mark_report_sent,
     get_recent_alerts,
 )
+
+log = logging.getLogger(__name__)
 
 
 TOOL_DEFS = [

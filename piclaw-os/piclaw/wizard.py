@@ -328,6 +328,19 @@ async def _validate_discord_token(token: str) -> tuple[bool, str]:
         return False, str(e)[:120]
 
 
+async def _validate_agentmail(api_key: str) -> tuple[bool, str]:
+    try:
+        from piclaw.config import AgentMailConfig
+        from piclaw.tools.agentmail import agentmail_list_inboxes
+        test_cfg = AgentMailConfig(api_key=api_key)
+        res = await agentmail_list_inboxes(test_cfg)
+        if "Error" in res or "❌" in res:
+            return False, res[:120]
+        return True, "Gültig"
+    except Exception as e:
+        return False, str(e)[:120]
+
+
 async def _validate_ollama(base_url: str, model: str) -> tuple[bool, str]:
     try:
         import aiohttp
@@ -1530,6 +1543,49 @@ def _edit_soul_in_editor(soul_path: Path) -> None:
             _skip("Keine Eingabe")
 
 
+def step_agentmail(state: WizardState, step: int, total: int) -> None:
+    """Schritt: AgentMail konfigurieren (optional)."""
+    _header(step, total, "AgentMail -- E-Mail Postfach für den Agenten (optional)", "[Mail]")
+    cfg = state.cfg
+
+    has_key = bool(cfg.agentmail.api_key)
+    if has_key:
+        print(f"  API-Key vorhanden: {_mask(cfg.agentmail.api_key)}")
+        if (
+            input(f"\n  {FG_BLUE}{ARROW}{R} Neu konfigurieren? [j/N]: ").strip().lower()
+            != "j"
+        ):
+            _skip("Behalten")
+            return
+    else:
+        print("  Mit AgentMail kann der Agent E-Mails lesen und senden.")
+        print("  Ueberspringen mit Enter.\n")
+        print(f"  {FG_GRAY}API-Key erstellen: {UL}app.agentmail.to{R}")
+
+    api_key = _prompt("AgentMail API-Key", secret=True)
+    if not api_key:
+        _skip("AgentMail nicht konfiguriert")
+        return
+
+    _spinner("API-Key prüfen")
+
+    ok, msg = _test_async(_validate_agentmail(api_key))
+
+    _clear_line()
+    if ok:
+        _ok(f"Token gueltig: {FG_GRAY}{msg[:60]}{R}")
+    else:
+        _warn(f"Token-Pruefung: {msg}")
+        if input("    Trotzdem speichern? [j/N]: ").strip().lower() != "j":
+            _skip("Nicht gespeichert")
+            return
+
+    cfg.agentmail.api_key = api_key
+    state.mark("agentmail konfiguriert")
+    state.restart_needed = True
+    _ok("AgentMail gespeichert")
+
+
 def step_summary(state: WizardState, step: int, total: int) -> None:
     """Abschluss: Zusammenfassung und nächste Schritte."""
     from piclaw.config import save
@@ -1619,6 +1675,7 @@ def run() -> None:
             ("Hardware", lambda s, n, t: step_hardware(s, n, t)),
             ("API-Token", lambda s, n, t: step_api_token(s, n, t)),
             ("Soul", lambda s, n, t: step_soul(s, n, t)),
+            ("AgentMail", lambda s, n, t: step_agentmail(s, n, t)),
         ]
         total = len(STEPS) + 1  # +1 für Abschluss
 

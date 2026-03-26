@@ -340,3 +340,177 @@ def test_cmd_chat_interrupt(capsys):
         out = captured.out
 
         assert "Session ended." in out
+
+def test_cmd_chat_api_eof_interrupt(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("websockets.connect") as mock_ws_connect, \
+         patch("builtins.input", side_effect=EOFError), \
+         patch("piclaw.auth.get_token", return_value="test_token"):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_load.return_value = mock_cfg
+
+        mock_ws = AsyncMock()
+        mock_ws_connect.return_value.__aenter__.return_value = mock_ws
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "Session ended." in out
+
+
+def test_cmd_chat_api_empty_input(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("websockets.connect") as mock_ws_connect, \
+         patch("builtins.input", side_effect=["", "   ", "exit"]), \
+         patch("piclaw.auth.get_token", return_value="test_token"):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_load.return_value = mock_cfg
+
+        mock_ws = AsyncMock()
+        mock_ws_connect.return_value.__aenter__.return_value = mock_ws
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "Goodbye." in out
+        mock_ws.send.assert_not_called()
+
+
+def test_cmd_chat_api_token_streaming(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("websockets.connect") as mock_ws_connect, \
+         patch("builtins.input", side_effect=["hello", "exit"]), \
+         patch("piclaw.auth.get_token", return_value="test_token"):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_load.return_value = mock_cfg
+
+        mock_ws = AsyncMock()
+        mock_ws.recv.side_effect = [
+            json.dumps({"type": "token", "text": "stream"}),
+            json.dumps({"type": "token", "text": "ing "}),
+            json.dumps({"type": "reply", "text": "streaming reply!"})
+        ]
+        mock_ws_connect.return_value.__aenter__.return_value = mock_ws
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "stream" in out
+        assert "ing " in out
+        assert "Goodbye." in out
+
+
+def test_cmd_chat_api_error_message(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("websockets.connect") as mock_ws_connect, \
+         patch("builtins.input", side_effect=["hello", "exit"]), \
+         patch("piclaw.auth.get_token", return_value="test_token"):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_load.return_value = mock_cfg
+
+        mock_ws = AsyncMock()
+        mock_ws.recv.side_effect = [
+            json.dumps({"type": "error", "text": "Something went wrong!"})
+        ]
+        mock_ws_connect.return_value.__aenter__.return_value = mock_ws
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "❌ Something went wrong!" in out
+        assert "Goodbye." in out
+
+
+def test_cmd_chat_api_websocket_exception(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("websockets.connect") as mock_ws_connect, \
+         patch("piclaw.auth.get_token", return_value="test_token"), \
+         patch("piclaw.agent.Agent") as mock_agent_class, \
+         patch("builtins.input", side_effect=["exit"]):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_load.return_value = mock_cfg
+
+        mock_agent = MagicMock()
+        mock_agent.boot = AsyncMock()
+        mock_agent_class.return_value = mock_agent
+
+        mock_ws_connect.side_effect = Exception("Connection refused")
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "WebSocket-Fehler: Connection refused" in out
+
+
+def test_cmd_chat_direct_empty_input(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=False), \
+         patch("piclaw.agent.Agent") as mock_agent_class, \
+         patch("builtins.input", side_effect=["", "   ", "exit"]):
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_load.return_value = mock_cfg
+
+        mock_agent = MagicMock()
+        mock_agent.boot = AsyncMock()
+        mock_agent.run = AsyncMock()
+        mock_agent_class.return_value = mock_agent
+
+        cmd_chat()
+
+        captured = capsys.readouterr()
+        out = captured.out
+
+        assert "Goodbye." in out
+        mock_agent.run.assert_not_called()
+
+
+def test_cmd_chat_api_missing_token(capsys):
+    with patch("piclaw.config.load") as mock_load, \
+         patch("piclaw.cli._api_running", return_value=True), \
+         patch("piclaw.auth.get_token", return_value=None), \
+         patch("piclaw.agent.Agent") as mock_agent_class:
+
+        mock_cfg = MagicMock()
+        mock_cfg.agent_name = "PiClawTest"
+        mock_cfg.api.port = 8000
+        mock_cfg.api.secret_key = None
+        mock_load.return_value = mock_cfg
+
+        mock_agent = MagicMock()
+        mock_agent.boot = AsyncMock()
+        mock_agent_class.return_value = mock_agent
+
+        with patch("builtins.input", side_effect=["exit"]):
+            cmd_chat()
