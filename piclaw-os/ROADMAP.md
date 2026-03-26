@@ -1,11 +1,16 @@
 # PiClaw OS — Roadmap
 
-## Status: v0.15 (March 2026)
+## Status: v0.15.1 (March 2026)
 Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network monitor, multi-LLM registry, installer sub-agent and Tandem browser merged.
 
 ---
 
 ## Completed
+
+### v0.15.1 — Tandem Browser (Autonomous Browsing)
+- [x] **Tandem** — browser automation: https://github.com/hydro13/tandem-browser
+- [x] Tools: `browser_open(url)`, `browser_click(selector)`, `browser_read()`, `browser_screenshot()`
+- [x] Agent can autonomously navigate websites, fill forms, and extract content
 
 ### v0.14 — Stability & Parallelism
 - [x] Queue system: agent processes Telegram + CLI requests in parallel (asyncio.Queue)
@@ -55,10 +60,7 @@ Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network
 - [ ] fail2ban integration + status query
 - [ ] Abuse report generator
 
-### v0.19 — Tandem Browser + Scrapling (Autonomous Browsing & Scraping)
-- [~] **Tandem IN PROGRESS** — browser automation: https://github.com/hydro13/tandem-browser
-- [ ] Tools: `browser_open(url)`, `browser_click(selector)`, `browser_read()`, `browser_screenshot()`
-- [ ] Agent can autonomously navigate websites, fill forms, and extract content
+### v0.19 — Scrapling (Autonomous Scraping Framework)
 - [ ] **Scrapling** — adaptive web scraping framework: https://github.com/D4Vinci/Scrapling
   - Cloudflare bypass out of the box (StealthyFetcher)
   - Adaptive element tracking — finds elements even after site redesigns

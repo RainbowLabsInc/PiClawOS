@@ -28,7 +28,7 @@ warn()    { echo -e "${YELLOW}[!]${R} $*"; }
 die()     { echo -e "${RED}[✗]${R} $*" >&2; exit 1; }
 prompt()  { echo -en "${BOLD}  → ${R}$* "; }
 
-PICLAW_VERSION="0.9.0"
+PICLAW_VERSION="0.15.1"
 INSTALL_DIR="/opt/piclaw"
 CONFIG_DIR="/etc/piclaw"
 LOG_DIR="/var/log/piclaw"

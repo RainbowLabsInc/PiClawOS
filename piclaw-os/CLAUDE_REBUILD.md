@@ -1,12 +1,12 @@
 # PICLAW_OS_RECONSTRUCTION_GUIDE
-# Format: Machine-readable AI reference | Lang: mixed | Version: 0.15.0
+# Format: Machine-readable AI reference | Lang: mixed | Version: 0.15.1
 # Purpose: Full project rebuild from zero without repeating known mistakes
 # Generated: 2026-03-21
 
 ---
 ## META
 project=PiClaw_OS
-version=0.15.0
+version=0.15.1
 target_hw=Raspberry_Pi_5_arm64
 python_min=3.11
 tested_python=3.13.5

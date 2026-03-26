@@ -1,5 +1,5 @@
 ====================================================================
-  PiClaw OS v0.15.0 – Installationsanleitung
+  PiClaw OS v0.15.1 – Installationsanleitung
 ====================================================================
 
 SCHNELLSTART (Online-Installation – empfohlen)
@@ -33,7 +33,7 @@ OFFLINE-INSTALLATION (SD-Karte, kein Internet)
 
 Vorbereitung (auf dem Entwickler-PC, im piclaw-os/ Verzeichnis):
   make sync     # befüllt piclaw-src/ mit aktuellem Code
-  make sdcard   # erstellt piclaw-sdcard-v0.15.0.zip
+  make sdcard   # erstellt piclaw-sdcard-v0.15.1.zip
 
 1. ZIP entpacken → Ordner "boot/piclaw/" auf SD-Karte kopieren
    Ergebnis: bootfs/piclaw/install.sh + piclaw-src/ + piclaw.conf

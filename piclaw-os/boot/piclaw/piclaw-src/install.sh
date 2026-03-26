@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-PICLAW_VERSION="0.13.3"
+PICLAW_VERSION="0.15.1"
 
 # --- Farben (SSH-sicher, deaktiviert wenn kein TTY) ----------------
 if [ -t 1 ]; then
