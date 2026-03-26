@@ -1,94 +1,130 @@
 # PiClaw OS — Roadmap
 
-## Status: v0.15 (March 2026)
-Current state: Kimi K2 + Nemotron via NVIDIA NIM, parallel queue system, network monitor, multi-LLM registry, installer sub-agent, AgentMail, Tandem browser and Scrapling merged.
+## Status: v0.15.1 (March 2026)
+
+Aktuelle Produktion: Dameon läuft stabil auf Raspberry Pi 5.
+Marketplace-Suche funktioniert (Kleinanzeigen + eBay via Scrapling).
+Multi-LLM Router aktiv: NVIDIA NIM (Nemotron 70B + Kimi K2.5), lokal Gemma 2B.
+Auto-Detect für 6 LLM-Provider. `piclaw update` und `piclaw debug` operativ.
 
 ---
 
-## Completed
+## ✅ Abgeschlossen
 
-### v0.19 — Tandem Browser + Scrapling (Autonomous Browsing & Scraping)
-- [x] **Tandem** — browser automation: https://github.com/hydro13/tandem-browser
-- [x] Tools: `browser_open`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_close`
-- [x] Agent can autonomously navigate websites, fill forms, and extract content
-- [x] **Scrapling** — adaptive web scraping framework: https://github.com/D4Vinci/Scrapling
-  - Cloudflare bypass out of the box (StealthyFetcher)
-  - Adaptive element tracking — finds elements even after site redesigns
-- [x] Add `scrapling` to `install.sh` dependencies
+### v0.15.1 — Stabilisierung & Bugfixes (März 2026)
+- [x] Marketplace-Suche vollständig funktionsfähig (PLZ + Radius auf Kleinanzeigen.de)
+- [x] eBay via Scrapling → aiohttp → Tandem Kaskade
+- [x] Multi-Provider Auto-Detect: Anthropic / NVIDIA NIM / Gemini / Fireworks / OpenAI / Mistral
+- [x] `piclaw update` — Self-Update via git pull + Neustart
+- [x] `piclaw debug` — Diagnose-Scripts (tests/debug/)
+- [x] WebSocket Keepalive — kein Timeout bei langen Operationen
+- [x] NVIDIA NIM tool_choice Fix (Error 400 behoben)
+- [x] Gemini Endpoint Fix (/v1beta/openai/chat/completions)
+- [x] Editable Install via Symlink — git pull reicht
+- [x] Sudoers-Regel für piclaw-User
+- [x] Installer: piclaw.conf optional, GITHUB_TOKEN Support
+- [x] Security: Command Injection fixes (api.py, network.py, services.py, updater.py)
+- [x] Performance: Regex precompile in agent.py, marketplace.py, network_monitor.py
+- [x] Modern Python: Optional[x] → x | None, collections.abc überall
+- [x] Blocking I/O in asyncio.to_thread() ausgelagert
 
-### v0.16 — AgentMail (Email Inbox for Dameon)
-- [x] AgentMail integration: https://www.agentmail.to
-- [x] Dameon gets its own email address (e.g. dameon@agentmail.to)
-- [x] Tools: `agentmail_create_inbox()`, `agentmail_list_inboxes()`, `agentmail_send_email()`, `agentmail_list_messages()`
-- [x] Configurable via installer wizard (API key + inbox name)
+### v0.19 — Tandem Browser + Scrapling
+- [x] Tandem Browser Bridge (Port 8765)
+- [x] Scrapling — stealth HTTP, Cloudflare-Bypass
+- [x] eBay nutzt Scrapling als primären Fetcher
 
-### v0.14 — Stability & Parallelism
-- [x] Queue system: agent processes Telegram + CLI requests in parallel (asyncio.Queue)
-- [x] llama.cpp verbose output suppressed
-- [x] Router fallback warning fixed (no spurious `⚠️` after successful responses)
-
-### v0.15 — Network Monitoring
-- [x] `tools/network_monitor.py`: `network_scan`, `port_scan`, `check_new_devices` via nmap
-- [x] Proactive routines for network checks
-- [x] New devices on LAN → Telegram alert
+### v0.16 — AgentMail
+- [x] AgentMail Integration (agentmail.to)
+- [x] Tools: email_send, email_list, email_read, email_reply
+- [x] Wizard-Integration
 
 ### v0.15a — Installer Sub-Agent
-- [x] `tools/installer.py` — autonomous installation with trusted source whitelist
-- [x] `@installer` prefix routes requests to a dedicated InstallerAgent sub-agent
-- [x] User confirmation required before any installation step
-- [x] Full audit log via Watchdog
+- [x] InstallerAgent mit Whitelist und Audit-Log
+- [x] @installer Prefix-Routing
 
-### Multi-LLM & General
-- [x] Kimi K2 + Nemotron via NVIDIA NIM
-- [x] Tool-calling fix for NVIDIA NIM (explicit `tool_choice: auto`)
-- [x] SOUL.md excluded from QMD memory index
-- [x] Multi-LLM wizard with purpose-based backend selection
-- [x] `piclaw llm` CLI command for registry management
-- [x] LLM fallback order: API 1 → API 2 → local model with notice
+### v0.15 — Netzwerk-Monitoring
+- [x] network_monitor.py: network_scan, port_scan, check_new_devices
+- [x] Neue Geräte → Telegram-Alert
+
+### v0.18 — Network Security Tools
+- [x] network_security.py: tarpit, emergency shutdown, whois
+
+### v0.14 — Parallelverarbeitung
+- [x] Queue-System: Telegram + CLI parallel
+
+### Multi-LLM & Allgemein
+- [x] Kimi K2 + Nemotron 70B via NVIDIA NIM
+- [x] SOUL.md aus QMD Memory-Index ausgeschlossen
+- [x] piclaw llm CLI für Registry-Verwaltung
+- [x] Doctor-Debug (piclaw debug) mit pytest-Integration
 
 ---
 
-## Planned
+## 🚧 Nächste Schritte (Release-Vorbereitung)
+
+### v0.15.2 — Release Candidate
+- [ ] CLAUDE_REBUILD.md auf v0.15.1 Stand bringen
+- [ ] Neuinstallations-Test sauber durchlaufen
+- [ ] eBay Live-Test mit Scrapling verifizieren
+- [ ] Gemini Live-Test (Quota-Problem lösen)
+- [ ] piclaw doctor — alle Checks grün auf frischer Installation
+- [ ] Doctor-Debug: Testscripte für häufige Fehlerquellen
+- [ ] Dashboard Version-Anzeige auf v0.15.1 aktualisieren
+- [ ] piclaw update — GitHub Token-Problem lösen (SSH Key oder Token in Config)
+
+### v0.16.1 — AgentMail Live-Test
+- [ ] AgentMail API-Key konfigurieren
+- [ ] Eingehende Mails → Telegram-Weiterleitung testen
+
+---
+
+## 📋 Geplant
 
 ### v0.17 — Emergency Shutdown
-- [ ] Switchable smart plug on modem (Shelly Plug S or TP-Link Tapo P110)
-- [ ] HA integration already in place (`ha_turn_off`)
-- [ ] New tool `emergency_network_off()` with Telegram confirmation
-- [ ] Flow: threat detected → "Disconnect network? [Yes/No]" → smart plug off
+- [ ] Schaltbare Steckdose am Modem (Shelly / TP-Link Tapo)
+- [ ] Tool: emergency_network_off() mit Telegram-Bestätigung
+- [ ] HA-Integration bereits vorhanden
 
-### v0.18 — Security Tools
-- [ ] `tools/network_security.py`: `nmap_scan()`, `whois_lookup()`, `check_open_ports()`
-- [ ] Automatic IP blocking via nftables
-- [ ] fail2ban integration + status query
-- [ ] Abuse report generator
+### v0.20 — Self-Improving Memory
+- [ ] Dameon lernt aus Korrekturen
+- [ ] Tiered Memory: HOT / WARM / COLD
+- [ ] Pattern-Promotion nach 3 Korrekturen
+- [ ] Inspiration: https://clawhub.ai
 
-### v0.20 — Self-Improving Memory (ClawHub Skill)
-- [ ] Dameon learns from explicit corrections ("no, that was wrong")
-- [ ] Tiered memory: HOT (≤100 lines, always loaded) / WARM / COLD
-- [ ] Pattern promotion: after 3 identical corrections → permanent rule in HOT
-- [ ] Self-reflection: evaluate own work after complex tasks and log lessons
-- [ ] Conflict resolution: more specific pattern wins (project > domain > global)
-- [ ] Inspired by: https://clawhub.ai (Self-Improving Memory skill)
+### v0.21 — LLM Verbesserungen
+- [ ] Ollama (llama3.2:3b lokal)
+- [ ] n_threads Pi 5 optimieren
 
-### v0.21 — LLM Improvements
-- [ ] Ollama integration (llama3.2:3b as a better local option)
-- [ ] Refined thermal routing
-- [ ] Optimise `n_threads` for Pi 5
+### v0.22 — Token Effizienz
+- [ ] Tool Routing (Classifier, ~3000 Token gespart)
+- [ ] Lazy Memory Injection
+- [ ] Single Model Instance (~2 GB RAM gespart)
+- [ ] Ziel: 60% weniger Token bei einfachen Nachrichten
 
-### v0.22 — Token Efficiency (for premium models)
-- [ ] **Tool routing** — classifier detects if request needs tools; skip tool definitions if not (saves ~3000 tokens per simple message)
-- [ ] **Lazy memory injection** — only inject QMD context when request references past events or decisions
-- [ ] **System prompt caching** — SOUL.md + BASE_CAPABILITIES sent once per session, not every turn
-- [ ] **History trimming** — keep last 5-8 messages + rolling summary instead of 20 raw messages
-- [ ] **Per-backend token budgets** — configurable max_tokens per backend to control cost
-- [ ] Goal: reduce token usage by ~60% for simple conversational messages
-- [ ] **Single model instance** — local model (Gemma 2B) currently loaded in both piclaw-api and piclaw-agent (~4.4 GB total); load only in agent, API delegates via internal call — saves ~2 GB RAM permanently
+### v0.23 — Marketplace Erweiterungen
+- [ ] Willhaben.at, Ricardo.ch
+- [ ] Plattform-übergreifender Preisvergleich
+- [ ] Preis-History / Benachrichtigung
 
 ---
 
-## Technical Debt
+## 🔧 Technical Debt
 
-| # | Issue | Priority |
-|---|-------|----------|
-| T1 | llama.cpp verbose output (partially fixed) | Medium |
-| T2 | Installer tool: allow Dameon to pass custom post-install steps | Low |
+| # | Problem | Priorität |
+|---|---------|-----------|
+| T1 | llama.cpp verbose Output | Medium |
+| T2 | piclaw update braucht GitHub Token | Medium |
+| T3 | Dashboard zeigt noch v0.9 | Low |
+| T4 | boot/ pyproject.toml nicht sync | Low |
+
+---
+
+## 🎯 Release-Kriterien v1.0
+
+- [ ] Frische Installation in unter 10 Minuten
+- [ ] piclaw doctor zeigt alles grün
+- [ ] Marketplace (Kleinanzeigen + eBay) zuverlässig
+- [ ] Mind. 1 Cloud-LLM ohne Probleme konfigurierbar
+- [ ] Telegram-Benachrichtigungen funktionieren
+- [ ] piclaw update ohne manuelle Schritte
+- [ ] Alle kritischen Tests grün
