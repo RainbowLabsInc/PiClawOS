@@ -56,7 +56,7 @@ async def _systemctl(
     )
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         return "[TIMEOUT]"
 

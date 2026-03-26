@@ -28,7 +28,8 @@ import re
 import time
 from pathlib import Path
 from dataclasses import dataclass
-from typing import AsyncIterator, Optional
+from typing import Optional
+from collections.abc import AsyncIterator
 
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, LLMResponse
 from piclaw.llm.registry import LLMRegistry, BackendConfig
@@ -106,7 +107,7 @@ class MultiLLMRouter(LLMBackend):
         self._local_loaded = False
 
         # Classifier uses the fastest available backend
-        self._classifier: Optional[TaskClassifier] = None
+        self._classifier: TaskClassifier | None = None
 
         self._boot_complete = asyncio.Event()
 
@@ -180,7 +181,7 @@ class MultiLLMRouter(LLMBackend):
         self._instances[cfg.name] = instance
         return instance
 
-    def _get_fastest_instance(self) -> Optional[LLMBackend]:
+    def _get_fastest_instance(self) -> LLMBackend | None:
         """Return the highest-priority enabled backend for quick classification calls."""
         backends = self.registry.list_enabled()
         if not backends:
@@ -191,7 +192,7 @@ class MultiLLMRouter(LLMBackend):
 
     def _check_override(
         self, messages: list[Message]
-    ) -> tuple[Optional[str], list[Message]]:
+    ) -> tuple[str | None, list[Message]]:
         """
         Check if the last user message starts with @backend-name.
         Returns (backend_name_or_None, messages_without_prefix).

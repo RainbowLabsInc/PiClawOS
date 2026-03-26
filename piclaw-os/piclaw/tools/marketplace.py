@@ -230,7 +230,7 @@ def _clean_query(query: str) -> str:
 # ── Preis-Parser ───────────────────────────────────────────────────────────────
 
 
-def _parse_price(text: str) -> Optional[float]:
+def _parse_price(text: str) -> float | None:
     """Extrahiert Preis aus Text wie '149 €', '1.299,00 €', 'VB 80 €'"""
     text = text.replace(".", "").replace(",", ".")
     match = RE_PARSE_PRICE.search(text)
@@ -248,10 +248,10 @@ def _parse_price(text: str) -> Optional[float]:
 async def _search_kleinanzeigen(
     session: aiohttp.ClientSession,
     query: str,
-    max_price: Optional[float] = None,
-    location: Optional[str] = None,
+    max_price: float | None = None,
+    location: str | None = None,
     max_results: int = 10,
-    radius_km: Optional[int] = None,
+    radius_km: int | None = None,
 ) -> list[dict]:
     """Sucht auf Kleinanzeigen.de (ehemals eBay Kleinanzeigen)."""
     results = []
@@ -340,8 +340,11 @@ async def _fetch_ebay_html(url: str) -> str | None:
     # 1. Scrapling (stealth HTTP, kein echter Browser nötig)
     try:
         from scrapling import Fetcher
+
         fetcher = Fetcher(auto_match=False)
-        page = await asyncio.to_thread(fetcher.get, url, stealthy_headers=True, follow_redirects=True)
+        page = await asyncio.to_thread(
+            fetcher.get, url, stealthy_headers=True, follow_redirects=True
+        )
         if page and len(str(page.content)) > 500:
             log.debug("eBay via Scrapling geholt")
             return str(page.content)
@@ -360,7 +363,9 @@ async def _fetch_ebay_html(url: str) -> str | None:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
         async with aiohttp.ClientSession() as s:
-            async with s.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+            async with s.get(
+                url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)
+            ) as resp:
                 if resp.status == 200:
                     html = await resp.text(errors="replace")
                     if len(html) > 500:
@@ -375,7 +380,7 @@ async def _fetch_ebay_html(url: str) -> str | None:
             async with s.post(
                 "http://127.0.0.1:8765/navigate",
                 json={"url": url},
-                timeout=aiohttp.ClientTimeout(total=30)
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
@@ -392,7 +397,7 @@ async def _fetch_ebay_html(url: str) -> str | None:
 async def _search_ebay(
     session: aiohttp.ClientSession,
     query: str,
-    max_price: Optional[float] = None,
+    max_price: float | None = None,
     max_results: int = 10,
 ) -> list[dict]:
     """Sucht auf eBay.de – nutzt Scrapling → aiohttp → Tandem Kaskade."""
@@ -405,7 +410,9 @@ async def _search_ebay(
 
     html = await _fetch_ebay_html(url)
     if not html:
-        log.warning("eBay: Keine Antwort für '%s' (alle Methoden fehlgeschlagen)", query)
+        log.warning(
+            "eBay: Keine Antwort für '%s' (alle Methoden fehlgeschlagen)", query
+        )
         return []
 
     # eBay Artikel parsen
@@ -420,7 +427,8 @@ async def _search_ebay(
             title_match = RE_EBAY_TITLE_2.search(content)
         title = (
             " ".join(RE_HTML_TAGS.sub(" ", title_match.group(1)).split()).strip()
-            if title_match else ""
+            if title_match
+            else ""
         )
         if not title or "Shop on eBay" in title:
             continue
@@ -428,7 +436,8 @@ async def _search_ebay(
         price_match = RE_EBAY_PRICE.search(content)
         price_text = (
             " ".join(RE_HTML_TAGS.sub(" ", price_match.group(1)).split()).strip()
-            if price_match else ""
+            if price_match
+            else ""
         )
         price = _parse_price(price_text)
 
@@ -439,15 +448,17 @@ async def _search_ebay(
             else f"https://www.ebay.de/itm/{item_id}"
         )
 
-        results.append({
-            "id": str(item_id),
-            "platform": "ebay",
-            "title": title,
-            "price": price,
-            "price_text": price_text,
-            "location": "",
-            "url": link,
-        })
+        results.append(
+            {
+                "id": str(item_id),
+                "platform": "ebay",
+                "title": title,
+                "price": price,
+                "price_text": price_text,
+                "location": "",
+                "url": link,
+            }
+        )
 
     log.info("eBay: %d Artikel gefunden für '%s'", len(results), query)
     return results
@@ -503,12 +514,12 @@ async def _search_web(
 
 async def marketplace_search(
     query: str,
-    platforms: Optional[list[str]] = None,
-    max_price: Optional[float] = None,
-    location: Optional[str] = None,
+    platforms: list[str] | None = None,
+    max_price: float | None = None,
+    location: str | None = None,
     max_results: int = 10,
     notify_all: bool = True,
-    radius_km: Optional[int] = None,
+    radius_km: int | None = None,
 ) -> dict:
     """
     Durchsucht Marktplätze nach neuen Inseraten.

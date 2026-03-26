@@ -82,9 +82,9 @@ def detect_cameras() -> list[CameraInfo]:
             )
             name = "USB Camera"
             if result.returncode == 0:
-                for line in result.stdout.split("\n"):
-                    if "Card type" in line:
-                        name = line.split(":", 1)[-1].strip()
+                for l in result.stdout.split("\n"):
+                    if "Card type" in l:
+                        name = l.split(":", 1)[-1].strip()
                         break
             cameras.append(
                 CameraInfo(
@@ -95,7 +95,7 @@ def detect_cameras() -> list[CameraInfo]:
                 )
             )
     except Exception as _e:
-        logger.debug("v4l2 camera enumeration: %s", _e)
+        log.debug("v4l2 camera enumeration: %s", _e)
 
     return cameras
 
@@ -139,7 +139,7 @@ async def capture_snapshot(
         if result.returncode == 0 and output.exists():
             logger.info("Snapshot (libcamera): %s", output)
             return output
-    except (FileNotFoundError, asyncio.TimeoutError):
+    except (TimeoutError, FileNotFoundError):
         pass
 
     # Fallback: fswebcam (USB-Webcam)
@@ -161,7 +161,7 @@ async def capture_snapshot(
         if output.exists():
             logger.info("Snapshot (fswebcam): %s", output)
             return output
-    except (FileNotFoundError, asyncio.TimeoutError):
+    except (TimeoutError, FileNotFoundError):
         pass
 
     # Fallback: raspistill (ältere Pis)
@@ -186,7 +186,7 @@ async def capture_snapshot(
         if output.exists():
             logger.info("Snapshot (raspistill): %s", output)
             return output
-    except (FileNotFoundError, asyncio.TimeoutError):
+    except (TimeoutError, FileNotFoundError):
         pass
 
     raise RuntimeError(
@@ -306,7 +306,7 @@ class TimelapseController:
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=cfg.interval_s)
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         logger.info("Timelapse '%s' beendet: %d Frames", cfg.name, frame)

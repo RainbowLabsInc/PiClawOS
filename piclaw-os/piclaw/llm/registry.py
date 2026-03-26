@@ -113,7 +113,7 @@ class LLMRegistry:
         self._save()
         return f"Backend '{name}' removed."
 
-    def get(self, name: str) -> Optional[BackendConfig]:
+    def get(self, name: str) -> BackendConfig | None:
         return self._backends.get(name)
 
     def list_all(self) -> list[BackendConfig]:
@@ -150,7 +150,7 @@ class LLMRegistry:
         results.sort(key=lambda x: (x[0], x[1]), reverse=True)
         return [b for _, _, b in results]
 
-    def best_for_tags(self, tags: list[str]) -> Optional[BackendConfig]:
+    def best_for_tags(self, tags: list[str]) -> BackendConfig | None:
         """Return the single best backend for the given tags."""
         matches = self.find_by_tags(tags, min_overlap=1)
         return matches[0] if matches else None

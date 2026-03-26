@@ -194,7 +194,7 @@ class WebCrawler:
                 self._do_crawl(job),
                 timeout=job.timeout_sec,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             msg = f"[TIMEOUT] Job exceeded {job.timeout_sec}s"
             log.warning(msg)
             return msg
@@ -251,10 +251,10 @@ class WebCrawler:
                     # Depth expansion
                     if job.max_depth > 1:
                         same_domain = [
-                            link
-                            for link in links
-                            if urlparse(link).netloc == urlparse(url).netloc
-                            and link not in visited
+                            l
+                            for l in links
+                            if urlparse(l).netloc == urlparse(url).netloc
+                            and l not in visited
                         ]
                         queue.extend(same_domain[:3])
 
@@ -313,7 +313,7 @@ class WebCrawler:
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=sleep)
                 break  # stop event fired
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # normal: time to run
 
             fresh = get_job(job.id)

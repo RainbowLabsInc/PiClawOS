@@ -11,7 +11,7 @@ import threading
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, ToolCall, LLMResponse
 

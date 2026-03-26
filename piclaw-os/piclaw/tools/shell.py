@@ -1,17 +1,16 @@
+import logging
+
+log = logging.getLogger(__name__)
 """PiClaw OS – Shell + System Info Tools"""
 
 import asyncio
-import logging
 import shlex
 import traceback
-from datetime import datetime
-
 import psutil
+from datetime import datetime
 
 from piclaw.config import ShellConfig
 from piclaw.llm.base import ToolDefinition
-
-log = logging.getLogger(__name__)
 
 TOOL_DEFS = [
     ToolDefinition(
@@ -29,34 +28,6 @@ TOOL_DEFS = [
         name="system_info",
         description="Get Raspberry Pi hardware stats: CPU, memory, disk, temperature, uptime.",
         parameters={"type": "object", "properties": {}},
-    ),
-    ToolDefinition(
-        name="diagnose_service",
-        description="The System Whisperer: Reads the last 50 lines of systemd logs for a specific service and returns them for analysis.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "service_name": {
-                    "type": "string",
-                    "description": "Name of the systemd service (e.g., 'piclaw-api' or 'ssh')",
-                },
-            },
-            "required": ["service_name"],
-        },
-    ),
-    ToolDefinition(
-        name="toggle_ghost_mode",
-        description="Ghost Mode: Disables or restores hardware LEDs (ACT/PWR) on the Raspberry Pi for visual stealth.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "enable": {
-                    "type": "boolean",
-                    "description": "True to enable Ghost Mode (LEDs off), False to disable (LEDs on).",
-                },
-            },
-            "required": ["enable"],
-        },
     ),
 ]
 
@@ -94,7 +65,7 @@ async def run_shell(command: str, cfg: ShellConfig) -> str:
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=cfg.timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             return f"[TIMEOUT] Exceeded {cfg.timeout}s"
         out = stdout.decode(errors="replace").strip()
@@ -166,74 +137,8 @@ async def system_info() -> str:
     return "\n".join(lines)
 
 
-async def diagnose_service(service_name: str) -> str:
-    """The System Whisperer: Fetch and return the last 50 lines of journalctl for a service."""
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "journalctl",
-            "-u",
-            service_name,
-            "-n",
-            "50",
-            "--no-pager",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
-        except asyncio.TimeoutError:
-            proc.kill()
-            return f"[TIMEOUT] journalctl timed out while reading {service_name} logs."
-
-        out = stdout.decode(errors="replace").strip()
-        err = stderr.decode(errors="replace").strip()
-
-        if proc.returncode != 0:
-            return f"[ERROR] journalctl failed with code {proc.returncode}:\n{err}"
-
-        if not out:
-            return f"No logs found for service: {service_name}"
-
-        return f"--- Last 50 lines of '{service_name}' ---\n{out}\n\n[Agent Instruction: Analyze these logs and provide a clear, plain-language summary of the issue and how to fix it.]"
-    except Exception as e:
-        return f"[ERROR] Failed to run journalctl: {e}"
-
-
-async def toggle_ghost_mode(enable: bool) -> str:
-    """Ghost Mode: Turn off all Pi LEDs (PWR and ACT) for stealth."""
-    # Write to sysfs requires root/sudo, or proper permissions.
-    # For PiClaw OS running as a service, we typically have sufficient rights or use sudo.
-    # ACT LED
-    act_trigger = "none" if enable else "mmc0"
-    # PWR LED
-    pwr_trigger = "none" if enable else "default-on"
-
-    commands = [
-        f"echo {act_trigger} | sudo tee /sys/class/leds/ACT/trigger > /dev/null",
-        f"echo {pwr_trigger} | sudo tee /sys/class/leds/PWR/trigger > /dev/null",
-    ]
-
-    try:
-        for cmd in commands:
-            proc = await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            try:
-                await asyncio.wait_for(proc.communicate(), timeout=5)
-            except asyncio.TimeoutError:
-                proc.kill()
-                return "[TIMEOUT] Failed to toggle Ghost Mode in time."
-
-        state = "enabled (LEDs off)" if enable else "disabled (LEDs restored)"
-        return f"👻 Ghost Mode is now {state}."
-    except Exception as e:
-        return f"[ERROR] Failed to toggle Ghost Mode: {e}"
-
-
 def build_handlers(cfg: ShellConfig) -> dict:
     return {
         "shell": lambda **kw: run_shell(cfg=cfg, **kw),
         "system_info": lambda **_: system_info(),
-        "diagnose_service": diagnose_service,
-        "toggle_ghost_mode": toggle_ghost_mode,
     }
