@@ -1,4 +1,3 @@
-import pytest
 import json
 import logging
 from unittest.mock import patch

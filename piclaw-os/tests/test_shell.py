@@ -3,7 +3,7 @@ import asyncio
 from unittest.mock import patch, MagicMock
 
 from piclaw.config import ShellConfig
-from piclaw.tools.shell import build_handlers, run_shell, system_info, _is_allowed
+from piclaw.tools.shell import build_handlers, run_shell, system_info
 
 @pytest.fixture
 def shell_cfg():

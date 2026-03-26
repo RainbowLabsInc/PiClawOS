@@ -4,10 +4,8 @@ All tests run on non-Pi hardware (simulated mode).
 No real GPIO, I2C, or vcgencmd required.
 """
 import asyncio
-import json
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
 # ═══════════════════════════════════════════════════════════════════

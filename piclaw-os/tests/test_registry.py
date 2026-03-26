@@ -5,7 +5,6 @@ Uses tmp_path to avoid touching /etc/piclaw.
 import json
 import pytest
 from unittest.mock import patch
-from pathlib import Path
 
 
 # ── SubAgentRegistry ──────────────────────────────────────────────

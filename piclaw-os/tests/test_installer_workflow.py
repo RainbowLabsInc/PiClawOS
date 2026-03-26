@@ -1,12 +1,10 @@
 import asyncio
 import json
 import pytest
-from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock
 
 from piclaw.agent import Agent
 from piclaw.config import PiClawConfig
-from piclaw.agents.sa_registry import SubAgentDef
 
 @pytest.fixture
 def mock_cfg():
@@ -85,7 +83,6 @@ async def test_watchdog_installer_hang(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_installer_lock_creation_and_cleanup(mock_cfg, tmp_path, monkeypatch):
-    from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
 
     # Mock lock file location
     test_lock = tmp_path / "installer.lock"

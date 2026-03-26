@@ -1,6 +1,3 @@
-import pytest
-import builtins
-import sys
 import json
 from piclaw.cli import cmd_chat
 from unittest.mock import patch, MagicMock, AsyncMock
@@ -310,7 +307,6 @@ def test_cmd_chat_direct_fallback(capsys):
         assert "Goodbye." in out
 
 
-        from piclaw.llm import Message as _Msg
         history_calls = mock_agent.run.call_args.kwargs['history']
         assert len(history_calls) == 2
         assert history_calls[0].role == "user"

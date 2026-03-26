@@ -1,7 +1,6 @@
 """
 Tests for the sub-agent sandboxing system.
 """
-import pytest
 from piclaw.agents.sandbox import (
     filter_tools_for_subagent,
     explain_restrictions,

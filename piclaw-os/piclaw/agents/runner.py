@@ -25,7 +25,7 @@ import asyncio
 import logging
 import traceback
 from datetime import datetime
-from typing import Optional, Callable, Awaitable
+from typing import Callable, Awaitable
 
 from piclaw.agents.sa_registry import SubAgentDef, SubAgentRegistry
 from piclaw.llm.base import Message, LLMBackend, ToolCall, ToolDefinition
@@ -49,8 +49,8 @@ class SubAgentRunner:
         llm: LLMBackend,
         tool_defs: list[ToolDefinition],
         handlers: dict[str, Callable],
-        notify: Optional[Callable[[str], Awaitable]] = None,
-        memory_log: Optional[Callable[[str], Awaitable]] = None,
+        notify: Callable[[str], Awaitable] | None = None,
+        memory_log: Callable[[str], Awaitable] | None = None,
     ):
         self.registry = registry
         self.llm = llm

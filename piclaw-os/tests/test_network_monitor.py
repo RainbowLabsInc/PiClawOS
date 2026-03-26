@@ -1,10 +1,7 @@
 """Tests for piclaw.tools.network_monitor"""
-import asyncio
-import json
 import pytest
-from unittest.mock import patch, MagicMock
-from pathlib import Path
-from piclaw.tools.network_monitor import scan_devices, check_new_devices, NetworkDevice
+from unittest.mock import patch
+from piclaw.tools.network_monitor import scan_devices, check_new_devices
 
 NMAP_OUTPUT = """
 Starting Nmap 7.94SVN ( https://nmap.org ) at 2026-03-20 12:00 CET
