@@ -277,17 +277,16 @@ def cmd_doctor():
             )
         else:
             print("  Sub-Agents  : ⬜ None defined")
-        try:
-            import aiohttp
+        import importlib.util
 
+        if importlib.util.find_spec("aiohttp") is not None:
             print("  aiohttp     : ✅")
-        except ImportError:
+        else:
             print("  aiohttp     : ❌")
-        try:
-            import fastapi
 
+        if importlib.util.find_spec("fastapi") is not None:
             print("  fastapi     : ✅")
-        except ImportError:
+        else:
             print("  fastapi     : ❌")
         print()
 
@@ -915,7 +914,9 @@ def cmd_update(args: list):
 
 def cmd_debug(args: list):
     """piclaw debug – run debug/test scripts via pytest"""
-    import asyncio, os, sys
+    import asyncio
+    import os
+    import sys
     from pathlib import Path
 
     base_dir = Path(__file__).parent.parent

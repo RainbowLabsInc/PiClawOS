@@ -82,9 +82,9 @@ def detect_cameras() -> list[CameraInfo]:
             )
             name = "USB Camera"
             if result.returncode == 0:
-                for l in result.stdout.split("\n"):
-                    if "Card type" in l:
-                        name = l.split(":", 1)[-1].strip()
+                for line in result.stdout.split("\n"):
+                    if "Card type" in line:
+                        name = line.split(":", 1)[-1].strip()
                         break
             cameras.append(
                 CameraInfo(
@@ -95,7 +95,7 @@ def detect_cameras() -> list[CameraInfo]:
                 )
             )
     except Exception as _e:
-        log.debug("v4l2 camera enumeration: %s", _e)
+        logger.debug("v4l2 camera enumeration: %s", _e)
 
     return cameras
 

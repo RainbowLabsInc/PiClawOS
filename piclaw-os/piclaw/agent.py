@@ -4,6 +4,7 @@ PiClaw OS – Core Agent
 
 import asyncio
 import logging
+import re
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -42,6 +43,40 @@ from piclaw.tools import homeassistant as ha_mod
 
 log = logging.getLogger("piclaw.agent")
 
+
+# Pre-compiled regular expressions for marketplace intent detection
+RE_MP_CHAT_PREFIX = re.compile(r"\[.*?\]")
+RE_MP_PLZ = re.compile(r"\b(\d{5})\b")
+RE_MP_RADIUS = re.compile(r"(\d+)\s*km", flags=re.IGNORECASE)
+RE_MP_PRICE = re.compile(r"unter\s+(\d+)\s*€?|max\s+(\d+)\s*€?|bis\s+(\d+)\s*€?", flags=re.IGNORECASE)
+
+_MP_PHRASES = [
+    "kleinanzeigen.de",
+    "ebay.de",
+    "kleinanzeigen",
+    "ebay",
+    "zeige mir",
+    "zeig mir",
+    "was kostet",
+    "preis für",
+    "gibt es",
+    "auf",
+]
+RE_MP_PHRASES = re.compile(r"(?i)\b(?:" + "|".join(re.escape(p) for p in _MP_PHRASES) + r")\b")
+
+_MP_STOPWORDS = [
+    "auf", "im", "in", "um", "von", "bis", "bitte", "suche", "finde", "such",
+    "durchsuche", "liste", "umkreis", "radius", "einen", "eine", "ein", "mir",
+    "dem", "der", "die", "das", "rosengarten", "hamburg", "berlin", "münchen",
+    "köln", "frankfurt", "bremen", "hannover", "düsseldorf", "leipzig",
+    "schnäppchen", "angebot", "angebote", "nach", "einem", "einer", "nähe",
+    "nähe von", "in der", "nach einem",
+]
+# Sort by length descending so longer phrases match first
+_MP_STOPWORDS.sort(key=len, reverse=True)
+RE_MP_STOPWORDS = re.compile(r"(?i)(?<![\w])(?:" + "|".join(re.escape(w) for w in _MP_STOPWORDS) + r")(?![\w])")
+RE_MP_DE_SUFFIX = re.compile(r"\.de\b", flags=re.IGNORECASE)
+RE_MP_SPACES = re.compile(r"\s+")
 
 @dataclass
 class AgentTask:
@@ -421,10 +456,12 @@ class Agent:
 
     def _detect_marketplace_intent(self, text: str) -> dict | None:
         """Detect marketplace search intent and extract parameters directly."""
-        import re
+
+        # ⚡ Bolt Optimization: Replace multiple re.compile and loops with single pre-compiled regexes
+        # Reduces loop iterations from ~50 down to 2, saving significant CPU cycles on the Raspberry Pi
 
         # Vorab-Bereinigung von Chat-Präfixen wie "[you]"
-        text_clean = re.sub(r"\[.*?\]", " ", text)
+        text_clean = RE_MP_CHAT_PREFIX.sub(" ", text)
         t = text_clean.lower()
 
         search_kw = [
@@ -477,15 +514,15 @@ class Agent:
             platforms = ["kleinanzeigen", "ebay"]
 
         # PLZ (5 Ziffern)
-        plz_match = re.search(r"\b(\d{5})\b", text_clean)
+        plz_match = RE_MP_PLZ.search(text_clean)
         location = plz_match.group(1) if plz_match else None
 
         # Radius
-        radius_match = re.search(r"(\d+)\s*km", t)
+        radius_match = RE_MP_RADIUS.search(t)
         radius_km = int(radius_match.group(1)) if radius_match else None
 
         # Preis
-        price_match = re.search(r"unter\s+(\d+)\s*|max\s+(\d+)\s*|bis\s+(\d+)\s*", t)
+        price_match = RE_MP_PRICE.search(t)
         max_price = None
         if price_match:
             max_price = float(next(g for g in price_match.groups() if g))
@@ -493,75 +530,18 @@ class Agent:
         # Query bereinigen
         query = text_clean
         # Plattform-Phrasen entfernen
-        for phrase in [
-            "kleinanzeigen.de",
-            "ebay.de",
-            "kleinanzeigen",
-            "ebay",
-            "zeige mir",
-            "zeig mir",
-            "was kostet",
-            "preis für",
-            "gibt es",
-            "auf",
-        ]:
-            query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
+        query = RE_MP_PHRASES.sub(" ", query)
         # PLZ entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
-        query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
+        query = RE_MP_RADIUS.sub(" ", query)
         # Stoppwörter entfernen
-        stopwords = [
-            "auf",
-            "im",
-            "in",
-            "um",
-            "von",
-            "bis",
-            "bitte",
-            "suche",
-            "finde",
-            "such",
-            "durchsuche",
-            "liste",
-            "umkreis",
-            "radius",
-            "einen",
-            "eine",
-            "ein",
-            "mir",
-            "dem",
-            "der",
-            "die",
-            "das",
-            "rosengarten",
-            "hamburg",
-            "berlin",
-            "münchen",
-            "köln",
-            "frankfurt",
-            "bremen",
-            "hannover",
-            "düsseldorf",
-            "leipzig",
-            "schnäppchen",
-            "angebot",
-            "angebote",
-            "nach",
-            "einem",
-            "einer",
-            "nähe",
-            "nähe von",
-            "in der",
-            "nach einem",
-        ]
-        for w in stopwords:
-            query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
+        query = RE_MP_STOPWORDS.sub(" ", query)
         # .de Suffix entfernen
-        query = re.sub(r"\.de\b", " ", query, flags=re.IGNORECASE)
+        query = RE_MP_DE_SUFFIX.sub(" ", query)
         # Mehrfache Leerzeichen
-        query = re.sub(r"\s+", " ", query).strip(" ,.-")
+        query = RE_MP_SPACES.sub(" ", query).strip(" ,.-")
 
         if len(query) < 3:
             return None
