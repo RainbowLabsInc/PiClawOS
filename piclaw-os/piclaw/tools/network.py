@@ -37,15 +37,15 @@ TOOL_DEFS = [
 ]
 
 
-async def _run(*args: str, timeout: int = 15) -> str:
-    proc = await asyncio.create_subprocess_exec(
-        *args,
+async def _run(cmd: str, timeout: int = 15) -> str:
+    proc = await asyncio.create_subprocess_shell(
+        cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         return "[TIMEOUT]"
     out = stdout.decode(errors="replace").strip()
@@ -54,48 +54,38 @@ async def _run(*args: str, timeout: int = 15) -> str:
 
 
 async def network_status() -> str:
-    ip_info = await _run("ip", "-brief", "addr", "show")
-    wifi_con = await _run(
-        "nmcli", "-t", "-f", "NAME,TYPE,STATE,DEVICE", "connection", "show", "--active"
-    )
+    ip_info = await _run("ip -brief addr show")
+    wifi_con = await _run("nmcli -t -f NAME,TYPE,STATE,DEVICE connection show --active")
     signal = await _run(
-        "bash",
-        "-c",
-        "nmcli -f IN-USE,SSID,SIGNAL,BARS dev wifi list 2>/dev/null | head -5",
+        "nmcli -f IN-USE,SSID,SIGNAL,BARS dev wifi list 2>/dev/null | head -5"
     )
     return f"=== IP Addresses ===\n{ip_info}\n\n=== Active Connections ===\n{wifi_con}\n\n=== WiFi Signal ===\n{signal}"
 
 
 async def wifi_scan() -> str:
-    await _run("bash", "-c", "nmcli dev wifi rescan 2>/dev/null || true")
+    await _run("nmcli dev wifi rescan 2>/dev/null || true")
     result = await _run(
-        "bash",
-        "-c",
-        "nmcli -f IN-USE,SSID,SIGNAL,BARS,SECURITY dev wifi list 2>/dev/null",
+        "nmcli -f IN-USE,SSID,SIGNAL,BARS,SECURITY dev wifi list 2>/dev/null"
     )
     return result or "No WiFi networks found."
 
 
 async def wifi_connect(ssid: str, password: str = "") -> str:
-    # Fixed command injection vulnerability by passing parameters as direct string arguments
     if password:
-        return await _run(
-            "nmcli", "dev", "wifi", "connect", ssid, "password", password, timeout=30
-        )
+        cmd = f'nmcli dev wifi connect "{ssid}" password "{password}"'
     else:
-        return await _run("nmcli", "dev", "wifi", "connect", ssid, timeout=30)
+        cmd = f'nmcli dev wifi connect "{ssid}"'
+    return await _run(cmd, timeout=30)
 
 
 async def wifi_disconnect() -> str:
     # Find the active WiFi device
     dev = await _run(
-        "bash",
-        "-c",
-        "nmcli -t -f DEVICE,TYPE dev | grep ':wifi' | cut -d: -f1 | head -1",
+        "nmcli -t -f DEVICE,TYPE dev | grep ':wifi' | cut -d: -f1 | head -1"
     )
     if not dev:
         return "No active WiFi device found."
-    return await _run("nmcli", "dev", "disconnect", dev.strip())
+    return await _run(f"nmcli dev disconnect {dev.strip()}")
 
 
 HANDLERS = {

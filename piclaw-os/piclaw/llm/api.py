@@ -2,24 +2,52 @@
 
 import json
 import aiohttp
-from typing import AsyncIterator
+import asyncio
+from collections.abc import AsyncIterator
 from .base import LLMBackend, ToolCall, LLMResponse
 
 
 # ── Bekannte Provider ──────────────────────────────────────────────
 # Format: key_prefix → (provider, base_url, default_model)
 _KNOWN_PROVIDERS_BY_PREFIX = {
-    "sk-ant-":  ("anthropic", "https://api.anthropic.com",                  "claude-sonnet-4-20250514"),
-    "nvapi-":   ("openai",    "https://integrate.api.nvidia.com/v1",        "nvidia/llama-3.1-nemotron-70b-instruct"),
-    "AIza":     ("openai",    "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.0-flash"),
-    "fw-":      ("openai",    "https://api.fireworks.ai/inference/v1",      "accounts/fireworks/models/llama-v3p1-70b-instruct"),
+    "sk-ant-": ("anthropic", "https://api.anthropic.com", "claude-sonnet-4-20250514"),
+    "nvapi-": (
+        "openai",
+        "https://integrate.api.nvidia.com/v1",
+        "nvidia/llama-3.1-nemotron-70b-instruct",
+    ),
+    "AIza": (
+        "openai",
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        "gemini-2.0-flash",
+    ),
+    "fw-": (
+        "openai",
+        "https://api.fireworks.ai/inference/v1",
+        "accounts/fireworks/models/llama-v3p1-70b-instruct",
+    ),
 }
 
 # Provider die /v1/models unterstützen (OpenAI-kompatibel)
 _PROBE_ENDPOINTS = [
-    ("https://api.openai.com/v1/models",       "openai",   "https://api.openai.com/v1",        "gpt-4o"),
-    ("https://api.mistral.ai/v1/models",        "openai",   "https://api.mistral.ai/v1",        "mistral-large-latest"),
-    ("https://api.fireworks.ai/inference/v1/models", "openai", "https://api.fireworks.ai/inference/v1", "accounts/fireworks/models/llama-v3p1-70b-instruct"),
+    (
+        "https://api.openai.com/v1/models",
+        "openai",
+        "https://api.openai.com/v1",
+        "gpt-4o",
+    ),
+    (
+        "https://api.mistral.ai/v1/models",
+        "openai",
+        "https://api.mistral.ai/v1",
+        "mistral-large-latest",
+    ),
+    (
+        "https://api.fireworks.ai/inference/v1/models",
+        "openai",
+        "https://api.fireworks.ai/inference/v1",
+        "accounts/fireworks/models/llama-v3p1-70b-instruct",
+    ),
 ]
 
 
@@ -52,9 +80,11 @@ async def detect_provider_and_model(api_key: str) -> tuple[str, str, str]:
                             models = [m["id"] for m in data.get("data", [])]
                             # Bestes verfügbares Modell wählen
                             preferred = {
-                                "openai":   ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
-                                "mistral":  ["mistral-large-latest", "mistral-medium"],
-                                "fireworks": ["accounts/fireworks/models/llama-v3p1-70b-instruct"],
+                                "openai": ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+                                "mistral": ["mistral-large-latest", "mistral-medium"],
+                                "fireworks": [
+                                    "accounts/fireworks/models/llama-v3p1-70b-instruct"
+                                ],
                             }
                             for m in preferred.get(provider, []):
                                 if m in models:
@@ -72,12 +102,22 @@ async def detect_provider_and_model(api_key: str) -> tuple[str, str, str]:
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             headers_ant = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
-            payload = {"model": "claude-3-haiku-20240307", "max_tokens": 1,
-                       "messages": [{"role": "user", "content": "hi"}]}
-            async with session.post("https://api.anthropic.com/v1/messages",
-                                    headers=headers_ant, json=payload) as resp:
+            payload = {
+                "model": "claude-3-haiku-20240307",
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": "hi"}],
+            }
+            async with session.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers_ant,
+                json=payload,
+            ) as resp:
                 if resp.status == 200:
-                    return "anthropic", "https://api.anthropic.com", "claude-sonnet-4-20250514"
+                    return (
+                        "anthropic",
+                        "https://api.anthropic.com",
+                        "claude-sonnet-4-20250514",
+                    )
     except Exception:
         pass
 
@@ -197,14 +237,16 @@ class AnthropicBackend(LLMBackend):
 
 class OpenAIBackend(LLMBackend):
     # NVIDIA NIM braucht parallel_tool_calls=False, aber kein tool_choice
-    _NIM_HOST     = "integrate.api.nvidia.com"
-    _GEMINI_HOST  = "generativelanguage.googleapis.com"
+    _NIM_HOST = "integrate.api.nvidia.com"
+    _GEMINI_HOST = "generativelanguage.googleapis.com"
     _MISTRAL_HOST = "api.mistral.ai"
-    _FW_HOST      = "api.fireworks.ai"
+    _FW_HOST = "api.fireworks.ai"
     # Hosts die kein tool_choice vertragen
-    _NO_TOOL_CHOICE_HOSTS = frozenset([
-        "integrate.api.nvidia.com",
-    ])
+    _NO_TOOL_CHOICE_HOSTS = frozenset(
+        [
+            "integrate.api.nvidia.com",
+        ]
+    )
 
     def __init__(self, api_key, model, base_url, temperature, max_tokens, timeout, **_):
         self.api_key = api_key
@@ -226,7 +268,9 @@ class OpenAIBackend(LLMBackend):
         self.max_tokens = max_tokens
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self._is_nim = self._NIM_HOST in self.base_url
-        self._no_tool_choice = any(h in self.base_url for h in self._NO_TOOL_CHOICE_HOSTS)
+        self._no_tool_choice = any(
+            h in self.base_url for h in self._NO_TOOL_CHOICE_HOSTS
+        )
 
     def _headers(self):
         return {

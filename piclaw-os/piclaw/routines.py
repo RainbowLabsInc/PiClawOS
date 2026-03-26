@@ -28,8 +28,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-from piclaw.llm.base import ToolDefinition
-
 if TYPE_CHECKING:
     from piclaw.proactive import ProactiveRunner
 
@@ -56,7 +54,7 @@ class Routine:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Routine":
+    def from_dict(cls, d: dict) -> Routine:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
     def describe(self) -> str:
@@ -257,6 +255,7 @@ class RoutineRegistry:
 
 # ── Agent-Tools für Routinen ──────────────────────────────────────
 
+from piclaw.llm.base import ToolDefinition
 
 TOOL_DEFS = [
     ToolDefinition(
@@ -356,7 +355,7 @@ TOOL_DEFS = [
 ]
 
 
-def build_handlers(registry: RoutineRegistry, runner: "ProactiveRunner") -> dict:
+def build_handlers(registry: RoutineRegistry, runner: ProactiveRunner) -> dict:
     """Baut die Tool-Handler für den Agent."""
 
     async def routine_list(**_) -> str:

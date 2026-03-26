@@ -50,7 +50,7 @@ async def _run(cmd: str, timeout: int = 120) -> tuple[int, str]:
     )
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         return 1, "[TIMEOUT]"
     combined = out.decode(errors="replace").strip()
@@ -69,7 +69,7 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
             return "✅ PiClaw ist aktuell."
         lines = out.strip().splitlines()
         return f"🔄 {len(lines)} Update(s) verfügbar:\n" + "\n".join(
-            f"  {line}" for line in lines
+            f"  {l}" for l in lines
         )
 
     elif target == "piclaw":

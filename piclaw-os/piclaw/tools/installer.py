@@ -8,7 +8,6 @@ import json
 import logging
 import time
 from piclaw.config import CONFIG_DIR
-from piclaw.llm.base import ToolDefinition
 
 log = logging.getLogger("piclaw.tools.installer")
 
@@ -17,6 +16,8 @@ def get_ipc_paths():
     ipc_dir = CONFIG_DIR / "ipc"
     return ipc_dir, ipc_dir / "install_req.json", ipc_dir / "install_res.json"
 
+
+from piclaw.llm.base import ToolDefinition
 
 TOOL_DEFS = [
     ToolDefinition(

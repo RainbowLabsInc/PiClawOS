@@ -103,12 +103,12 @@ def _header(step: int, total: int, title: str, icon: str = "◆") -> None:
     bar_done = (
         f"{FG_BLUE}{'#' * filled}{R}"
         if not _UTF8
-        else f"{FG_BLUE}{'\u2588' * filled}{R}"
+        else FG_BLUE + ("\u2588" * filled) + R
     )
     bar_empty = (
         f"{FG_GRAY}{'.' * (20 - filled)}{R}"
         if not _UTF8
-        else f"{FG_GRAY}{'\u2591' * (20 - filled)}{R}"
+        else FG_GRAY + ("\u2591" * (20 - filled)) + R
     )
     pct = round((step / total) * 100)
     print(
@@ -278,7 +278,7 @@ async def _validate_llm(
             timeout=45,
         )
         return True, (resp.content or "OK")[:80]
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False, "Timeout -- API erreichbar?"
     except Exception as e:
         msg = str(e)
@@ -324,19 +324,6 @@ async def _validate_discord_token(token: str) -> tuple[bool, str]:
                     data = await r.json()
                     return True, f"Bot: {data.get('username', '?')}"
                 return False, f"HTTP {r.status}"
-    except Exception as e:
-        return False, str(e)[:120]
-
-
-async def _validate_agentmail(api_key: str) -> tuple[bool, str]:
-    try:
-        from piclaw.config import AgentMailConfig
-        from piclaw.tools.agentmail import agentmail_list_inboxes
-        test_cfg = AgentMailConfig(api_key=api_key)
-        res = await agentmail_list_inboxes(test_cfg)
-        if "Error" in res or "❌" in res:
-            return False, res[:120]
-        return True, "Gültig"
     except Exception as e:
         return False, str(e)[:120]
 
@@ -480,7 +467,11 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
     provider = _choice(
         "Welchen Anbieter möchtest du verwenden?",
         [
-            ("1", "API-Key (Auto-Detect)", "Anthropic / OpenAI / Gemini / Mistral / Fireworks / NVIDIA NIM"),
+            (
+                "1",
+                "API-Key (Auto-Detect)",
+                "Anthropic / OpenAI / Gemini / Mistral / Fireworks / NVIDIA NIM",
+            ),
             ("2", "Ollama (lokal)", "eigener Server · kein API-Key"),
             ("3", "Gemma 2B (Pi)", "offline · ~1.5 GB RAM · schnell"),  # Standard
             ("e", "Behalten", f"aktuell: {cfg.llm.backend}"),
@@ -507,7 +498,9 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
         _spinner("API-Key wird geprueft (Auto-Detect)...")
         try:
             loop = asyncio.new_event_loop()
-            detected_backend, base_url, model = loop.run_until_complete(detect_provider_and_model(key))
+            detected_backend, base_url, model = loop.run_until_complete(
+                detect_provider_and_model(key)
+            )
         except Exception as e:
             _clear_line()
             _err(f"Auto-Detect fehlgeschlagen: {e}")
@@ -520,9 +513,7 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
         _ok(f"Erkannt: {detected_backend} / {model}")
 
         _spinner("Verbindung testen")
-        ok, msg = _test_async(
-            _validate_llm(detected_backend, key, model, base_url)
-        )
+        ok, msg = _test_async(_validate_llm(detected_backend, key, model, base_url))
         _clear_line()
 
         if ok:
@@ -1543,49 +1534,6 @@ def _edit_soul_in_editor(soul_path: Path) -> None:
             _skip("Keine Eingabe")
 
 
-def step_agentmail(state: WizardState, step: int, total: int) -> None:
-    """Schritt: AgentMail konfigurieren (optional)."""
-    _header(step, total, "AgentMail -- E-Mail Postfach für den Agenten (optional)", "[Mail]")
-    cfg = state.cfg
-
-    has_key = bool(cfg.agentmail.api_key)
-    if has_key:
-        print(f"  API-Key vorhanden: {_mask(cfg.agentmail.api_key)}")
-        if (
-            input(f"\n  {FG_BLUE}{ARROW}{R} Neu konfigurieren? [j/N]: ").strip().lower()
-            != "j"
-        ):
-            _skip("Behalten")
-            return
-    else:
-        print("  Mit AgentMail kann der Agent E-Mails lesen und senden.")
-        print("  Ueberspringen mit Enter.\n")
-        print(f"  {FG_GRAY}API-Key erstellen: {UL}app.agentmail.to{R}")
-
-    api_key = _prompt("AgentMail API-Key", secret=True)
-    if not api_key:
-        _skip("AgentMail nicht konfiguriert")
-        return
-
-    _spinner("API-Key prüfen")
-
-    ok, msg = _test_async(_validate_agentmail(api_key))
-
-    _clear_line()
-    if ok:
-        _ok(f"Token gueltig: {FG_GRAY}{msg[:60]}{R}")
-    else:
-        _warn(f"Token-Pruefung: {msg}")
-        if input("    Trotzdem speichern? [j/N]: ").strip().lower() != "j":
-            _skip("Nicht gespeichert")
-            return
-
-    cfg.agentmail.api_key = api_key
-    state.mark("agentmail konfiguriert")
-    state.restart_needed = True
-    _ok("AgentMail gespeichert")
-
-
 def step_summary(state: WizardState, step: int, total: int) -> None:
     """Abschluss: Zusammenfassung und nächste Schritte."""
     from piclaw.config import save
@@ -1675,7 +1623,6 @@ def run() -> None:
             ("Hardware", lambda s, n, t: step_hardware(s, n, t)),
             ("API-Token", lambda s, n, t: step_api_token(s, n, t)),
             ("Soul", lambda s, n, t: step_soul(s, n, t)),
-            ("AgentMail", lambda s, n, t: step_agentmail(s, n, t)),
         ]
         total = len(STEPS) + 1  # +1 für Abschluss
 

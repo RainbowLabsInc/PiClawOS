@@ -77,8 +77,8 @@ class WhatsAppAdapter(MessagingAdapter):
         self.verify_token = verify_token
         self.recipient = recipient  # E.164 format: +49...
         self._stop = asyncio.Event()
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._message_handler: Optional[MessageHandler] = None
+        self._session: aiohttp.ClientSession | None = None
+        self._message_handler: MessageHandler | None = None
 
     def is_configured(self) -> bool:
         return bool(self.access_token and self.phone_number_id and self.recipient)

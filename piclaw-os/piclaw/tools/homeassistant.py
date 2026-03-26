@@ -28,7 +28,8 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any
+from collections.abc import Callable, Awaitable
 
 import aiohttp
 from piclaw.taskutils import create_background_task
@@ -410,7 +411,7 @@ class HAEventListener:
                 )
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=delay)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 delay = min(delay * 2, 300)  # max 5 min zwischen retries
 

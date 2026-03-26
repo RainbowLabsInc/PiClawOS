@@ -68,7 +68,7 @@ class SensorReading:
     sensor_name: str
     values: dict[str, Any]  # e.g. {"temp_c": 22.3, "humidity_pct": 65.1}
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-    error: Optional[str] = None
+    error: str | None = None
     simulated: bool = False
 
     def __str__(self) -> str:
@@ -98,8 +98,8 @@ class SensorDef:
     #   ADS1115:    {"i2c_bus": 1, "address": 72, "channel": 0}  (0x48)
 
     enabled: bool = True
-    last_reading: Optional[dict] = None  # SensorReading dict
-    last_error: Optional[str] = None
+    last_reading: dict | None = None  # SensorReading dict
+    last_error: str | None = None
     added_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> dict:
@@ -139,7 +139,7 @@ class SensorRegistry:
         self._save()
         return sensor.name
 
-    def get(self, name: str) -> Optional[SensorDef]:
+    def get(self, name: str) -> SensorDef | None:
         return self._sensors.get(name)
 
     def remove(self, name: str) -> bool:

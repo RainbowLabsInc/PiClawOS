@@ -19,8 +19,9 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import AsyncIterator, Optional
+from enum import Enum, StrEnum
+from typing import Optional
+from collections.abc import AsyncIterator
 
 from piclaw.config import PiClawConfig
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, LLMResponse
@@ -30,7 +31,7 @@ from piclaw.llm.local import LocalBackend, DEFAULT_MODEL_PATH
 log = logging.getLogger("piclaw.llm.router")
 
 
-class BackendState(str, Enum):
+class BackendState(StrEnum):
     BOOTING = "booting"
     LOCAL = "local"
     API = "api"
@@ -93,14 +94,14 @@ class SmartRouter(LLMBackend):
             max_tokens=1024,
             temperature=cfg.llm.temperature,
         )
-        self._api: Optional[LLMBackend] = self._build_api_backend()
+        self._api: LLMBackend | None = self._build_api_backend()
         self._active: LLMBackend = self._local  # start with local
 
         self._api_failures = 0
         self._boot_complete = asyncio.Event()
-        self._recheck_task: Optional[asyncio.Task] = None
+        self._recheck_task: asyncio.Task | None = None
 
-    def _build_api_backend(self) -> Optional[LLMBackend]:
+    def _build_api_backend(self) -> LLMBackend | None:
         cfg = self.cfg.llm
         if not cfg.api_key:
             return None
@@ -140,7 +141,7 @@ class SmartRouter(LLMBackend):
         # We wait for the API check first (with timeout).
         try:
             api_ok = await asyncio.wait_for(api_task, timeout=API_CHECK_TIMEOUT)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.warning("API connectivity check timed out.")
             api_ok = False
 
@@ -186,7 +187,7 @@ class SmartRouter(LLMBackend):
                 self._api.chat(test), timeout=API_CHECK_TIMEOUT
             )
             return bool(resp.content or resp.tool_calls)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.warning("API check timeout (>%ss)", API_CHECK_TIMEOUT)
             self.status.last_api_error = "timeout"
             return False

@@ -16,7 +16,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Optional
 
@@ -32,7 +32,7 @@ WATCHDOG_DB = IPC_DIR / "watchdog.db"
 # ── Job schema (Crawler IPC) ─────────────────────────────────────
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     DONE = "done"
@@ -40,7 +40,7 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class CrawlMode(str, Enum):
+class CrawlMode(StrEnum):
     ONCE = "once"
     RECURRING = "recurring"
     UNTIL_FOUND = "until_found"
@@ -71,7 +71,7 @@ class CrawlJob:
 # ── Alert schema (Watchdog IPC) ──────────────────────────────────
 
 
-class AlertSeverity(str, Enum):
+class AlertSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -183,7 +183,7 @@ def write_job(job: CrawlJob):
         )
 
 
-def get_job(job_id: str) -> Optional[CrawlJob]:
+def get_job(job_id: str) -> CrawlJob | None:
     init_jobs_db()
     with _conn(JOBS_DB) as con:
         row = con.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()

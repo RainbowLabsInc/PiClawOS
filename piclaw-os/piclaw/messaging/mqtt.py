@@ -31,7 +31,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Callable, Awaitable
+from collections.abc import Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class MqttAdapter:
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=delay)
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 delay = min(delay * 2, self.cfg.reconnect_max_delay)
 
@@ -167,7 +167,7 @@ class MqttAdapter:
                 )
                 await client.publish(topic, payload=payload, qos=qos)
                 self._stats["tx"] += 1
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             except Exception as e:
                 logger.warning("MQTT Send-Fehler: %s", e)
@@ -184,7 +184,7 @@ class MqttAdapter:
                 timeout=2.0,
             )
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     async def publish_sensor(
@@ -206,7 +206,7 @@ class MqttAdapter:
                 timeout=2.0,
             )
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     async def publish_metrics(self, metrics: dict[str, float]) -> bool:
@@ -218,7 +218,7 @@ class MqttAdapter:
                 timeout=2.0,
             )
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     async def _publish_ha_discovery(self, client) -> None:

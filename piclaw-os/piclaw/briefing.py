@@ -17,7 +17,7 @@ Das Briefing wird vom LLM zu einer natürlichen Nachricht zusammengefasst.
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any
 
 _SECS_PER_DAY = 86_400  # Sekunden pro Tag
@@ -68,8 +68,8 @@ async def _gather_pi_status() -> dict[str, Any]:
         disk = await asyncio.to_thread(psutil.disk_usage, "/")
         if _BOOT_TIME is None:
             _BOOT_TIME = await asyncio.to_thread(psutil.boot_time)
-        boot = datetime.fromtimestamp(_BOOT_TIME, tz=timezone.utc)
-        now = datetime.now(tz=timezone.utc)
+        boot = datetime.fromtimestamp(_BOOT_TIME, tz=UTC)
+        now = datetime.now(tz=UTC)
         uptime_h = round((now - boot).total_seconds() / 3600, 1)
 
         return {
@@ -436,7 +436,7 @@ async def generate_briefing(
             text = str(response).strip()
             if text:
                 return text
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.warning("LLM Briefing Timeout (>30s) – Fallback auf Template")
         except Exception as e:
             log.warning("LLM Briefing Fehler: %s – Fallback", e)
