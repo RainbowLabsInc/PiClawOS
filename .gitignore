@@ -7,6 +7,10 @@
 .npmrc
 .wget-hsts
 
+# Handbücher nur unter piclaw-os/docs/ und boot/.../ erlaubt – nicht im Root
+/*.docx
+/piclaw-os/*.docx
+
 # Build-Artefakte
 *.zip
 DEV_REFERENCE.md
