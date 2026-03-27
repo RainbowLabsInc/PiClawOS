@@ -93,13 +93,19 @@ class QMDBackend:
                 stderr=asyncio.subprocess.PIPE,
                 env=QMD_ENV,
             )
-            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            try:
+                out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            except (TimeoutError, asyncio.TimeoutError):
+                log.debug("qmd timeout – killing process, args: %s", " ".join(args))
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
+                return ""
             if proc.returncode != 0:
                 log.debug("qmd %s: %.200s", " ".join(args[:2]), err.decode())
             return out.decode(errors="replace")
-        except TimeoutError:
-            log.debug("qmd timeout – args: %s", " ".join(args))
-            return ""
         except Exception as e:
             log.error("qmd error: %s", e)
             return ""
