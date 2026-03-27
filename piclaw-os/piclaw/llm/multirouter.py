@@ -184,9 +184,10 @@ class MultiLLMRouter(LLMBackend):
             if cfg.provider == "ollama" and not base_url:
                 kw["base_url"] = "http://localhost:11434/v1"
                 kw["api_key"] = kw["api_key"] or "ollama"
-            # Ollama braucht beim ersten Start länger (Modell laden) → großzügiger Timeout
+            # Ollama auf Pi 5 (CPU-only) braucht bei 3B Modellen 2-4 Minuten
+            # → Timeout großzügig auf 300s setzen
             if cfg.provider == "ollama":
-                kw["timeout"] = max(kw.get("timeout", 60), 120)
+                kw["timeout"] = max(kw.get("timeout", 60), 300)
             instance = OpenAIBackend(**kw)
         elif cfg.provider == "local":
             instance = self._local
