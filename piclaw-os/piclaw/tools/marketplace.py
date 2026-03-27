@@ -14,7 +14,7 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Optional
+
 from urllib.parse import quote_plus
 
 import aiohttp
@@ -46,7 +46,6 @@ RE_CLEAN_PLATFORMS = {
     term: re.compile(re.escape(term), flags=re.IGNORECASE)
     for term in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay", ".de"]
 }
-RE_CLEAN_NOISE = []
 noise_words = [
     "suche",
     "finde",
@@ -113,10 +112,9 @@ noise_words = [
     "anzeigen",
 ]
 noise_words.sort(key=len, reverse=True)
-for word in noise_words:
-    RE_CLEAN_NOISE.append(
-        re.compile(r"(?i)(?:^|(?<=\W))" + re.escape(word) + r"(?:(?=\W)|$)")
-    )
+_combined_noise = "|".join(re.escape(w) for w in noise_words)
+RE_CLEAN_NOISE = re.compile(rf"(?i)(?:^|(?<=\W))(?:({_combined_noise}))(?:(?=\W)|$)")
+
 RE_CLEAN_SPECIAL_CHARS = re.compile(r"[?!.,;:\-_/]")
 
 # Common Parsing
@@ -216,8 +214,7 @@ def _clean_query(query: str) -> str:
         q = pattern.sub(" ", q)
 
     # Deutsche Stoppwörter/Rauschen für Marktplatz-Suche
-    for pattern in RE_CLEAN_NOISE:
-        q = pattern.sub(" ", q)
+    q = RE_CLEAN_NOISE.sub(" ", q)
 
     # Alle Sonderzeichen entfernen
     q = RE_CLEAN_SPECIAL_CHARS.sub(" ", q)

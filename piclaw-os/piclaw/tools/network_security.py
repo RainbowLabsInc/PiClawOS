@@ -27,23 +27,28 @@ TOOL_DEFS = [
                 "entity_id": {
                     "type": "string",
                     "description": "The Home Assistant entity ID of the modem smart plug (e.g. switch.modem).",
-                    "default": "switch.modem"
+                    "default": "switch.modem",
                 },
                 "confirm": {
                     "type": "boolean",
                     "description": "Must be set to True ONLY IF the user explicitly replied 'Yes' to the confirmation prompt.",
-                    "default": False
-                }
+                    "default": False,
+                },
             },
             "required": ["reason"],
         },
     ),
 ]
 
+
 def build_handlers(ha_client=None, notify_fn=None) -> dict:
-    async def emergency_network_off(reason: str, entity_id: str = "switch.modem", confirm: bool = False, **_) -> str:
+    async def emergency_network_off(
+        reason: str, entity_id: str = "switch.modem", confirm: bool = False, **_
+    ) -> str:
         if not ha_client:
-            return "❌ Home Assistant is not configured. Cannot turn off the modem/router."
+            return (
+                "❌ Home Assistant is not configured. Cannot turn off the modem/router."
+            )
 
         if not confirm:
             # If not confirmed, instruct the LLM to ask the user.
@@ -58,9 +63,9 @@ def build_handlers(ha_client=None, notify_fn=None) -> dict:
         try:
             # Call the Home Assistant API directly to turn off the plug
             await ha_client.call_service(
-                domain=entity_id.split('.')[0],
+                domain=entity_id.split(".")[0],
                 service="turn_off",
-                service_data={"entity_id": entity_id}
+                service_data={"entity_id": entity_id},
             )
             return f"✅ Emergency shutdown confirmed. Turned off {entity_id}."
         except Exception as e:

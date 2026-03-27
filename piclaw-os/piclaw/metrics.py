@@ -437,6 +437,7 @@ class MetricsCollector:
 def _read_cpu_temp() -> float | None:
     """Liest CPU-Temperatur – funktioniert auf Pi und in psutil-Fallback."""
     from piclaw.hardware.pi_info import current_temp
+
     return current_temp()
 
 
