@@ -13,28 +13,45 @@ from contextlib import contextmanager
 from pathlib import Path
 from collections.abc import AsyncIterator
 
+# Set C-level log suppressors BEFORE llama_cpp is imported anywhere.
+# This silences GGML/GGUF progress output from llama.cpp's internal threads,
+# which bypass Python-level fd redirects applied later.
+os.environ.setdefault("LLAMA_CPP_LOG_LEVEL", "0")   # llama-cpp-python wrapper
+os.environ.setdefault("GGML_LOG_LEVEL", "0")          # ggml C backend
+os.environ.setdefault("LLAMA_LOG_LEVEL", "4")          # llama.cpp core (4 = ERROR only)
+
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, ToolCall, LLMResponse
 
 log = logging.getLogger("piclaw.llm.local")
 
 # Global lock to prevent race conditions when multiple threads
-# manipulate file descriptor 2 (stderr).
-_stderr_lock = threading.Lock()
+# manipulate file descriptors 1 (stdout) and 2 (stderr).
+_output_lock = threading.Lock()
 
 
 @contextmanager
-def _suppress_stderr():
-    """Context manager to suppress C-level stderr (llama.cpp verbose output)."""
-    with _stderr_lock:
+def _suppress_output():
+    """Suppress C-level stdout AND stderr from llama.cpp.
+
+    llama.cpp writes verbose progress to both fd 1 and fd 2.
+    We redirect both to /dev/null at the file-descriptor level so that
+    even C threads spawned inside the Llama() call stay silent.
+    The global lock ensures only one thread manipulates the fds at a time.
+    """
+    with _output_lock:
         null_fd = os.open(os.devnull, os.O_RDWR)
-        save_fd = os.dup(2)
+        save_stdout = os.dup(1)
+        save_stderr = os.dup(2)
         try:
+            os.dup2(null_fd, 1)
             os.dup2(null_fd, 2)
             yield
         finally:
-            os.dup2(save_fd, 2)
+            os.dup2(save_stdout, 1)
+            os.dup2(save_stderr, 2)
             os.close(null_fd)
-            os.close(save_fd)
+            os.close(save_stdout)
+            os.close(save_stderr)
 
 
 # Default model path – can be overridden in config
@@ -239,7 +256,7 @@ class LocalBackend(LLMBackend):
             self.n_threads,
         )
 
-        with _suppress_stderr():
+        with _suppress_output():
             self._llm = Llama(
                 model_path=str(self.model_path),
                 n_ctx=self.n_ctx,
@@ -292,12 +309,12 @@ class LocalBackend(LLMBackend):
             )
 
         def _infer():
-            with self._lock, _suppress_stderr():
+            with self._lock, _suppress_output():
                 result = self._llm(
                     prompt,
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
-                    stop=["<|end|>", "<|user|>", "<|system|>"],
+                    stop=_stop_tokens(self.model_path),
                     echo=False,
                 )
                 choices = result.get("choices") or []
@@ -327,7 +344,7 @@ class LocalBackend(LLMBackend):
         prompt = _build_prompt(messages, self.model_path)
 
         def _stream_infer():
-            with self._lock, _suppress_stderr():
+            with self._lock, _suppress_output():
                 for chunk in self._llm(
                     prompt,
                     max_tokens=self.max_tokens,
