@@ -90,7 +90,35 @@ except Exception as e:
     fail("Config-Modul Fehler", str(e))
 
 
-# ── 3. Symlink – INV_021 ─────────────────────────────────────────
+# ── 3. .git Verzeichnis Rechte ───────────────────────────────────
+section("3. .git Verzeichnis Rechte (piclaw update)")
+git_dir = INSTALL_DIR / ".git"
+git_objects = git_dir / "objects"
+if git_objects.exists():
+    import pwd
+    try:
+        owner_uid = git_objects.stat().st_uid
+        owner_name = pwd.getpwuid(owner_uid).pw_name
+        try:
+            piclaw_uid = pwd.getpwnam("piclaw").pw_uid
+        except KeyError:
+            piclaw_uid = None
+        info(f"Owner .git/objects: {owner_name} (uid={owner_uid})")
+        if piclaw_uid and owner_uid == piclaw_uid:
+            ok(".git/objects gehört piclaw – git pull funktioniert")
+        elif owner_name == "root":
+            fail(".git/objects gehört root",
+                 "git pull schlägt fehl mit 'insufficient permission'",
+                 "sudo chown -R piclaw:piclaw /opt/piclaw/.git")
+        else:
+            warn(".git/objects gehört anderem User", owner_name)
+    except Exception as e:
+        warn(f".git Rechte nicht prüfbar: {e}")
+else:
+    warn(".git/objects nicht gefunden", str(git_dir))
+
+
+# ── 4. Symlink – INV_021 ─────────────────────────────────────────
 section("3. Symlink /opt/piclaw/piclaw (INV_021)")
 symlink = INSTALL_DIR / "piclaw"
 target  = INSTALL_DIR / "piclaw-os" / "piclaw"
