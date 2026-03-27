@@ -479,9 +479,19 @@ class MultiLLMRouter(LLMBackend):
             # If tokens_yielded > 0: response already delivered, suppress the error silently
 
     async def health_check(self) -> bool:
-        # Für lokales Backend: Datei vorhanden? (Modell muss nicht geladen sein)
+        # Für lokales Backend: Datei vorhanden?
         if self.global_cfg and self.global_cfg.llm.backend == "local":
             return self._local.model_path.exists()
+        # Für Ollama: Service erreichbar?
+        if self.global_cfg and self.global_cfg.llm.backend == "ollama":
+            try:
+                import aiohttp
+                base = (self.global_cfg.llm.base_url or "http://localhost:11434").rstrip("/")
+                async with aiohttp.ClientSession() as s:
+                    async with s.get(f"{base}/api/tags", timeout=aiohttp.ClientTimeout(total=3)) as r:
+                        return r.status == 200
+            except Exception:
+                return False
         return bool(self.registry.list_enabled()) or self._local_loaded
 
     # ── Helper ────────────────────────────────────────────────────
