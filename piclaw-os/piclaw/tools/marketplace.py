@@ -86,16 +86,8 @@ noise_words = [
     "unter",
     "euro",
     "rosengarten",
-    "graz",
-    "wien",
-    "salzburg",
-    "innsbruck",
-    "linz",
-    "klagenfurt",
-    "villach",
-    "wels",
-    "steyr",
-    "österreich",
+    # Österreichische Städte werden NICHT als Noise entfernt –
+    # willhaben.at nutzt den Ort im Keyword zur Lokalisierung
     "hamburg",
     "berlin",
     "nach",
