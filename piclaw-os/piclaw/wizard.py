@@ -490,60 +490,130 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
 
     if provider == "1":
         _w()
-        print(f"  {FG_GRAY}Unterstützte Provider:{R}")
+        print(f"  {FG_GRAY}Unterstützte Provider (Auto-Detect anhand Key-Präfix):{R}")
         print(f"  {FG_GRAY}  Anthropic:   sk-ant-...{R}")
         print(f"  {FG_GRAY}  OpenAI:      sk-proj-... oder sk-...{R}")
         print(f"  {FG_GRAY}  Google:      AIza...  → Gemini 2.0 Flash{R}")
+        print(f"  {FG_GRAY}  Groq:        gsk_...  → Llama 3.3 70B{R}")
         print(f"  {FG_GRAY}  Mistral:     Key von console.mistral.ai{R}")
         print(f"  {FG_GRAY}  Fireworks:   fw-...{R}")
-        print(f"  {FG_GRAY}  NVIDIA NIM:  nvapi-... → Nemotron 70B{R}")
-        key = _prompt("API-Key", secret=True)
-        if not key:
-            _skip("Übersprungen")
-            return
+        print(f"  {FG_GRAY}  NVIDIA NIM:  nvapi-... → bestes verfügbares Modell{R}")
+        print(f"  {FG_GRAY}  Cerebras:    csk-...{R}")
+        print()
 
-        from piclaw.llm.api import detect_provider_and_model
+        def _try_auto(initial_key: str | None = None) -> bool:
+            """Versucht Auto-Detect. Gibt True zurück wenn gespeichert."""
+            key = initial_key or _prompt("API-Key", secret=True)
+            if not key:
+                _skip("Übersprungen")
+                return True  # abgebrochen, nicht wiederholen
 
-        _spinner("API-Key wird geprueft (Auto-Detect)...")
-        try:
-            loop = asyncio.new_event_loop()
-            detected_backend, base_url, model = loop.run_until_complete(
-                detect_provider_and_model(key)
-            )
-        except Exception as e:
+            from piclaw.llm.api import detect_provider_and_model
+
+            _flush_stdin()
+            _spinner("API-Key wird geprüft (Auto-Detect)...")
+            try:
+                loop = asyncio.new_event_loop()
+                detected_backend, base_url, model = loop.run_until_complete(
+                    detect_provider_and_model(key)
+                )
+            except Exception as e:
+                _clear_line()
+                _err(f"Auto-Detect fehlgeschlagen: {e}")
+                return False
+            finally:
+                loop.close()
             _clear_line()
-            _err(f"Auto-Detect fehlgeschlagen: {e}")
-            _skip("Nicht gespeichert")
-            return
-        finally:
-            loop.close()
-        _clear_line()
+            _ok(f"Erkannt: {detected_backend} / {model}")
 
-        _ok(f"Erkannt: {detected_backend} / {model}")
+            _spinner("Verbindung testen...")
+            ok, msg = _test_async(_validate_llm(detected_backend, key, model, base_url))
+            _clear_line()
 
-        _spinner("Verbindung testen")
-        ok, msg = _test_async(_validate_llm(detected_backend, key, model, base_url))
-        _clear_line()
+            if ok:
+                _ok(f"Verbindung erfolgreich: {FG_GRAY}{msg[:60]}{R}")
+                cfg.llm.backend = detected_backend
+                cfg.llm.api_key = key
+                cfg.llm.model = model
+                cfg.llm.base_url = base_url
+                state.mark(f"llm -> {detected_backend}/{model}")
+                state.restart_needed = True
+                return True
 
-        if ok:
-            _ok(f"Verbindung erfolgreich: {FG_GRAY}{msg[:60]}{R}")
-            cfg.llm.backend = detected_backend
-            cfg.llm.api_key = key
-            cfg.llm.model = model
-            cfg.llm.base_url = base_url
-            state.mark(f"llm -> {detected_backend}/{model}")
-            state.restart_needed = True
-        else:
             _err(f"Verbindung fehlgeschlagen: {msg}")
-            if input("    Trotzdem speichern? [j/N]: ").strip().lower() == "j":
+            _flush_stdin()
+            ans = input("    Trotzdem speichern? [j/N]: ").strip().lower()
+            if ans == "j":
                 cfg.llm.backend = detected_backend
                 cfg.llm.api_key = key
                 cfg.llm.model = model
                 cfg.llm.base_url = base_url
                 state.mark(f"llm -> {detected_backend}/{model} (ungetestet)")
                 state.restart_needed = True
+                return True
+
+            _flush_stdin()
+            retry = input("    Nochmal versuchen? [j/N]: ").strip().lower()
+            if retry == "j":
+                return False  # Signal: nochmal
+
+            _flush_stdin()
+            manual = input("    Manuell eingeben? [j/N]: ").strip().lower()
+            if manual == "j":
+                _do_manual()
+                return True
+
+            _skip("Nicht gespeichert")
+            return True
+
+        def _do_manual():
+            """Manuelle LLM-Konfiguration."""
+            _w()
+            print(f"  {FG_GRAY}Manuelle Konfiguration – alle Parameter selbst eingeben{R}")
+            print()
+            providers = [
+                ("openai",     "OpenAI-kompatibel (NIM, Together, Groq, Cerebras, ...)"),
+                ("anthropic",  "Anthropic (Claude)"),
+            ]
+            for i, (p, desc) in enumerate(providers, 1):
+                print(f"  [{i}] {p:12} {FG_GRAY}{desc}{R}")
+            _flush_stdin()
+            choice = input(f"  {FG_BLUE}{ARROW}{R} Provider [1]: ").strip() or "1"
+            backend = providers[int(choice) - 1][0] if choice.isdigit() and 1 <= int(choice) <= len(providers) else "openai"
+
+            _flush_stdin()
+            base_url = _prompt("Base-URL", default="https://integrate.api.nvidia.com/v1")
+            _flush_stdin()
+            model = _prompt("Modell", default="")
+            if not model:
+                _err("Modell darf nicht leer sein")
+                return
+            _flush_stdin()
+            key = _prompt("API-Key", secret=True) or ""
+
+            _spinner("Verbindung testen...")
+            ok, msg = _test_async(_validate_llm(backend, key, model, base_url))
+            _clear_line()
+            if ok:
+                _ok(f"Verbindung erfolgreich: {FG_GRAY}{msg[:60]}{R}")
             else:
-                _skip("Nicht gespeichert")
+                _warn(f"Verbindung fehlgeschlagen: {msg}")
+                _flush_stdin()
+                if input("    Trotzdem speichern? [j/N]: ").strip().lower() != "j":
+                    _skip("Nicht gespeichert")
+                    return
+
+            cfg.llm.backend = backend
+            cfg.llm.api_key = key
+            cfg.llm.model = model
+            cfg.llm.base_url = base_url
+            state.mark(f"llm -> {backend}/{model}")
+            state.restart_needed = True
+            _ok(f"Gespeichert: {backend} / {model}")
+
+        # Hauptloop: Auto-Detect mit Wiederholungsmöglichkeit
+        while not _try_auto():
+            pass
 
     elif provider == "2":
         default_url = getattr(cfg.llm, "base_url", "") or "http://localhost:11434"
