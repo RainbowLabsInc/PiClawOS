@@ -196,6 +196,11 @@
         <div class="stat-value" id="da-total">—</div>
         <div class="stat-sub"  id="da-sub">— laufend</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-label">Version</div>
+        <div class="stat-value" style="font-size:16px" id="version-val">—</div>
+        <div class="stat-sub" id="agent-val">—</div>
+      </div>
     </div>
     <div>
       <div class="section-title">Services</div>
@@ -587,12 +592,13 @@ function val(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
 async function refreshStats(){
   try{
     const r=await authFetch('/api/stats');if(!r.ok)return;const d=await r.json();
-    val('header-info',`${d.hostname} · ${d.ip}`);
+    val('header-info',`${d.hostname} · ${d.ip} · v${d.version||'?'}`);
     val('cpu-val',d.cpu_percent.toFixed(0)+'%');val('cpu-sub',`${d.cpu_cores} cores`);setBar('cpu-bar',d.cpu_percent);
     val('temp-val',d.temp_celsius!=null?d.temp_celsius.toFixed(1)+'°C':'N/A');
     val('mem-val',d.memory.percent.toFixed(0)+'%');val('mem-sub',`${d.memory.used_mb}/${d.memory.total_mb} MB`);setBar('mem-bar',d.memory.percent);
     val('disk-val',d.disk.percent.toFixed(0)+'%');val('disk-sub',`${d.disk.used_gb}/${d.disk.total_gb} GB`);setBar('disk-bar',d.disk.percent);
     val('uptime-val',d.uptime);val('hostname-val',d.hostname);val('ip-val',d.ip);val('llm-val',d.llm);
+    val('version-val','v'+(d.version||'?'));val('agent-val',d.agent||'PiClaw');
   }catch(e){}
 }
 async function refreshServices(){

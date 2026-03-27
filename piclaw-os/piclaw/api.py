@@ -117,7 +117,9 @@ async def lifespan(app: FastAPI):
 
 # ── App setup ─────────────────────────────────────────────────
 
-app = FastAPI(title="PiClaw OS", version="0.8.0", docs_url=None, lifespan=lifespan)
+from piclaw import __version__
+
+app = FastAPI(title="PiClaw OS", version=__version__, docs_url=None, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -441,6 +443,7 @@ async def stats(_: str = Depends(require_auth)):
         "ip": ip,
         "agent": _cfg.agent_name if _cfg else "PiClaw",
         "llm": f"{_cfg.llm.backend}/{_cfg.llm.model}" if _cfg else "",
+        "version": __version__,
     }
 
 
