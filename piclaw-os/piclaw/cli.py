@@ -289,6 +289,59 @@ def cmd_doctor():
             print("  fastapi     : ✅")
         except ImportError:
             print("  fastapi     : ❌")
+        try:
+            import scrapling  # noqa: F401
+
+            print("  scrapling   : ✅")
+        except ImportError:
+            print("  scrapling   : ❌  (pip install scrapling)")
+
+        # ── System-Checks (Invarianten) ──────────────────────────
+        from pathlib import Path as _Path
+        import stat as _stat
+
+        _install = _Path("/opt/piclaw")
+        _symlink = _install / "piclaw"
+        _target  = _install / "piclaw-os" / "piclaw"
+        _logdir  = _Path("/var/log/piclaw")
+        _ipc     = _Path("/etc/piclaw/ipc")
+
+        # INV_021 – Symlink
+        if _symlink.is_symlink() and _symlink.resolve() == _target.resolve():
+            print("  Symlink     : ✅  /opt/piclaw/piclaw → piclaw-os/piclaw/")
+        elif _symlink.exists():
+            print("  Symlink     : ❌  Kein Symlink! git pull hat keinen Effekt")
+            print("                    sudo bash /opt/piclaw/piclaw-os/tools/fix_install_path.sh")
+        else:
+            print("  Symlink     : ⬜  /opt/piclaw nicht gefunden (abweichende Installation?)")
+
+        # INV_022 – /var/log/piclaw
+        if _logdir.exists():
+            try:
+                import pwd as _pwd
+                _owner = _pwd.getpwuid(_logdir.stat().st_uid).pw_name
+                if _owner == "piclaw":
+                    print(f"  Log-Dir     : ✅  /var/log/piclaw (owner: piclaw)")
+                else:
+                    print(f"  Log-Dir     : ❌  Owner: {_owner} (erwartet: piclaw)")
+                    print("                    sudo chown -R piclaw:piclaw /var/log/piclaw")
+            except Exception:
+                print("  Log-Dir     : ⬜  Rechte nicht prüfbar")
+        else:
+            print("  Log-Dir     : ❌  /var/log/piclaw fehlt")
+            print("                    sudo mkdir -p /var/log/piclaw && sudo chown -R piclaw:piclaw /var/log/piclaw")
+
+        # IPC chmod 1777
+        if _ipc.exists():
+            _mode = _stat.S_IMODE(_ipc.stat().st_mode)
+            if _mode == 0o1777:
+                print("  IPC-Dir     : ✅  /etc/piclaw/ipc (chmod 1777)")
+            else:
+                print(f"  IPC-Dir     : ❌  chmod {oct(_mode)} (erwartet 1777)")
+                print("                    sudo chmod 1777 /etc/piclaw/ipc")
+        else:
+            print("  IPC-Dir     : ⬜  /etc/piclaw/ipc fehlt")
+
         print()
 
     asyncio.run(_check())
