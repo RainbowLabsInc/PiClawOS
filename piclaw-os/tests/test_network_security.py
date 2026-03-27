@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 from piclaw.tools.network_security import (
-    whois_lookup,
+
     block_ip,
     tarpit_ip,
     generate_abuse_report,

@@ -1,0 +1,4 @@
+## 2024-03-27 - [CRITICAL] Command Injection in systemctl commands via asyncio.create_subprocess_shell
+**Vulnerability:** Found `asyncio.create_subprocess_shell` used to execute `systemctl is-active {svc}` dynamically, passing unescaped input into a shell context.
+**Learning:** Python's f-strings combined with `asyncio.create_subprocess_shell` inherently expose applications to command injection if variables like `{svc}` contain shell metacharacters. Even if internal, it sets a dangerous precedent.
+**Prevention:** Avoid `asyncio.create_subprocess_shell` whenever possible. Always use `asyncio.create_subprocess_exec` and pass parameters as discrete list elements (e.g., `["systemctl", "is-active", svc]`), and emulate simple shell constructs like `|| echo inactive` in Python logic directly via process return codes.
