@@ -186,9 +186,16 @@ class QMDBackend:
             ]
         )
 
-        # Initial index
-        log.info("Running qmd update (indexing)…")
-        await self._qmd(["update"], timeout=60)
+        # Initial index – nur beim allerersten Setup, nicht bei jedem Neustart.
+        # Der stündliche systemd-Timer (piclaw-qmd-update) übernimmt danach.
+        _ready_flag = QMD_XDG_CONFIG / "collections_initialized"
+        if not _ready_flag.exists():
+            log.info("Running qmd update (indexing)…")
+            await self._qmd(["update"], timeout=60)
+            _ready_flag.touch()
+            log.info("QMD collections initialized (future updates via hourly timer)")
+        else:
+            log.info("QMD collections already initialized – skipping update (hourly timer handles this)")
 
         self._collections_ready = True
         log.info("QMD collections ready.")
