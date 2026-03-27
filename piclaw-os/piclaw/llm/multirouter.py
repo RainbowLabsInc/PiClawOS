@@ -162,8 +162,19 @@ class MultiLLMRouter(LLMBackend):
     # ── Instance factory ──────────────────────────────────────────
 
     def _get_instance(self, cfg: BackendConfig) -> LLMBackend:
+        """Get or create a backend instance. Invalidates cache if registry changed."""
+        # Wenn Registry neu geladen wurde, alte Instanzen verwerfen
+        if cfg.name not in self.registry._backends:
+            self._instances.pop(cfg.name, None)
+            return self._get_instance(cfg)
         if cfg.name in self._instances:
-            return self._instances[cfg.name]
+            # Prüfen ob Config noch aktuell ist (Priorität/Model könnte sich geändert haben)
+            cached_cfg = self.registry._backends.get(cfg.name)
+            if cached_cfg and (cached_cfg.model != cfg.model or cached_cfg.priority != cfg.priority):
+                log.info("Backend '%s' config changed – invalidating cache", cfg.name)
+                del self._instances[cfg.name]
+            else:
+                return self._instances[cfg.name]
 
         # Resolve API key: use backend-specific or fall back to global
         api_key = cfg.api_key or self.global_cfg.llm.api_key
