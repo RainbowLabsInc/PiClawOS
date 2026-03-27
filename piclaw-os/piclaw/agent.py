@@ -732,8 +732,10 @@ class Agent:
         for phrase in [
             "kleinanzeigen.de",
             "ebay.de",
+            "willhaben.at",
             "kleinanzeigen",
             "ebay",
+            "willhaben",
             "zeige mir",
             "zeig mir",
             "was kostet",
@@ -742,6 +744,8 @@ class Agent:
             "auf",
         ]:
             query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
+        # .at und .de Domain-Suffixe entfernen
+        query = re.sub(r"\.(at|de)\b", " ", query, flags=re.IGNORECASE)
         # PLZ entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
@@ -772,6 +776,12 @@ class Agent:
             "die",
             "das",
             "rosengarten",
+            "graz",
+            "wien",
+            "salzburg",
+            "innsbruck",
+            "linz",
+            "klagenfurt",
             "hamburg",
             "berlin",
             "münchen",

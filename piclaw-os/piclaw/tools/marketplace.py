@@ -44,7 +44,10 @@ RE_CLEAN_PLZ = re.compile(r"(?<!\d)\d{5}(?!\d)")
 RE_CLEAN_RADIUS = re.compile(r"\d+\s*km", flags=re.IGNORECASE)
 RE_CLEAN_PLATFORMS = {
     term: re.compile(re.escape(term), flags=re.IGNORECASE)
-    for term in ["kleinanzeigen.de", "ebay.de", "kleinanzeigen", "ebay", ".de"]
+    for term in [
+        "kleinanzeigen.de", "ebay.de", "willhaben.at",
+        "kleinanzeigen", "ebay", "willhaben", ".de", ".at",
+    ]
 }
 RE_CLEAN_NOISE = []
 noise_words = [
@@ -83,6 +86,16 @@ noise_words = [
     "unter",
     "euro",
     "rosengarten",
+    "graz",
+    "wien",
+    "salzburg",
+    "innsbruck",
+    "linz",
+    "klagenfurt",
+    "villach",
+    "wels",
+    "steyr",
+    "österreich",
     "hamburg",
     "berlin",
     "nach",
