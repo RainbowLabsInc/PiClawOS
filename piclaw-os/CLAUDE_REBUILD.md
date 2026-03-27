@@ -163,7 +163,7 @@ INV_019: install.sh MUST set /etc/sudoers.d/piclaw for service restart
 INV_020: updater.py MUST use git pull, NOT pip install --upgrade
   FLOW: git pull → rsync piclaw-os/piclaw/ → pip install -e . → sudo systemctl restart
   REASON: Pi is an editable install from git repo, not a PyPI package
-  NOTE: git pull requires GitHub token for private repo (T2 in tech debt)
+  NOTE: repo is PUBLIC – git pull works without token
 
 INV_021: /opt/piclaw/piclaw MUST be a symlink to /opt/piclaw/piclaw-os/piclaw/
   WRONG: /opt/piclaw/piclaw/ is a static copy
@@ -386,8 +386,61 @@ gitignore_excludes: [config.toml, SOUL.md, *.db, *.log, *.gguf, models/, .venv/,
                      boot/piclaw/piclaw-src/piclaw/]
 
 ---
+## CHANGES_v0.15.2rc
+# All changes made on 2026-03-27
+
+llm/local.py:
+  - _suppress_stderr() RENAMED to _suppress_output()
+  - NOW redirects fd 1 (stdout) AND fd 2 (stderr), not only stderr
+  - _stderr_lock RENAMED to _output_lock
+  - LLAMA_CPP_LOG_LEVEL=0, GGML_LOG_LEVEL=0, LLAMA_LOG_LEVEL=4 set before import
+  - _infer() stop tokens: was hardcoded phi3 tokens, now calls _stop_tokens(model_path)
+
+piclaw/__init__.py:
+  - __version__ = "0.15.1"  (was "0.13.3")
+
+piclaw/api.py:
+  - FastAPI(version=__version__)  (was hardcoded "0.8.0")
+  - /api/stats now returns "version": __version__ field
+
+piclaw/web/index.html:
+  - header-info shows hostname · ip · vX.Y.Z
+  - new Version stat-card in dashboard grid (id=version-val, id=agent-val)
+
+boot/piclaw-src/pyproject.toml:
+  - version 0.15.0 → 0.15.1
+  - scrapling>=0.2 added (was missing)
+
+piclaw/cli.py cmd_doctor():
+  - added: scrapling import check
+  - added: symlink check /opt/piclaw/piclaw (INV_021)
+  - added: /var/log/piclaw owner check (INV_022)
+  - added: /etc/piclaw/ipc chmod 1777 check
+
+tests/debug/ (NEW FILES):
+  test_debug_install.py:
+    checks: python>=3.11, piclaw import, CONFIG_DIR, symlink (INV_021),
+            /var/log/piclaw owner (INV_022), /etc/piclaw/ipc chmod (watchdog),
+            /etc/sudoers.d/piclaw (INV_019), pyproject build-backend (INV_001),
+            deps: fastapi/uvicorn/aiohttp/scrapling/psutil/websockets/llama_cpp,
+            local model (gemma-2b-q4.gguf)
+  test_debug_services.py:
+    checks: systemd is-active for all 4 services + timer,
+            HTTP /health on api port (INV_005),
+            WebSocket handshake + ping (INV_023),
+            log file analysis for ERROR/Traceback (INV_022),
+            Node.js CPU abuse check (INV_015),
+            piclaw-qmd-update.timer active
+
+piclaw/wizard.py:
+  - _block_status(name, cfg) NEW helper: returns (badge, hinweis) per block
+  - step_welcome(): dynamic title "Ersteinrichtung" vs "Einstellungen"
+  - block menu: shows ✅/⚠️/⬜ badge + hint per block
+  - after completion: shows remaining unconfigured blocks + "piclaw setup" tip
+
+---
 ## END_OF_REFERENCE
 checksum_invariants=27
 checksum_services=4+1timer
 status=PRODUCTION_STABLE
-last_updated=2026-03-26
+last_updated=2026-03-27

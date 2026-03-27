@@ -1,15 +1,24 @@
 # PiClaw OS — Roadmap
 
-## Status: v0.15.1 (March 2026)
+## Status: v0.15.2-rc (März 2026)
 
 Aktuelle Produktion: Dameon läuft stabil auf Raspberry Pi 5.
 Marketplace-Suche funktioniert (Kleinanzeigen + eBay via Scrapling).
 Multi-LLM Router aktiv: NVIDIA NIM (Nemotron 70B + Kimi K2.5), lokal Gemma 2B.
 Auto-Detect für 6 LLM-Provider. `piclaw update` und `piclaw debug` operativ.
+Release Candidate in Vorbereitung.
 
 ---
 
 ## ✅ Abgeschlossen
+
+### v0.15.2 — Release Candidate (März 2026)
+- [x] T1: llama.cpp verbose Output unterdrückt (stdout+stderr, C-Env-Vars)
+- [x] T3: Dashboard Version-Anzeige — Single Source of Truth via `__version__`
+- [x] T4: boot/ pyproject.toml synchronisiert (0.15.0 → 0.15.1, scrapling ergänzt)
+- [x] piclaw doctor: Symlink, Log-Dir, IPC-Rechte, scrapling-Check
+- [x] Debug-Scripts: test_debug_install + test_debug_services
+- [x] Wizard UX: Status-Badges pro Block, dynamischer Titel, Hinweis auf offene Blöcke
 
 ### v0.15.1 — Stabilisierung & Bugfixes (März 2026)
 - [x] Marketplace-Suche vollständig funktionsfähig (PLZ + Radius auf Kleinanzeigen.de)
@@ -63,14 +72,14 @@ Auto-Detect für 6 LLM-Provider. `piclaw update` und `piclaw debug` operativ.
 ## 🚧 Nächste Schritte (Release-Vorbereitung)
 
 ### v0.15.2 — Release Candidate
-- [ ] CLAUDE_REBUILD.md auf v0.15.1 Stand bringen
-- [ ] Neuinstallations-Test sauber durchlaufen
-- [ ] eBay Live-Test mit Scrapling verifizieren
-- [ ] Gemini Live-Test (Quota-Problem lösen)
-- [ ] piclaw doctor — alle Checks grün auf frischer Installation
-- [ ] Doctor-Debug: Testscripte für häufige Fehlerquellen
-- [ ] Dashboard Version-Anzeige auf v0.15.1 aktualisieren
-- [ ] piclaw update — GitHub Token-Problem lösen (SSH Key oder Token in Config)
+- [ ] CLAUDE_REBUILD.md aktualisieren ← in Arbeit
+- [ ] Neuinstallations-Test sauber durchlaufen (nur auf Pi)
+- [ ] eBay Live-Test mit Scrapling verifizieren (nur auf Pi)
+- [ ] Gemini Live-Test (Quota-Problem lösen) (nur auf Pi)
+- [x] piclaw doctor — kritische Checks erweitert (Symlink, Log-Dir, IPC, scrapling)
+- [x] Doctor-Debug: test_debug_install + test_debug_services hinzugefügt
+- [x] Dashboard Version-Anzeige auf v0.15.1 aktualisiert (T3)
+- [x] piclaw update GitHub Token — entfällt mit Public Release (T2)
 
 ### v0.16.1 — AgentMail Live-Test
 - [ ] AgentMail API-Key konfigurieren
@@ -113,7 +122,7 @@ Auto-Detect für 6 LLM-Provider. `piclaw update` und `piclaw debug` operativ.
 | # | Problem | Priorität |
 |---|---------|-----------|
 | ~~T1~~ | ~~llama.cpp verbose Output~~ | ~~Medium~~ ✅ |
-| T2 | piclaw update braucht GitHub Token | Medium |
+| ~~T2~~ | ~~piclaw update braucht GitHub Token~~ | ~~Medium~~ ✅ (entfällt mit Public Release) |
 | ~~T3~~ | ~~Dashboard zeigt noch v0.9~~ | ~~Low~~ ✅ |
 | ~~T4~~ | ~~boot/ pyproject.toml nicht sync~~ | ~~Low~~ ✅ |
 
