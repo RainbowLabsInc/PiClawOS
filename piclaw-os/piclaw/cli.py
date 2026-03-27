@@ -400,20 +400,34 @@ def cmd_config(args):
             print("  Token not generated yet. Start the API service first.")
     elif args[0] == "set" and len(args) == 3:
         key, val = args[1], args[2]
+        _llm_changed = False
         if key == "llm.api_key":
             cfg.llm.api_key = val
+            _llm_changed = True
         elif key == "llm.model":
             cfg.llm.model = val
+            _llm_changed = True
         elif key == "llm.backend":
             cfg.llm.backend = val
+            _llm_changed = True
+        elif key == "llm.base_url":
+            cfg.llm.base_url = val
+            _llm_changed = True
         elif key == "agent_name":
             cfg.agent_name = val
         else:
             print(f"Unknown config key: {key}")
-            print("Supported: llm.api_key, llm.model, llm.backend, agent_name")
+            print("Supported: llm.api_key, llm.model, llm.backend, llm.base_url, agent_name")
             return
         save(cfg)
         print(f"  ✅ {key} updated.")
+        # LLM-Registry leeren damit der Router beim nächsten Start neu bootstrappt
+        if _llm_changed:
+            from piclaw.config import CONFIG_DIR
+            registry_file = CONFIG_DIR / "llm_registry.json"
+            if registry_file.exists():
+                registry_file.write_text("{}")
+                print(f"  🔄 LLM-Registry zurückgesetzt (wird beim Neustart neu aufgebaut)")
     else:
         print("Usage: piclaw config get | piclaw config set <key> <value>")
 
