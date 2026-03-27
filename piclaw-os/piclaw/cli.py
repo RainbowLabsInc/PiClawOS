@@ -342,6 +342,22 @@ def cmd_doctor():
         else:
             print("  IPC-Dir     : ⬜  /etc/piclaw/ipc fehlt")
 
+        # .git/objects Rechte (verhindert 'piclaw update' Fehler)
+        _git_objects = _install / ".git" / "objects"
+        if _git_objects.exists():
+            import pwd as _pwd2
+            try:
+                _git_owner = _pwd2.getpwuid(_git_objects.stat().st_uid).pw_name
+                if _git_owner == "piclaw":
+                    print("  .git Rechte : ✅  /opt/piclaw/.git (owner: piclaw)")
+                else:
+                    print(f"  .git Rechte : ❌  Owner: {_git_owner} (erwartet: piclaw)")
+                    print("                    sudo chown -R piclaw:piclaw /opt/piclaw/.git")
+            except Exception:
+                print("  .git Rechte : ⬜  Nicht prüfbar")
+        else:
+            print("  .git Rechte : ⬜  /opt/piclaw/.git nicht gefunden")
+
         print()
 
     asyncio.run(_check())
