@@ -900,7 +900,7 @@ class Agent:
         _start_kw  = ["start", "starte", "aktiviere", "reaktiviere"]
         _remove_kw = ["lösch", "entfern", "delete", "remove"]
         _agent_name_match = _re.search(
-            r"\b(Monitor_\w+|SearchAssistant|[A-Z][a-zA-Z0-9_]{4,})\b", user_input
+            r"\b(Monitor_\w+|SearchAssistant|[A-Z][a-zA-Z0-9_]{4,}|[0-9a-f]{6,12})\b", user_input
         )
         if _agent_name_match:
             _agent_name = _agent_name_match.group(1)
