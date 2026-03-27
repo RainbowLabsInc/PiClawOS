@@ -748,41 +748,29 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
 
         print()
         print("  Anbieter:")
-        print("    [1] OpenAI / NVIDIA NIM / kompatibler Anbieter")
-        print("    [2] Anthropic Claude")
-        print("    [3] Lokales Modell (GGUF)")
+        print(f"    [1]  NVIDIA NIM     {FG_GRAY}nvapi-... → Llama 3.3 70B (empfohlen){R}")
+        print(f"    [2]  Groq           {FG_GRAY}gsk_... → Llama 3.3 70B (sehr schnell, free){R}")
+        print(f"    [3]  Cerebras       {FG_GRAY}csk-... → Llama 3.3 70B (schnellste API){R}")
+        print(f"    [4]  Google Gemini  {FG_GRAY}AIza... → Gemini 2.0 Flash{R}")
+        print(f"    [5]  Anthropic      {FG_GRAY}sk-ant-... → Claude Sonnet{R}")
+        print(f"    [6]  OpenAI-kompatibel {FG_GRAY}beliebiger Anbieter{R}")
+        print(f"    [7]  Lokales Modell {FG_GRAY}GGUF-Datei{R}")
         print()
         prov_choice = input(f"  {FG_BLUE}{ARROW}{R} Wahl: ").strip()
 
-        if prov_choice == "1":
-            print(
-                f"  {FG_GRAY}NVIDIA NIM: nvapi-... | OpenAI: sk-... | andere: entsprechender Key{R}"
-            )
+        # Helper: OpenAI-kompatibler Backend speichern
+        def _save_openai_backend(base_url: str, default_model: str, default_name: str,
+                                   default_prio: int, temperature: float = 0.7) -> bool:
+            _flush_stdin()
             key = _prompt("API-Key", secret=True)
             if not key:
-                continue
-            default_base = (
-                "https://integrate.api.nvidia.com/v1"
-                if key.startswith("nvapi-")
-                else "https://api.openai.com/v1"
-            )
-            base_url = _prompt("Base URL", default=default_base) or default_base
-            if "nvidia" in base_url:
-                default_model = "nvidia/llama-3.1-nemotron-nano-vl-8b-v1"
-            elif "openai" in base_url:
-                default_model = "gpt-4o-mini"
-            else:
-                default_model = "gpt-4o"
+                return False
+            _flush_stdin()
             model = _prompt("Modell", default=default_model) or default_model
-            name = (
-                _prompt("Name (eindeutig)", default=model.split("/")[-1][:20])
-                or model.split("/")[-1][:20]
-            )
-            priority = int(
-                _prompt("Priorität (1-10, höher=bevorzugt)", default="6") or "6"
-            )
+            _flush_stdin()
+            name = _prompt("Name (eindeutig)", default=default_name) or default_name
+            priority = int(_prompt("Priorität (1-10)", default=str(default_prio)) or str(default_prio))
             tags = _ask_purpose()
-
             _spinner("Verbindung testen")
             ok, msg = _test_async(_validate_llm("openai", key, model, base_url))
             _clear_line()
@@ -790,64 +778,98 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
                 _ok(f"Verbindung OK: {FG_GRAY}{msg[:50]}{R}")
             else:
                 _warn(f"Test fehlgeschlagen: {msg}")
+                _flush_stdin()
                 if input("    Trotzdem speichern? [j/N]: ").strip().lower() != "j":
-                    continue
-
-            [
-                _PURPOSE_TAGS[c.strip()][1]
-                for c in (input.__module__ and "") or []
-                if c.strip() in _PURPOSE_TAGS
-            ]
+                    return False
             bc = BackendConfig(
-                name=name,
-                provider="openai",
-                model=model,
-                api_key=key,
-                base_url=base_url,
-                priority=priority,
-                tags=tags,
-                temperature=0.6 if "nvidia" in base_url else 0.7,
+                name=name, provider="openai", model=model, api_key=key,
+                base_url=base_url, priority=priority, tags=tags,
+                temperature=temperature,
                 notes=f"Zweck: {', '.join(tags)} – via Setup-Wizard",
             )
             registry.add(bc)
             _ok(f"Backend '{name}' gespeichert  {FG_GRAY}Tags: {', '.join(tags)}{R}")
+            return True
+
+        if prov_choice == "1":
+            # NVIDIA NIM – mit Live-Modell-Detection
+            _flush_stdin()
+            key = _prompt("NVIDIA NIM API-Key (nvapi-...)", secret=True)
+            if not key:
+                continue
+            _spinner("Verfügbare Modelle abrufen...")
+            from piclaw.llm.api import _detect_nim_model
+            loop2 = asyncio.new_event_loop()
+            nim_model = loop2.run_until_complete(
+                _detect_nim_model(key, "https://integrate.api.nvidia.com/v1")
+            )
+            loop2.close()
+            _clear_line()
+            _ok(f"Empfohlenes Modell: {nim_model}")
+            _save_openai_backend(
+                "https://integrate.api.nvidia.com/v1", nim_model,
+                "nim-fallback", 7, temperature=0.6
+            )
 
         elif prov_choice == "2":
+            # Groq
+            _info("Kostenlos registrieren: console.groq.com")
+            _save_openai_backend(
+                "https://api.groq.com/openai/v1",
+                "llama-3.3-70b-versatile", "groq-fallback", 7
+            )
+
+        elif prov_choice == "7":
+            # Cerebras
+            _info("Kostenlos registrieren: cloud.cerebras.ai")
+            _save_openai_backend(
+                "https://api.cerebras.ai/v1",
+                "llama-3.3-70b", "cerebras-fallback", 6
+            )
+
+        elif prov_choice == "4":
+            # Google Gemini
+            _info("Kostenlos: aistudio.google.com/apikey  (AIza... Key)")
+            _save_openai_backend(
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "gemini-2.0-flash", "gemini-fallback", 6
+            )
+
+        elif prov_choice == "5":
+            # Anthropic
+            _flush_stdin()
             key = _prompt("Anthropic API-Key (sk-ant-…)", secret=True)
             if not key:
                 continue
-            model = (
-                _prompt("Modell", default="claude-sonnet-4-20250514")
-                or "claude-sonnet-4-20250514"
-            )
-            name = _prompt("Name", default="claude-extra") or "claude-extra"
+            _flush_stdin()
+            model = _prompt("Modell", default="claude-sonnet-4-20250514") or "claude-sonnet-4-20250514"
+            _flush_stdin()
+            name = _prompt("Name", default="claude-fallback") or "claude-fallback"
             priority = int(_prompt("Priorität", default="7") or "7")
             tags = _ask_purpose()
-
             _spinner("Verbindung testen")
-            ok, msg = _test_async(
-                _validate_llm("anthropic", key, model, "https://api.anthropic.com")
-            )
+            ok, msg = _test_async(_validate_llm("anthropic", key, model, "https://api.anthropic.com"))
             _clear_line()
             if ok:
                 _ok("Verbindung OK")
             else:
                 _warn(f"Test fehlgeschlagen: {msg}")
+                _flush_stdin()
                 if input("    Trotzdem speichern? [j/N]: ").strip().lower() != "j":
                     continue
-
             bc = BackendConfig(
-                name=name,
-                provider="anthropic",
-                model=model,
-                api_key=key,
-                base_url="https://api.anthropic.com",
-                priority=priority,
-                tags=tags,
+                name=name, provider="anthropic", model=model, api_key=key,
+                base_url="https://api.anthropic.com", priority=priority, tags=tags,
                 notes=f"Zweck: {', '.join(tags)} – via Setup-Wizard",
             )
             registry.add(bc)
             _ok(f"Backend '{name}' gespeichert  {FG_GRAY}Tags: {', '.join(tags)}{R}")
+
+        elif prov_choice == "6":
+            # OpenAI-kompatibel (manuell)
+            _flush_stdin()
+            base_url = _prompt("Base URL", default="https://api.openai.com/v1") or "https://api.openai.com/v1"
+            _save_openai_backend(base_url, "gpt-4o", "openai-extra", 6)
 
         elif prov_choice == "3":
             from piclaw.config import CONFIG_DIR
