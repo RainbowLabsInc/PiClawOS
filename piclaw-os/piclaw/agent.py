@@ -460,6 +460,8 @@ class Agent:
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
+        if "willhaben" in t:
+            platforms.append("willhaben")
         if "web" in t or "internet" in t:
             platforms.append("web")
         if not platforms:
@@ -625,6 +627,8 @@ class Agent:
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
+        if "willhaben" in t:
+            platforms.append("willhaben")
         if "web" in t or "internet" in t:
             platforms.append("web")
         if not platforms:
