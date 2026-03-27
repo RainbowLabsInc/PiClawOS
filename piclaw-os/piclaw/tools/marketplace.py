@@ -486,6 +486,109 @@ async def _search_ebay(
     return results
 
 
+async def _search_willhaben(
+    session: aiohttp.ClientSession,
+    query: str,
+    max_price: float | None = None,
+    max_results: int = 10,
+    location: str | None = None,
+    radius_km: int | None = None,
+) -> list[dict]:
+    """Sucht auf willhaben.at via JSON-API."""
+    results = []
+
+    # Willhaben JSON-API (öffentlich, kein Key nötig)
+    params = {
+        "keyword": query,
+        "rows": str(max_results),
+        "isNavigation": "false",
+    }
+    if max_price:
+        params["PRICE_TO"] = str(int(max_price))
+    # Österreich-PLZ → location text (willhaben hat keine PLZ-Suche via API)
+    # Stattdessen: keyword + Ortsname wenn location angegeben
+    if location:
+        params["areaId"] = location  # wird ignoriert wenn keine AT-PLZ
+
+    url = "https://www.willhaben.at/webapi/iad/search/atz/seo/kaufen-und-verkaufen/marktplatz"
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+        "Accept-Language": "de-AT,de;q=0.9",
+        "x-wh-client": "appId=143;platform=web;version=30.3.0",
+        "Referer": "https://www.willhaben.at/",
+    }
+
+    try:
+        async with session.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=20),
+        ) as resp:
+            if resp.status != 200:
+                log.debug("Willhaben HTTP %s", resp.status)
+                return []
+            data = await resp.json(content_type=None)
+    except Exception as e:
+        log.debug("Willhaben Fehler: %s", e)
+        return []
+
+    # JSON-Struktur: advertSummaryList.advertSummary[]
+    # Jedes Item hat attributes.attribute[] mit name/values
+    adverts = (
+        data.get("advertSummaryList", {}).get("advertSummary", [])
+        or data.get("advertSummaryList", {}).get("advertSummaryList", {}).get("advertSummary", [])
+    )
+
+    def _attr(item: dict, name: str) -> str:
+        """Hilfsfunktion: Attribut aus willhaben-Item extrahieren."""
+        for a in item.get("attributes", {}).get("attribute", []):
+            if a.get("name") == name:
+                vals = a.get("values", [])
+                return vals[0] if vals else ""
+        return ""
+
+    for item in adverts[:max_results]:
+        item_id = str(item.get("id", ""))
+        if not item_id:
+            continue
+
+        title = _attr(item, "HEADING") or item.get("description", "")
+        price_text = _attr(item, "PRICE_FOR_DISPLAY") or _attr(item, "PRICE")
+        location_text = _attr(item, "LOCATION") or _attr(item, "ADDRESS")
+        price = _parse_price(price_text)
+
+        # Preis-Filter clientseitig (API-Filter nicht immer zuverlässig)
+        if max_price and price and price > max_price:
+            continue
+
+        link = f"https://www.willhaben.at/iad/kaufen-und-verkaufen/d/{item_id}"
+
+        if not title:
+            continue
+
+        results.append(
+            {
+                "id": item_id,
+                "platform": "willhaben",
+                "title": title,
+                "price": price,
+                "price_text": price_text,
+                "location": location_text,
+                "url": link,
+            }
+        )
+
+    log.info("Willhaben: %d Inserate gefunden für '%s'", len(results), query)
+    return results
+
+
 async def _search_web(
     session: aiohttp.ClientSession,
     query: str,
@@ -558,7 +661,7 @@ async def marketplace_search(
         {"new": [...], "total": int, "platforms_searched": [...]}
     """
     if platforms is None:
-        platforms = ["kleinanzeigen", "ebay", "web"]
+        platforms = ["kleinanzeigen", "ebay", "willhaben", "web"]
 
     # Falls PLZ im Query ist aber nicht als Parameter, extrahieren wir sie
     if not location:
@@ -591,6 +694,8 @@ async def marketplace_search(
             )
         if "ebay" in platforms:
             tasks.append(_search_ebay(session, query, max_price, max_results, location, radius_km))
+        if "willhaben" in platforms:
+            tasks.append(_search_willhaben(session, query, max_price, max_results, location, radius_km))
         if "web" in platforms:
             tasks.append(_search_web(session, query, min(max_results, 5)))
 
@@ -641,8 +746,8 @@ def format_results(results: dict, mode: str = "text") -> str:
     header += "─" * 50 + "\n"
 
     lines = [header]
-    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web"}
-    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐"}
+    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben"}
+    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹"}
 
     for i, item in enumerate(new[:10], 1):
         emoji = platform_emoji.get(item["platform"], "🔗")
@@ -679,7 +784,7 @@ def format_results_telegram(results: dict) -> str:
         lines[0] += f"(max. {results['max_price']:.0f} €)"
 
     for item in new[:10]:  # Max 10 pro Nachricht
-        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐"}.get(
+        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹"}.get(
             item["platform"], "🔗"
         )
         # Markdown-Titel bereinigen (Klammern eskapen)
