@@ -1,7 +1,7 @@
 # PICLAW_OS_RECONSTRUCTION_GUIDE
-# Format: Machine-readable AI reference | Lang: mixed | Version: 0.15.1
+# Format: Machine-readable AI reference | Lang: mixed | Version: 0.15.2
 # Purpose: Full project rebuild from zero without repeating known mistakes
-# Generated: 2026-03-26
+# Generated: 2026-03-27
 
 ---
 ## META
@@ -284,6 +284,20 @@ marketplace_tool:
   ebay_fetch: Scrapling → aiohttp → Tandem (cascade, Bot-Schutz)  ← NEW 0.15.1
   seen_file: /etc/piclaw/marketplace_seen.json
   regex: all patterns pre-compiled at module level (RE_CLEAN_PLZ etc.)
+
+  ebay_url_params:
+    location: _stpos=<PLZ>   # z.B. _stpos=21224
+    radius:   _sadis=<km>    # z.B. _sadis=20 (eBay unterstützt: 5,10,20,50,100,200)
+    WRONG: location/radius_km nicht an _search_ebay übergeben → 0 Ergebnisse
+
+  ebay_html_structure_2026:
+    # eBay hat HTML-Struktur Anfang 2026 geändert – alte Regex trifft nicht mehr!
+    WRONG_OLD: data-view="mi:1686" id="item123"  → s-item__title / s-item__price
+    RIGHT_NEW: data-view=mi:1686 data-listingid=123 → s-card__title / s-card__price
+    link_old:  href="https://www.ebay.de/itm/..."  (mit Anführungszeichen, www, .de)
+    link_new:  href=https://ebay.com/itm/...        (ohne Quotes, kein www, .com)
+    fix: links auf ebay.de normalisieren nach dem Parsen
+    filter: "Shop on eBay" AND "Anzeige" Items überspringen
 
 network_security_tool:
   file: piclaw/tools/network_security.py
