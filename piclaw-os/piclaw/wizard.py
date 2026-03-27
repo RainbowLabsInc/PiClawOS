@@ -548,10 +548,11 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
     elif provider == "2":
         default_url = getattr(cfg.llm, "base_url", "") or "http://localhost:11434"
         url = _prompt("Ollama-URL", default=default_url) or default_url
-        model = (
-            _prompt("Modell", default=getattr(cfg.llm, "model", "") or "llama3.2")
-            or "llama3.2"
-        )
+        # qwen2.5:3b: bestes Tool Calling in dieser Größe, ~2GB, Pi 5-tauglich
+        _cur = getattr(cfg.llm, "model", "") or ""
+        _cur_backend = getattr(cfg.llm, "backend", "")
+        _default_model = _cur if (_cur and _cur_backend == "ollama") else "qwen2.5:3b"
+        model = _prompt("Modell", default=_default_model) or _default_model
 
         _spinner("Ollama erreichbar?")
         ok, msg = _test_async(_validate_ollama(url, model))
@@ -560,7 +561,13 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
             _ok(f"Ollama OK: {FG_GRAY}{msg}{R}")
         else:
             _warn(f"Ollama nicht erreichbar: {msg}")
-            _info("Sicherstellen: ollama serve läuft auf dem Ziel-Host")
+            print()
+            _info("Ollama installieren und Modell laden:")
+            print(f"  {FG_GRAY}  curl -fsSL https://ollama.com/install.sh | sh{R}")
+            print(f"  {FG_GRAY}  ollama pull {model}{R}")
+            print(f"  {FG_GRAY}  (ollama läuft danach automatisch als Service){R}")
+            print()
+            _info("Config wird trotzdem gespeichert – Ollama kann später gestartet werden.")
 
         cfg.llm.backend = "ollama"
         cfg.llm.base_url = url
