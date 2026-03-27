@@ -253,8 +253,12 @@ class SubAgentRunner:
 
         # ── Notify via messaging hub ────────────────────────────────
         if agent.notify and self.notify and result:
-            header = f"🤖 **{agent.name}** [{status}]\n"
-            await self.notify(header + result[:1500])
+            # __NO_NEW_DEVICES__ ist ein internes Signal – keine Telegram-Nachricht senden
+            if result.strip() == "__NO_NEW_DEVICES__":
+                log.debug("Sub-agent '%s': keine neuen Geräte – kein Notify", agent.name)
+            else:
+                header = f"🤖 **{agent.name}** [{status}]\n"
+                await self.notify(header + result[:1500])
 
     async def _agentic_loop(self, agent: SubAgentDef) -> str:
         """

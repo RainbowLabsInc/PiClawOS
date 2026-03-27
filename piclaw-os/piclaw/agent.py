@@ -146,6 +146,15 @@ class Agent:
 
         _reg(net_mon.TOOL_DEFS, net_mon.build_handlers())
 
+        # Network Security tools (v0.17)
+        from piclaw.tools import network_security as net_sec
+        try:
+            _ha = getattr(self, "_ha_client", None)
+            _notify = getattr(self, "_telegram_send", None)
+            _reg(net_sec.TOOL_DEFS, net_sec.build_handlers(ha_client=_ha, notify_fn=_notify))
+        except Exception as _e:
+            log.debug("Network security tools not loaded: %s", _e)
+
         # Tandem Browser tools (v0.18)
         from piclaw.tools import tandem as tandem_mod
 
@@ -418,6 +427,73 @@ class Agent:
         task = AgentTask(user_input, history, on_token)
         await self._queue.put(task)
         return await task.future
+
+    def _detect_network_monitor_intent(self, text: str) -> bool:
+        """Erkennt natürliche Netzwerk-Monitoring-Anfragen."""
+        import re
+        t = re.sub(r"\[.*?\]", " ", text).lower()
+        monitor_kw = [
+            "überwach", "beobacht", "netzwerk", "network", "monitor",
+            "neues gerät", "neuen gerät", "fremdes gerät", "unbekannt",
+            "lan scan", "wlan scan", "nmap", "gerät im netz",
+            "sag mir wenn.*gerät", "benachrichtig.*gerät",
+            "wer ist im netz", "welche geräte", "neue verbindung",
+        ]
+        return any(k in t for k in monitor_kw)
+
+    async def _create_network_monitor_agent(self, interval_sec: int = 300) -> str:
+        """Erstellt einen Sub-Agenten der das Netzwerk auf neue Geräte überwacht."""
+        agent_name = "Monitor_Netzwerk"
+
+        existing = self.sa_registry.get(agent_name)
+        if existing:
+            return (
+                f"⚠️ Netzwerk-Monitor läuft bereits (ID: {existing.id}, "
+                f"schedule: {existing.schedule}).\n"
+                f"Zum Stoppen: 'Stopp den {agent_name}'"
+            )
+
+        interval_str = (
+            f"alle {interval_sec // 60} Minuten" if interval_sec < 3600
+            else "stündlich"
+        )
+
+        mission = (
+            "Du bist ein Netzwerk-Sicherheitsmonitor für PiClaw OS.\n\n"
+            "Deine Aufgabe: Ruf 'check_new_devices' auf.\n"
+            "- Werden neue/unbekannte Geräte gefunden → melde sie detailliert (IP, MAC, Hersteller)\n"
+            "- Werden KEINE neuen Geräte gefunden → sende KEINE Nachricht (notify=False implizit)\n\n"
+            "Format bei neuem Gerät:\n"
+            "🔍 Neues Gerät im Netzwerk!\n"
+            "  📍 IP: <ip>\n"
+            "  🔌 MAC: <mac>\n"
+            "  🏭 Hersteller: <vendor>\n"
+            "  💻 Hostname: <hostname>\n\n"
+            "Bewerte kurz ob das Gerät verdächtig wirkt (unbekannter Hersteller, seltsame IP etc.)."
+        )
+
+        agent_def = SubAgentDef(
+            name=agent_name,
+            description=f"Netzwerk-Monitoring: neue Geräte erkennen – {interval_str}",
+            mission=mission,
+            tools=["check_new_devices", "network_scan"],
+            schedule=f"interval:{interval_sec}",
+            notify=True,
+            created_by="mainagent",
+        )
+        agent_id = self.sa_registry.add(agent_def)
+
+        if self.sa_runner:
+            await self.sa_runner.start_agent(agent_id)
+            return (
+                f"✅ Netzwerk-Monitor gestartet!\n"
+                f"  🔍 Scannt {interval_str} nach neuen Geräten\n"
+                f"  📨 Neue/unbekannte Geräte → Telegram\n"
+                f"  🆔 Agent-ID: {agent_id}\n\n"
+                f"Beim ersten Scan werden alle aktuell verbundenen Geräte als 'bekannt' gespeichert.\n"
+                f"Danach wird nur bei neuen Geräten gemeldet."
+            )
+        return "❌ Sub-agent runner nicht bereit."
 
     def _detect_monitor_intent(self, text: str) -> dict | None:
         """Erkennt natürliche Monitoring-Anfragen wie 'Sag mir wenn ein Pi 5 auftaucht'."""
@@ -842,6 +918,24 @@ class Agent:
                 if handler:
                     log.info("Agent-Start-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
+
+        # Netzwerk-Monitor-Intent: "Überwache mein Netzwerk", "neue Geräte erkennen" etc.
+        if self._detect_network_monitor_intent(user_input):
+            import re as _re2
+            _t2 = user_input.lower()
+            # Intervall aus Text
+            _interval = 300  # default 5 Min
+            if any(k in _t2 for k in ["stündlich", "1 stunde", "60 min"]):
+                _interval = 3600
+            elif any(k in _t2 for k in ["10 min", "10min"]):
+                _interval = 600
+            elif any(k in _t2 for k in ["30 min", "30min"]):
+                _interval = 1800
+            _m = _re2.search(r"(\d+)\s*min", _t2)
+            if _m:
+                _interval = int(_m.group(1)) * 60
+            log.info("Netzwerk-Monitor-Intent erkannt, interval=%ds", _interval)
+            return await self._create_network_monitor_agent(_interval)
 
         # Monitoring-Intent: "Überwache X auf eBay", "Sag mir wenn..." → Sub-Agent erstellen
         monitor_kwargs = self._detect_monitor_intent(user_input)

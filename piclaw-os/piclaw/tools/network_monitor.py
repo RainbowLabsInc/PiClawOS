@@ -200,9 +200,32 @@ async def ping_host(host: str) -> bool:
 
 
 def build_handlers():
+    async def _check_new_devices_handler(**_) -> str:
+        devices = await check_new_devices()
+        if not devices:
+            return "__NO_NEW_DEVICES__"  # Signal für Sub-Agent: keine Meldung
+        lines = [f"🔍 {len(devices)} neues Gerät(e) im Netzwerk erkannt!\n"]
+        for d in devices:
+            lines.append(
+                f"  📍 IP: {d.ip}\n"
+                f"  🔌 MAC: {d.mac}\n"
+                f"  🏭 Hersteller: {d.vendor}\n"
+                f"  💻 Hostname: {d.hostname}\n"
+            )
+        return "\n".join(lines)
+
+    async def _network_scan_handler(range: str = "", **_) -> str:
+        devices = await scan_devices(range)
+        if not devices:
+            return "Keine Geräte gefunden."
+        lines = [f"🌐 {len(devices)} Geräte im Netzwerk:\n"]
+        for d in devices:
+            lines.append(f"  {d.ip:16} {d.mac:20} {d.vendor:25} {d.hostname}")
+        return "\n".join(lines)
+
     return {
-        "network_scan": lambda range="": scan_devices(range),
-        "port_scan": lambda ip, fast=True: port_scan(ip, fast),
-        "check_new_devices": lambda: check_new_devices(),
-        "ping_host": lambda host: ping_host(host),
+        "network_scan": _network_scan_handler,
+        "port_scan": lambda ip, fast=True, **_: port_scan(ip, fast),
+        "check_new_devices": _check_new_devices_handler,
+        "ping_host": lambda host, **_: ping_host(host),
     }
