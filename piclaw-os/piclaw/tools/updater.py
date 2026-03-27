@@ -76,16 +76,40 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
         log.info("PiClaw update via git pull...")
         results = []
 
-        # 1. git pull
+        # 0. .git/objects Permissions prüfen und ggf. reparieren
+        git_objects = INSTALL_DIR / ".git" / "objects"
+        if git_objects.exists():
+            import os, stat as _stat
+            st = git_objects.stat()
+            if st.st_uid != os.getuid():
+                rc_chown, _ = await _run(
+                    f"sudo chown -R {os.getlogin()}:{os.getlogin()} {INSTALL_DIR}/.git 2>&1"
+                )
+                if rc_chown == 0:
+                    results.append("🔧 .git Rechte repariert")
+
+        # 1. Lokale Änderungen stashen (verhindert 'overwritten by merge')
+        rc_stash, out_stash = await _run(
+            f"cd {INSTALL_DIR} && git stash 2>&1"
+        )
+        stashed = rc_stash == 0 and "No local changes" not in out_stash
+        if stashed and "Saved" in out_stash:
+            results.append("📦 Lokale Änderungen temporär gesichert (git stash)")
+
+        # 2. git pull
         rc, out = await _run(f"cd {INSTALL_DIR} && git pull origin main 2>&1")
-        # Hinweis: pip install -e zeigt auf piclaw-os/ – kein sync nötig
         results.append(f"git pull: {out[:200]}")
         if rc != 0:
+            # Stash wiederherstellen falls pull fehlschlägt
+            if stashed:
+                await _run(f"cd {INSTALL_DIR} && git stash pop 2>&1")
             return f"❌ git pull fehlgeschlagen:\n{out}"
         if "Already up to date" in out:
+            if stashed:
+                await _run(f"cd {INSTALL_DIR} && git stash pop 2>&1")
             return "✅ PiClaw ist bereits aktuell – kein Neustart nötig."
 
-        # 2. pip install -e . (nur wenn sich pyproject.toml geändert hat)
+        # 3. pip install -e . (nur wenn sich pyproject.toml geändert hat)
         rc2, out2 = await _run(
             f"cd {INSTALL_DIR} && git diff HEAD@{{1}} HEAD -- piclaw-os/pyproject.toml | grep -q '^[+-]' && "
             f"{VENV_PIP} install -e {INSTALL_DIR}/piclaw-os -q 2>&1 || echo 'dependencies unchanged'"
@@ -93,7 +117,7 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
         if out2 and "dependencies unchanged" not in out2:
             results.append(f"pip: {out2[:200]}")
 
-        # 3. sudo systemctl restart
+        # 4. sudo systemctl restart
         rc3, out3 = await _run("sudo systemctl restart piclaw-api piclaw-agent 2>&1")
         if rc3 == 0:
             results.append("✅ Services neu gestartet")
