@@ -45,3 +45,6 @@ piclaw-watchdog  = "piclaw.agents.watchdog:run"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["piclaw*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
