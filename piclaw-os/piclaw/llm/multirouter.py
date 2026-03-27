@@ -142,10 +142,9 @@ class MultiLLMRouter(LLMBackend):
         fast_llm = self._get_fastest_instance()
         self._classifier = TaskClassifier(llm_for_classification=fast_llm)
 
-        # Pre-warm local model nur wenn explizit als Backend konfiguriert
-        # (nicht als automatischer Hintergrund-Fallback)
-        if self.global_cfg and self.global_cfg.llm.backend == "local":
-            create_background_task(self._preload_local(), name="local-preload")
+        # Pre-warm local model im Hintergrund für schnellen Fallback
+        # (RAM ist auf Pi 5 ausreichend; Modell ist dann sofort bereit)
+        create_background_task(self._preload_local(), name="local-preload")
 
         self._boot_complete.set()
         backends = [b.name for b in self.registry.list_enabled()]
