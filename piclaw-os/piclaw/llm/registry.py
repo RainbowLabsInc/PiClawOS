@@ -91,6 +91,12 @@ class LLMRegistry:
 
     # ── CRUD ──────────────────────────────────────────────────────
 
+    def clear(self):
+        """Löscht alle Backends aus der Registry (z.B. nach Backend-Wechsel)."""
+        self._backends.clear()
+        self._save()
+        log.info("LLM Registry geleert")
+
     def add(self, cfg: BackendConfig) -> str:
         self._backends[cfg.name] = cfg
         self._save()
