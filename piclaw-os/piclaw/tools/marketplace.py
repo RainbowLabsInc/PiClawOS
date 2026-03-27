@@ -140,22 +140,27 @@ RE_KA_LOCATION = re.compile(
     r'<span[^>]*class="[^"]*aditem-main--top--left[^"]*"[^>]*>(.*?)</span>', re.DOTALL
 )
 
-# eBay Parsing
+# eBay Parsing (neue Struktur ab 2026: data-view=mi:1686 ohne Anführungszeichen, data-listingid)
 RE_EBAY_ITEMS_1 = re.compile(
-    r'<li[^>]+data-view="[^"]*mi:1686[^"]*"[^>]*id="item(\d+)"[^>]*>(.*?)</li>',
+    r'<li[^>]+data-view=mi:1686[^>]+data-listingid=(\d+)[^>]*>(.*?)</li>',
     re.DOTALL,
 )
 RE_EBAY_ITEMS_2 = re.compile(
-    r'<div[^>]+class="[^"]*s-item[^"]*"[^>]*>(.*?)</div>\s*</div>\s*</li>', re.DOTALL
+    r'<li[^>]+data-listingid=(\d+)[^>]*>(.*?)</li>',
+    re.DOTALL,
 )
-RE_EBAY_TITLE_1 = re.compile(r'<span[^>]+role="heading"[^>]*>(.*?)</span>', re.DOTALL)
+RE_EBAY_TITLE_1 = re.compile(
+    r'class=s-card__title[^>]*>.*?<span[^>]*>([^<]+)</span>', re.DOTALL
+)
 RE_EBAY_TITLE_2 = re.compile(
-    r'class="[^"]*s-item__title[^"]*"[^>]*>(.*?)</[^>]+>', re.DOTALL
+    r'class="[^"]*s-card__title[^"]*"[^>]*>.*?<span[^>]*>([^<]+)</span>', re.DOTALL
 )
 RE_EBAY_PRICE = re.compile(
-    r'class="[^"]*s-item__price[^"]*"[^>]*>(.*?)</span>', re.DOTALL
+    r's-card__price[^>]*>([^<]+)</span>', re.DOTALL
 )
-RE_EBAY_LINK = re.compile(r'href="(https://www\.ebay\.de/itm/[^"]+)"')
+RE_EBAY_LINK = re.compile(
+    r'href=(https://(?:www\.)?ebay\.(?:de|com)/itm/\S+?)(?:\s|>|\'|")'
+)
 
 # Web Parsing
 RE_WEB_HITS = re.compile(
@@ -424,13 +429,18 @@ async def _search_ebay(
         )
         return []
 
-    # eBay Artikel parsen
+    # eBay Artikel parsen (neue Struktur: data-listingid, s-card__title, s-card__price)
     items = RE_EBAY_ITEMS_1.findall(html)
     if not items:
         items = RE_EBAY_ITEMS_2.findall(html)
-        items = [(hashlib.md5(c.encode()).hexdigest()[:12], c) for c in items]
+    if not items:
+        log.warning("eBay: Kein Artikel-Muster gefunden – HTML-Struktur geändert?")
 
-    for item_id, content in items[:max_results]:
+    for item_id, content in items:
+        if len(results) >= max_results:
+            break
+
+        # Titel
         title_match = RE_EBAY_TITLE_1.search(content)
         if not title_match:
             title_match = RE_EBAY_TITLE_2.search(content)
@@ -439,9 +449,10 @@ async def _search_ebay(
             if title_match
             else ""
         )
-        if not title or "Shop on eBay" in title:
+        if not title or "Shop on eBay" in title or "Anzeige" in title:
             continue
 
+        # Preis
         price_match = RE_EBAY_PRICE.search(content)
         price_text = (
             " ".join(RE_HTML_TAGS.sub(" ", price_match.group(1)).split()).strip()
@@ -450,12 +461,14 @@ async def _search_ebay(
         )
         price = _parse_price(price_text)
 
+        # Link – eBay nutzt ebay.com/itm/ oder ebay.de/itm/ ohne Anführungszeichen
         link_match = RE_EBAY_LINK.search(content)
-        link = (
-            link_match.group(1).split("?")[0]
-            if link_match
-            else f"https://www.ebay.de/itm/{item_id}"
-        )
+        if link_match:
+            link = link_match.group(1).split("?")[0]
+            # Normalisieren auf ebay.de
+            link = link.replace("ebay.com/itm/", "ebay.de/itm/")
+        else:
+            link = f"https://www.ebay.de/itm/{item_id}"
 
         results.append(
             {
