@@ -117,6 +117,18 @@ class MultiLLMRouter(LLMBackend):
         """Initialize backends and classifier."""
         log.info("MultiLLMRouter booting…")
 
+        # Wenn das konfigurierte Backend nicht mit dem gespeicherten übereinstimmt
+        # (z.B. nach piclaw setup von openai → ollama), Registry zurücksetzen
+        if self.registry._backends:
+            configured_backend = self.global_cfg.llm.backend if self.global_cfg else None
+            registered_providers = {b.provider for b in self.registry.list_all()}
+            if configured_backend and configured_backend not in registered_providers:
+                log.info(
+                    "Backend-Wechsel erkannt (%s → %s) – Registry wird zurückgesetzt",
+                    registered_providers, configured_backend,
+                )
+                self.registry.clear()
+
         # Bootstrap registry from global config if empty
         self.registry.bootstrap_from_config(self.global_cfg)
         # Note: ensure_nemotron_backend() is NOT called automatically here.
@@ -172,6 +184,9 @@ class MultiLLMRouter(LLMBackend):
             if cfg.provider == "ollama" and not base_url:
                 kw["base_url"] = "http://localhost:11434/v1"
                 kw["api_key"] = kw["api_key"] or "ollama"
+            # Ollama braucht beim ersten Start länger (Modell laden) → großzügiger Timeout
+            if cfg.provider == "ollama":
+                kw["timeout"] = max(kw.get("timeout", 60), 120)
             instance = OpenAIBackend(**kw)
         elif cfg.provider == "local":
             instance = self._local
@@ -467,7 +482,11 @@ class MultiLLMRouter(LLMBackend):
                     except Exception as _e2:
                         log.warning("Next API backend also failed: %r", _e2)
                 # All APIs failed → local fallback with notice
-                yield "\n\n⚠️ Cloud-APIs nicht erreichbar – lokales Modell übernimmt…\n\n"
+                _primary_provider = cfg.provider if hasattr(cfg, "provider") else "api"
+                if _primary_provider == "ollama":
+                    yield "\n\n⚠️ Ollama antwortet nicht – Gemma 2B übernimmt (Ollama lädt noch?)\n\n"
+                else:
+                    yield "\n\n⚠️ Cloud-APIs nicht erreichbar – lokales Modell übernimmt…\n\n"
                 try:
                     async for token in self._local.stream_chat(messages):
                         yield token
