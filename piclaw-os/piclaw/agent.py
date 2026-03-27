@@ -813,6 +813,32 @@ class Agent:
                 log.info("Agent-Status-Shortcut ausgelöst")
                 return await handler()
 
+        # Agent-Stop/Start/Remove-Shortcut: "Stopp den Monitor_X", "Lösch den X" etc.
+        import re as _re
+        _stop_kw   = ["stopp", "stop", "beend", "pause", "halte an", "deaktiviere"]
+        _start_kw  = ["start", "starte", "aktiviere", "reaktiviere"]
+        _remove_kw = ["lösch", "entfern", "delete", "remove"]
+        _agent_name_match = _re.search(
+            r"\b(Monitor_\w+|SearchAssistant|[A-Z][a-zA-Z0-9_]{4,})\b", user_input
+        )
+        if _agent_name_match:
+            _agent_name = _agent_name_match.group(1)
+            if any(k in _t for k in _stop_kw):
+                handler = self._handlers.get("agent_stop")
+                if handler:
+                    log.info("Agent-Stop-Shortcut: %s", _agent_name)
+                    return await handler(name=_agent_name)
+            elif any(k in _t for k in _remove_kw):
+                handler = self._handlers.get("agent_remove")
+                if handler:
+                    log.info("Agent-Remove-Shortcut: %s", _agent_name)
+                    return await handler(name=_agent_name)
+            elif any(k in _t for k in _start_kw):
+                handler = self._handlers.get("agent_start")
+                if handler:
+                    log.info("Agent-Start-Shortcut: %s", _agent_name)
+                    return await handler(name=_agent_name)
+
         # Monitoring-Intent: "Überwache X auf eBay", "Sag mir wenn..." → Sub-Agent erstellen
         monitor_kwargs = self._detect_monitor_intent(user_input)
         if monitor_kwargs:
