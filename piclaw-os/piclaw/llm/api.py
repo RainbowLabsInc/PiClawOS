@@ -9,12 +9,13 @@ from .base import LLMBackend, ToolCall, LLMResponse
 
 # ── Bekannte Provider ──────────────────────────────────────────────
 # Format: key_prefix → (provider, base_url, default_model)
+# NIM: kein hardcodiertes Modell – wird live via /v1/models abgefragt
 _KNOWN_PROVIDERS_BY_PREFIX = {
     "sk-ant-": ("anthropic", "https://api.anthropic.com", "claude-sonnet-4-20250514"),
     "nvapi-": (
         "openai",
         "https://integrate.api.nvidia.com/v1",
-        "nvidia/llama-3.1-nemotron-70b-instruct",
+        None,  # wird live abgefragt
     ),
     "AIza": (
         "openai",
@@ -27,6 +28,46 @@ _KNOWN_PROVIDERS_BY_PREFIX = {
         "accounts/fireworks/models/llama-v3p1-70b-instruct",
     ),
 }
+
+# Bevorzugte NIM-Modelle (in dieser Reihenfolge, erstes verfügbares wird genutzt)
+_NIM_PREFERRED_MODELS = [
+    "moonshotai/kimi-k2-instruct-0905",
+    "deepseek-ai/deepseek-v3.2",
+    "deepseek-ai/deepseek-v3.1",
+    "deepseek-ai/deepseek-r1-distill-qwen-32b",
+    "meta/llama-3.1-70b-instruct",
+    "mistralai/mistral-large-2-instruct",
+    "nvidia/llama-3.1-nemotron-70b-instruct",
+]
+
+
+async def _detect_nim_model(api_key: str, base_url: str) -> str:
+    """Fragt NVIDIA NIM /v1/models ab und wählt das beste verfügbare Modell."""
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as r:
+                if r.status != 200:
+                    return _NIM_PREFERRED_MODELS[0]
+                data = await r.json()
+                available = {m["id"] for m in data.get("data", [])}
+                # Bevorzugtes Modell wählen
+                for model in _NIM_PREFERRED_MODELS:
+                    if model in available:
+                        return model
+                # Fallback: erstes verfügbares Chat-Modell
+                chat_models = [
+                    m["id"] for m in data.get("data", [])
+                    if "instruct" in m["id"].lower() or "chat" in m["id"].lower()
+                ]
+                if chat_models:
+                    return chat_models[0]
+    except Exception:
+        pass
+    return _NIM_PREFERRED_MODELS[0]
 
 # Provider die /v1/models unterstützen (OpenAI-kompatibel)
 _PROBE_ENDPOINTS = [
@@ -64,6 +105,9 @@ async def detect_provider_and_model(api_key: str) -> tuple[str, str, str]:
     # 1. Prefix-Erkennung (sofort, kein API-Call nötig)
     for prefix, (provider, base_url, model) in _KNOWN_PROVIDERS_BY_PREFIX.items():
         if api_key.startswith(prefix):
+            # NIM: Modell live abfragen statt hardcodiert
+            if model is None:
+                model = await _detect_nim_model(api_key, base_url)
             return provider, base_url, model
 
     # 2. API-Probe: /v1/models abfragen
