@@ -49,7 +49,6 @@ import asyncio
 import hashlib
 import hmac
 import logging
-from typing import Optional
 
 import aiohttp
 

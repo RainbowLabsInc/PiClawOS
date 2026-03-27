@@ -22,7 +22,6 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger("piclaw.hardware.pi_info")
 

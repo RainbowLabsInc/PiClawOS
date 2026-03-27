@@ -14,7 +14,6 @@ Known device database covers ~40 common hobby sensors and modules.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 log = logging.getLogger("piclaw.hardware.i2c_scan")
 

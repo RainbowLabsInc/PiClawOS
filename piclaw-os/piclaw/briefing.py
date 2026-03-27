@@ -17,7 +17,7 @@ Das Briefing wird vom LLM zu einer natürlichen Nachricht zusammengefasst.
 
 import asyncio
 import logging
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 from typing import Any
 
 _SECS_PER_DAY = 86_400  # Sekunden pro Tag

@@ -24,7 +24,6 @@ import logging
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from typing import Optional
 
 from piclaw.config import CONFIG_DIR
 

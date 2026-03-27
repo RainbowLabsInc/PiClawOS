@@ -30,7 +30,7 @@ import shutil
 import tarfile
 import tempfile
 import time
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import NamedTuple
 
