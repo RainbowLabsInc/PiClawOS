@@ -143,17 +143,7 @@ class Agent:
 
         # Network Monitor tools (v0.15)
         from piclaw.tools import network_monitor as net_mon
-
         _reg(net_mon.TOOL_DEFS, net_mon.build_handlers())
-
-        # Network Security tools (v0.17)
-        from piclaw.tools import network_security as net_sec
-        try:
-            _ha = getattr(self, "_ha_client", None)
-            _notify = getattr(self, "_telegram_send", None)
-            _reg(net_sec.TOOL_DEFS, net_sec.build_handlers(ha_client=_ha, notify_fn=_notify))
-        except Exception as _e:
-            log.debug("Network security tools not loaded: %s", _e)
 
         # Tandem Browser tools (v0.18)
         from piclaw.tools import tandem as tandem_mod
@@ -189,6 +179,17 @@ class Agent:
             }
             _reg(ha_tool_defs, ha_handlers)
             log.info("Home Assistant tools registered (%d)", len(ha_tool_defs))
+
+        # Network Security tools – nach HA registrieren damit ha_client verfügbar ist
+        from piclaw.tools import network_security as net_sec
+        try:
+            _reg(net_sec.TOOL_DEFS, net_sec.build_handlers(
+                ha_client=self._ha_client,
+                notify_fn=self._telegram_send,
+            ))
+            log.info("Network security tools registered")
+        except Exception as _e:
+            log.debug("Network security tools not loaded: %s", _e)
 
         # Routinen-Tools werden lazy registriert (ProactiveRunner startet nach __init__)
         # Siehe: _register_late_tools() wird vor dem ersten run() aufgerufen
