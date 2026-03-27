@@ -199,7 +199,7 @@
       <div class="stat-card">
         <div class="stat-label">Version</div>
         <div class="stat-value" style="font-size:16px" id="version-val">—</div>
-        <div class="stat-sub" id="agent-val">—</div>
+        <div class="stat-sub" id="agent-val">PiClaw</div>
       </div>
     </div>
     <div>
@@ -598,7 +598,8 @@ async function refreshStats(){
     val('mem-val',d.memory.percent.toFixed(0)+'%');val('mem-sub',`${d.memory.used_mb}/${d.memory.total_mb} MB`);setBar('mem-bar',d.memory.percent);
     val('disk-val',d.disk.percent.toFixed(0)+'%');val('disk-sub',`${d.disk.used_gb}/${d.disk.total_gb} GB`);setBar('disk-bar',d.disk.percent);
     val('uptime-val',d.uptime);val('hostname-val',d.hostname);val('ip-val',d.ip);val('llm-val',d.llm);
-    val('version-val','v'+(d.version||'?'));val('agent-val',d.agent||'PiClaw');
+    val('version-val', 'v'+(d.version||'?'));
+    val('agent-val', d.agent||'PiClaw');
   }catch(e){}
 }
 async function refreshServices(){
