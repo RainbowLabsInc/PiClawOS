@@ -41,13 +41,13 @@ _KNOWN_PROVIDERS_BY_PREFIX = {
 
 # Bevorzugte NIM-Modelle (in dieser Reihenfolge, erstes verfügbares wird genutzt)
 _NIM_PREFERRED_MODELS = [
-    "moonshotai/kimi-k2-instruct-0905",
-    "deepseek-ai/deepseek-v3.2",
-    "deepseek-ai/deepseek-v3.1",
-    "deepseek-ai/deepseek-r1-distill-qwen-32b",
-    "meta/llama-3.1-70b-instruct",
-    "mistralai/mistral-large-2-instruct",
+    "meta/llama-3.3-70b-instruct",          # bestes Tool Calling auf NIM
+    "mistralai/mistral-large-2-instruct",    # sehr gut, Tool Calling
+    "mistralai/mistral-large-3-675b-instruct-2512",
     "nvidia/llama-3.1-nemotron-70b-instruct",
+    "meta/llama-3.1-70b-instruct",
+    "qwen/qwen2.5-7b-instruct",
+    "meta/llama-3.1-8b-instruct",           # kleinstes Fallback
 ]
 
 
