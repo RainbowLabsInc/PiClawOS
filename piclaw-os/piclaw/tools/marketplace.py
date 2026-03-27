@@ -494,84 +494,101 @@ async def _search_willhaben(
     location: str | None = None,
     radius_km: int | None = None,
 ) -> list[dict]:
-    """Sucht auf willhaben.at via JSON-API."""
+    """Sucht auf willhaben.at via JSON-API (mit Session-Cookie)."""
     results = []
 
-    # Willhaben JSON-API (öffentlich, kein Key nötig)
-    params = {
-        "keyword": query,
-        "rows": str(max_results),
-        "isNavigation": "false",
-    }
-    if max_price:
-        params["PRICE_TO"] = str(int(max_price))
-    # Österreich-PLZ → location text (willhaben hat keine PLZ-Suche via API)
-    # Stattdessen: keyword + Ortsname wenn location angegeben
-    if location:
-        params["areaId"] = location  # wird ignoriert wenn keine AT-PLZ
-
-    url = "https://www.willhaben.at/webapi/iad/search/atz/seo/kaufen-und-verkaufen/marktplatz"
-
-    headers = {
+    WH_HEADERS = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
+            "Chrome/146.0.0.0 Safari/537.36"
         ),
         "Accept": "application/json",
         "Accept-Language": "de-AT,de;q=0.9",
-        "x-wh-client": "appId=143;platform=web;version=30.3.0",
-        "Referer": "https://www.willhaben.at/",
+        "x-wh-client": "api@willhaben.at;responsive_web;server;1.0.0;desktop",
+        "Referer": "https://www.willhaben.at/iad/kaufen-und-verkaufen",
+        "DNT": "1",
     }
 
+    # Schritt 1: Session-Cookie holen (ohne Cookie → HTTP 500)
     try:
-        async with session.get(
-            url,
-            params=params,
-            headers=headers,
-            timeout=aiohttp.ClientTimeout(total=20),
-        ) as resp:
-            if resp.status != 200:
-                log.debug("Willhaben HTTP %s", resp.status)
+        async with aiohttp.ClientSession() as wh_session:
+            try:
+                async with wh_session.get(
+                    "https://www.willhaben.at/iad/kaufen-und-verkaufen",
+                    headers={"User-Agent": WH_HEADERS["User-Agent"]},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    log.debug("Willhaben Cookie-Fetch: HTTP %s", resp.status)
+            except Exception as e:
+                log.debug("Willhaben Cookie-Fetch Fehler: %s", e)
+
+            # Schritt 2: API-Aufruf mit Session (Cookies werden automatisch mitgeschickt)
+            params = {
+                "keyword": query,
+                "rows": str(max_results),
+                "isNavigation": "true",
+                "sort": "1",  # Neueste zuerst
+            }
+            if max_price:
+                params["PRICE_TO"] = str(int(max_price))
+            # Willhaben nutzt areaId für Bundesland-Filter (keine PLZ-Suche)
+            # Österreich-weit ist der Default (kein areaId nötig)
+
+            url = "https://www.willhaben.at/webapi/iad/search/atz/seo/kaufen-und-verkaufen/marktplatz"
+
+            try:
+                async with wh_session.get(
+                    url,
+                    params=params,
+                    headers=WH_HEADERS,
+                    timeout=aiohttp.ClientTimeout(total=20),
+                ) as resp:
+                    if resp.status != 200:
+                        log.debug("Willhaben API HTTP %s", resp.status)
+                        return []
+                    data = await resp.json(content_type=None)
+            except Exception as e:
+                log.debug("Willhaben API Fehler: %s", e)
                 return []
-            data = await resp.json(content_type=None)
     except Exception as e:
-        log.debug("Willhaben Fehler: %s", e)
+        log.debug("Willhaben Session Fehler: %s", e)
         return []
 
-    # JSON-Struktur: advertSummaryList.advertSummary[]
-    # Jedes Item hat attributes.attribute[] mit name/values
-    adverts = (
-        data.get("advertSummaryList", {}).get("advertSummary", [])
-        or data.get("advertSummaryList", {}).get("advertSummaryList", {}).get("advertSummary", [])
-    )
+    # JSON parsen: advertSummaryList.advertSummary[]
+    adverts = data.get("advertSummaryList", {}).get("advertSummary", [])
 
     def _attr(item: dict, name: str) -> str:
-        """Hilfsfunktion: Attribut aus willhaben-Item extrahieren."""
         for a in item.get("attributes", {}).get("attribute", []):
             if a.get("name") == name:
                 vals = a.get("values", [])
                 return vals[0] if vals else ""
         return ""
 
-    for item in adverts[:max_results]:
+    for item in adverts:
+        if len(results) >= max_results:
+            break
+
         item_id = str(item.get("id", ""))
         if not item_id:
             continue
 
-        title = _attr(item, "HEADING") or item.get("description", "")
+        title = _attr(item, "HEADING")
         price_text = _attr(item, "PRICE_FOR_DISPLAY") or _attr(item, "PRICE")
-        location_text = _attr(item, "LOCATION") or _attr(item, "ADDRESS")
+        location_text = _attr(item, "LOCATION")
+        seo_url = _attr(item, "SEO_URL")
         price = _parse_price(price_text)
 
-        # Preis-Filter clientseitig (API-Filter nicht immer zuverlässig)
         if max_price and price and price > max_price:
             continue
-
-        link = f"https://www.willhaben.at/iad/kaufen-und-verkaufen/d/{item_id}"
-
         if not title:
             continue
+
+        # Link aus SEO_URL oder Fallback
+        if seo_url:
+            link = f"https://www.willhaben.at/iad/{seo_url.lstrip('/')}"
+        else:
+            link = f"https://www.willhaben.at/iad/kaufen-und-verkaufen/d/{item_id}"
 
         results.append(
             {
