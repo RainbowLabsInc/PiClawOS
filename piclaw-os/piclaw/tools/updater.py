@@ -77,30 +77,40 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
         results = []
 
         # 0. .git/objects Permissions prüfen und ggf. reparieren
+        import os as _os
         git_objects = INSTALL_DIR / ".git" / "objects"
         if git_objects.exists():
-            import os, stat as _stat
-            st = git_objects.stat()
-            if st.st_uid != os.getuid():
-                rc_chown, _ = await _run(
-                    f"sudo chown -R {os.getlogin()}:{os.getlogin()} {INSTALL_DIR}/.git 2>&1"
-                )
-                if rc_chown == 0:
-                    results.append("🔧 .git Rechte repariert")
+            try:
+                st = git_objects.stat()
+                if st.st_uid != _os.getuid():
+                    # getlogin() schlägt in nicht-interaktiven Contexts fehl → pwd nutzen
+                    import pwd as _pwd
+                    uname = _pwd.getpwuid(_os.getuid()).pw_name
+                    rc_chown, _ = await _run(
+                        f"sudo chown -R {uname}:{uname} {INSTALL_DIR}/.git 2>&1"
+                    )
+                    if rc_chown == 0:
+                        results.append("🔧 .git Rechte repariert")
+            except Exception as _e:
+                log.debug("git objects chown check: %s", _e)
 
         # 1. Lokale Änderungen stashen (verhindert 'overwritten by merge')
         rc_stash, out_stash = await _run(
             f"cd {INSTALL_DIR} && git stash 2>&1"
         )
-        stashed = rc_stash == 0 and "No local changes" not in out_stash
-        if stashed and "Saved" in out_stash:
+        stashed = rc_stash == 0 and "Saved" in out_stash
+        if stashed:
             results.append("📦 Lokale Änderungen temporär gesichert (git stash)")
+        elif rc_stash != 0:
+            # Stash fehlgeschlagen → tracked files hart zurücksetzen
+            log.warning("git stash failed (%s), force-resetting tracked files", out_stash[:80])
+            await _run(f"cd {INSTALL_DIR} && git checkout -- . 2>&1")
+            results.append("🔧 Lokale Änderungen zurückgesetzt (git checkout --)")
 
         # 2. git pull
         rc, out = await _run(f"cd {INSTALL_DIR} && git pull origin main 2>&1")
         results.append(f"git pull: {out[:200]}")
         if rc != 0:
-            # Stash wiederherstellen falls pull fehlschlägt
             if stashed:
                 await _run(f"cd {INSTALL_DIR} && git stash pop 2>&1")
             return f"❌ git pull fehlgeschlagen:\n{out}"
