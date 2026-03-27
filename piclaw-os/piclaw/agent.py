@@ -428,7 +428,7 @@ class Agent:
         monitor_kw = [
             "überwach", "beobacht", "benachrichtig", "informier", "meld",
             "sag mir wenn", "sag bescheid", "schick mir", "check regelmäßig",
-            "halte ausschau", "halte die augen offen", "wach auf",
+            "halte ausschau", "halte die augen offen",
             "alert", "monitor", "watch", "notify", "wenn.*auftaucht",
             "sobald.*verfügbar", "falls.*angebot", "wenn.*inserat",
             "wenn.*neu", "stündlich", "regelmäßig", "automatisch",
@@ -443,7 +443,7 @@ class Agent:
         if not any(k in t for k in market_kw):
             return None
 
-        # Interval aus Text extrahieren (default 1h)
+        # Intervall aus Text extrahieren (default 1h)
         interval_sec = 3600
         if any(k in t for k in ["30 min", "30min", "halbstündlich"]):
             interval_sec = 1800
@@ -465,8 +465,21 @@ class Agent:
         if not platforms:
             platforms = ["kleinanzeigen", "ebay"]
 
-        # PLZ + Radius + Preis aus detect_marketplace_intent wiederverwenden
-        mp = self._detect_marketplace_intent(text)
+        # Query: Monitoring-Keywords + Rauschen VOR _detect_marketplace_intent entfernen
+        clean_text = text
+        for phrase in [
+            "beobachte ob es", "beobachte ob", "schau ob es", "schau ob",
+            "sag mir wenn", "sag bescheid wenn", "benachrichtige mich",
+            "informiere mich", "überwache", "beobachte", "monitor",
+            "halte ausschau", "check regelmäßig", "automatisch",
+            "stündlich", "regelmäßig", "neue gibt", "neue auftauchen",
+            "neue inserate", "neue angebote", "neues gibt", "gibt es neue",
+            "gibt es", "ob es", "ob neue", "neue für", "nach neuen",
+        ]:
+            clean_text = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", clean_text)
+        clean_text = re.sub(r"\s+", " ", clean_text).strip()
+
+        mp = self._detect_marketplace_intent(clean_text)
         if not mp or not mp.get("query"):
             return None
 
@@ -501,8 +514,9 @@ class Agent:
             else f"alle {interval_sec // 3600} Stunden"
         )
 
-        # Agent-Name eindeutig (verhindert Duplikate)
-        safe_name = re.sub(r"[^a-zA-Z0-9]", "", query.title().replace(" ", ""))[:20]
+        # Agent-Name: nur erste 2 Wörter der Query (verhindert hässliche Langnamen)
+        name_words = query.split()[:2]
+        safe_name = re.sub(r"[^a-zA-Z0-9]", "", " ".join(name_words).title().replace(" ", ""))[:20]
         agent_name = f"Monitor_{safe_name}"
 
         # Prüfen ob schon einer läuft
@@ -783,6 +797,21 @@ class Agent:
         if history:
             messages.extend(history[-20:])
         messages.append(Message(role="user", content=user_input))
+
+        # Agent-Status-Shortcut: "zeig Agenten", "welche Jobs laufen" etc.
+        _t = user_input.lower()
+        _agent_status_kw = [
+            "zeig", "liste", "welche", "was", "status", "laufende", "aktive",
+            "alle", "show", "list", "running",
+        ]
+        _agent_noun_kw = [
+            "agent", "job", "monitor", "subagent", "sub-agent", "task", "aufgabe",
+        ]
+        if any(k in _t for k in _agent_status_kw) and any(k in _t for k in _agent_noun_kw):
+            handler = self._handlers.get("agent_list")
+            if handler:
+                log.info("Agent-Status-Shortcut ausgelöst")
+                return await handler()
 
         # Monitoring-Intent: "Überwache X auf eBay", "Sag mir wenn..." → Sub-Agent erstellen
         monitor_kwargs = self._detect_monitor_intent(user_input)
