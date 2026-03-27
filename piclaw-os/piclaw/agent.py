@@ -419,6 +419,146 @@ class Agent:
         await self._queue.put(task)
         return await task.future
 
+    def _detect_monitor_intent(self, text: str) -> dict | None:
+        """Erkennt natürliche Monitoring-Anfragen wie 'Sag mir wenn ein Pi 5 auftaucht'."""
+        import re
+
+        t = re.sub(r"\[.*?\]", " ", text).lower()
+
+        monitor_kw = [
+            "überwach", "beobacht", "benachrichtig", "informier", "meld",
+            "sag mir wenn", "sag bescheid", "schick mir", "check regelmäßig",
+            "halte ausschau", "halte die augen offen", "wach auf",
+            "alert", "monitor", "watch", "notify", "wenn.*auftaucht",
+            "sobald.*verfügbar", "falls.*angebot", "wenn.*inserat",
+            "wenn.*neu", "stündlich", "regelmäßig", "automatisch",
+        ]
+        market_kw = [
+            "kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
+            "marktplatz", "gebraucht", "preis", "euro", "angebot",
+        ]
+
+        if not any(k in t for k in monitor_kw):
+            return None
+        if not any(k in t for k in market_kw):
+            return None
+
+        # Interval aus Text extrahieren (default 1h)
+        interval_sec = 3600
+        if any(k in t for k in ["30 min", "30min", "halbstündlich"]):
+            interval_sec = 1800
+        elif any(k in t for k in ["15 min", "15min"]):
+            interval_sec = 900
+        elif any(k in t for k in ["2 stund", "2h", "alle zwei"]):
+            interval_sec = 7200
+        elif any(k in t for k in ["täglich", "einmal am tag", "24h"]):
+            interval_sec = 86400
+
+        # Plattform
+        platforms = []
+        if any(k in t for k in ["kleinanzeigen", "kleinanzeigen.de"]):
+            platforms.append("kleinanzeigen")
+        if "ebay" in t and "kleinanzeigen" not in t:
+            platforms.append("ebay")
+        if "web" in t or "internet" in t:
+            platforms.append("web")
+        if not platforms:
+            platforms = ["kleinanzeigen", "ebay"]
+
+        # PLZ + Radius + Preis aus detect_marketplace_intent wiederverwenden
+        mp = self._detect_marketplace_intent(text)
+        if not mp or not mp.get("query"):
+            return None
+
+        return {
+            "query": mp["query"],
+            "platforms": platforms,
+            "location": mp.get("location"),
+            "radius_km": mp.get("radius_km"),
+            "max_price": mp.get("max_price"),
+            "interval_sec": interval_sec,
+        }
+
+    async def _create_monitor_agent(self, params: dict) -> str:
+        """Erstellt einen Monitoring-Sub-Agenten für stündliche Marktplatz-Suche."""
+        import re, json
+
+        query = params["query"]
+        platforms = params.get("platforms", ["kleinanzeigen", "ebay"])
+        location = params.get("location", "")
+        radius_km = params.get("radius_km")
+        max_price = params.get("max_price")
+        interval_sec = params.get("interval_sec", 3600)
+
+        # Menschenlesbare Beschreibung
+        plat_str = " + ".join(p.capitalize() for p in platforms)
+        loc_str = f" um {location}" if location else ""
+        rad_str = f" ({radius_km}km Umkreis)" if radius_km else ""
+        price_str = f", max. {max_price:.0f}€" if max_price else ""
+        interval_str = (
+            "stündlich" if interval_sec == 3600
+            else f"alle {interval_sec // 60} Minuten" if interval_sec < 3600
+            else f"alle {interval_sec // 3600} Stunden"
+        )
+
+        # Agent-Name eindeutig (verhindert Duplikate)
+        safe_name = re.sub(r"[^a-zA-Z0-9]", "", query.title().replace(" ", ""))[:20]
+        agent_name = f"Monitor_{safe_name}"
+
+        # Prüfen ob schon einer läuft
+        existing = self.sa_registry.get(agent_name)
+        if existing:
+            return (
+                f"⚠️ Es läuft bereits ein Monitoring-Agent für '{query}' "
+                f"(ID: {existing.id}, schedule: {existing.schedule}).\n"
+                f"Zum Ändern: 'Stopp den {agent_name}' oder 'Lösch den {agent_name}'."
+            )
+
+        # Mission-Prompt – Agent ruft marketplace_search direkt auf
+        tool_call_params = {
+            "query": query,
+            "platforms": platforms,
+            "notify_all": False,  # NUR neue Inserate melden
+        }
+        if location:
+            tool_call_params["location"] = location
+        if radius_km:
+            tool_call_params["radius_km"] = radius_km
+        if max_price:
+            tool_call_params["max_price"] = max_price
+
+        mission = (
+            f"Du bist ein Marktplatz-Monitor. Suche {interval_str} nach neuen Inseraten.\n\n"
+            f"Ruf marketplace_search auf mit diesen Parametern:\n"
+            f"{json.dumps(tool_call_params, ensure_ascii=False, indent=2)}\n\n"
+            f"WICHTIG: notify_all=False – nur NEUE Inserate melden, keine Wiederholungen.\n"
+            f"Falls keine neuen Inserate gefunden wurden, sende KEINE Nachricht.\n"
+            f"Falls neue Inserate gefunden wurden, formatiere sie übersichtlich."
+        )
+
+        agent_def = SubAgentDef(
+            name=agent_name,
+            description=f"Monitoring {plat_str}: '{query}'{loc_str}{rad_str}{price_str} – {interval_str}",
+            mission=mission,
+            tools=["marketplace_search"],
+            schedule=f"interval:{interval_sec}",
+            notify=True,   # Ergebnis → MessagingHub → Telegram
+            created_by="mainagent",
+        )
+        agent_id = self.sa_registry.add(agent_def)
+
+        if self.sa_runner:
+            await self.sa_runner.start_agent(agent_id)
+            return (
+                f"✅ Monitoring gestartet!\n"
+                f"  🔍 Suche: '{query}' auf {plat_str}{loc_str}{rad_str}{price_str}\n"
+                f"  ⏱ Intervall: {interval_str}\n"
+                f"  📨 Neue Inserate → Telegram\n"
+                f"  🆔 Agent-ID: {agent_id}\n\n"
+                f"Ich melde mich sobald etwas Neues auftaucht!"
+            )
+        return "❌ Sub-agent runner nicht bereit."
+
     def _detect_marketplace_intent(self, text: str) -> dict | None:
         """Detect marketplace search intent and extract parameters directly."""
         import re
@@ -643,6 +783,12 @@ class Agent:
         if history:
             messages.extend(history[-20:])
         messages.append(Message(role="user", content=user_input))
+
+        # Monitoring-Intent: "Überwache X auf eBay", "Sag mir wenn..." → Sub-Agent erstellen
+        monitor_kwargs = self._detect_monitor_intent(user_input)
+        if monitor_kwargs:
+            log.info("Monitor intent detected: %s", monitor_kwargs)
+            return await self._create_monitor_agent(monitor_kwargs)
 
         # Marketplace intent shortcut — call tool directly without relying on LLM tool-calling
         # This bypasses the Kimi K2 tool-calling reliability issue
