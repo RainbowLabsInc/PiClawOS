@@ -239,6 +239,12 @@ class SubAgentRunner:
 
         self.registry.mark_run(agent.id, status)
 
+        # ── Auto-cleanup einmaliger Agenten ────────────────────────
+        # once-Agenten und SearchAssistant werden nach Abschluss automatisch entfernt
+        if agent.schedule == "once" or agent.name.startswith("SearchAssistant"):
+            self.registry.remove(agent.id)
+            log.info("Sub-agent '%s' (once) after run removed from registry", agent.name)
+
         # ── Write result to memory so mainagent can recall it ──────
         if self.memory_log and result:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
