@@ -112,10 +112,10 @@ Auto-Detect für 6 LLM-Provider. `piclaw update` und `piclaw debug` operativ.
 
 | # | Problem | Priorität |
 |---|---------|-----------|
-| T1 | llama.cpp verbose Output | Medium |
+| ~~T1~~ | ~~llama.cpp verbose Output~~ | ~~Medium~~ ✅ |
 | T2 | piclaw update braucht GitHub Token | Medium |
-| T3 | Dashboard zeigt noch v0.9 | Low |
-| T4 | boot/ pyproject.toml nicht sync | Low |
+| ~~T3~~ | ~~Dashboard zeigt noch v0.9~~ | ~~Low~~ ✅ |
+| ~~T4~~ | ~~boot/ pyproject.toml nicht sync~~ | ~~Low~~ ✅ |
 
 ---
 
