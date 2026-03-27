@@ -368,13 +368,17 @@ class OpenAIBackend(LLMBackend):
                 }
                 for t in tools
             ]
-            # NVIDIA NIM / Kimi K2:
-            # 'required' fuehrt bei Llama 3.1 NIM zu Error 400
-            # 'auto' fuehrt in neueren Versionen auch zu Fehler 400 (requires --enable-auto-tool-choice and --tool-call-parser)
-            # Daher: komplett weglassen fuer NIM.
+            # NVIDIA NIM Tool-Calling:
+            # - Kimi K2 / Llama 3.1: kein tool_choice (Error 400)
+            # - Llama 3.3 70B: tool_choice=auto funktioniert
             if self._no_tool_choice:
-                payload["parallel_tool_calls"] = False
-                # tool_choice wird NICHT gesetzt – Server entscheidet selbst
+                _model = getattr(self, "model", "")
+                if "llama-3.3" in _model or "llama3.3" in _model:
+                    payload["tool_choice"] = "auto"
+                    payload["parallel_tool_calls"] = False
+                else:
+                    payload["parallel_tool_calls"] = False
+                    # tool_choice wird NICHT gesetzt – Server entscheidet selbst
             else:
                 payload["tool_choice"] = "auto"
         async with aiohttp.ClientSession(timeout=self.timeout) as s:
