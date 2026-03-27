@@ -511,7 +511,7 @@ class Agent:
             "wenn.*neu", "stündlich", "regelmäßig", "automatisch",
         ]
         market_kw = [
-            "kleinanzeigen", "ebay", "inserat", "anzeige", "kaufen",
+            "kleinanzeigen", "ebay", "willhaben", "inserat", "anzeige", "kaufen",
             "marktplatz", "gebraucht", "preis", "euro", "angebot",
         ]
 
@@ -679,6 +679,7 @@ class Agent:
         market_kw = [
             "kleinanzeigen",
             "ebay",
+            "willhaben",
             "inserat",
             "anzeige",
             "kaufen",
@@ -960,9 +961,13 @@ class Agent:
         if mp_kwargs:
             log.info("Marketplace intent detected: %s", mp_kwargs)
 
-            # If we have a clear query AND location/radius, execute directly
+            # Direkt ausführen wenn: query + (location/radius ODER spezifische Plattform genannt)
+            _specific_platform = any(
+                p in user_input.lower()
+                for p in ["willhaben", "kleinanzeigen", "ebay"]
+            )
             if mp_kwargs.get("query") and (
-                mp_kwargs.get("location") or mp_kwargs.get("radius_km")
+                mp_kwargs.get("location") or mp_kwargs.get("radius_km") or _specific_platform
             ):
                 log.info("Executing marketplace shortcut for: '%s'", mp_kwargs["query"])
                 handler = self._handlers.get("marketplace_search")
