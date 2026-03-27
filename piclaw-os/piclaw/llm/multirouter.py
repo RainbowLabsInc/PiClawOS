@@ -142,8 +142,10 @@ class MultiLLMRouter(LLMBackend):
         fast_llm = self._get_fastest_instance()
         self._classifier = TaskClassifier(llm_for_classification=fast_llm)
 
-        # Pre-warm local model in background
-        create_background_task(self._preload_local(), name="local-preload")
+        # Pre-warm local model nur wenn explizit als Backend konfiguriert
+        # (nicht als automatischer Hintergrund-Fallback)
+        if self.global_cfg and self.global_cfg.llm.backend == "local":
+            create_background_task(self._preload_local(), name="local-preload")
 
         self._boot_complete.set()
         backends = [b.name for b in self.registry.list_enabled()]
@@ -306,19 +308,19 @@ class MultiLLMRouter(LLMBackend):
         if all_enabled:
             return all_enabled[0], classification
 
-        # Kein Backend in Registry → lokales Modell direkt als Fallback
-        if self._local.model_path.exists():
-            log.warning("Keine Backends konfiguriert – nutze lokales Modell direkt")
-            # Dummy-BackendConfig für lokales Modell
-            local_cfg = BackendConfig(
-                name="local-fallback",
-                provider="local",
-                model=str(self._local.model_path),
-                api_key="",
-                tags=["general"],
-                priority=1,
-            )
-            return local_cfg, classification
+        # Kein Backend in Registry → lokales Modell nur wenn explizit konfiguriert
+        if self.global_cfg and self.global_cfg.llm.backend == "local":
+            if self._local.model_path.exists():
+                log.warning("Keine Backends konfiguriert – nutze lokales Modell direkt")
+                local_cfg = BackendConfig(
+                    name="local-fallback",
+                    provider="local",
+                    model=str(self._local.model_path),
+                    api_key="",
+                    tags=["general"],
+                    priority=1,
+                )
+                return local_cfg, classification
 
         raise RuntimeError("No LLM backends configured or available.")
 
@@ -482,8 +484,15 @@ class MultiLLMRouter(LLMBackend):
                         return
                     except Exception as _e2:
                         log.warning("Next API backend also failed: %r", _e2)
-                # All APIs failed → local fallback with notice
+                # All APIs failed → lokaler Fallback nur wenn explizit konfiguriert
                 _primary_provider = cfg.provider if hasattr(cfg, "provider") else "api"
+                _local_configured = (
+                    self.global_cfg and
+                    self.global_cfg.llm.backend in ("local", "ollama")
+                )
+                if not _local_configured:
+                    yield "\n\n⚠️ Cloud-APIs nicht erreichbar. Bitte API-Key prüfen: piclaw setup\n\n"
+                    return
                 if _primary_provider == "ollama":
                     yield "\n\n⚠️ Ollama antwortet nicht – Gemma 2B übernimmt (Ollama lädt noch?)\n\n"
                 else:
