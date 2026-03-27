@@ -399,6 +399,8 @@ async def _search_ebay(
     query: str,
     max_price: float | None = None,
     max_results: int = 10,
+    location: str | None = None,
+    radius_km: int | None = None,
 ) -> list[dict]:
     """Sucht auf eBay.de – nutzt Scrapling → aiohttp → Tandem Kaskade."""
     results = []
@@ -407,7 +409,14 @@ async def _search_ebay(
     url = f"https://www.ebay.de/sch/i.html?_nkw={q}&_sop=15"
     if max_price:
         url += f"&_udhi={int(max_price)}"
+    # PLZ-basierte Umkreissuche: _stpos=PLZ, _sadis=Radius in km
+    if location:
+        url += f"&_stpos={quote_plus(location)}"
+        # eBay unterstützt: 5, 10, 20, 50, 100, 200 km
+        if radius_km:
+            url += f"&_sadis={int(radius_km)}"
 
+    log.info("eBay URL: %s", url)
     html = await _fetch_ebay_html(url)
     if not html:
         log.warning(
@@ -568,7 +577,7 @@ async def marketplace_search(
                 )
             )
         if "ebay" in platforms:
-            tasks.append(_search_ebay(session, query, max_price, max_results))
+            tasks.append(_search_ebay(session, query, max_price, max_results, location, radius_km))
         if "web" in platforms:
             tasks.append(_search_web(session, query, min(max_results, 5)))
 
