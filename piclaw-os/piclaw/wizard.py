@@ -367,9 +367,18 @@ class WizardState:
 def step_welcome(state: WizardState) -> None:
     """Willkommensbildschirm."""
     border = _sym("━", "=") * min(54, TERMINAL_WIDTH - 4)
+
+    # Dynamischer Titel: frische Installation vs. Re-run
+    cfg = state.cfg
+    _already_configured = bool(
+        getattr(getattr(cfg, "llm", None), "api_key", None)
+        or getattr(getattr(cfg, "llm", None), "backend", "") in ("local", "ollama")
+    )
+    _title = "PiClaw OS -- Einstellungen" if _already_configured else "PiClaw OS -- Ersteinrichtung"
+
     print()
     print(f"  {FG_CYAN}{B}{border}{R}")
-    print(f"  {FG_CYAN}{B}  PiClaw OS -- Ersteinrichtung{R}")
+    print(f"  {FG_CYAN}{B}  {_title}{R}")
     print(f"  {FG_CYAN}{B}{border}{R}")
     print()
     print("  Dieser Wizard fuehrt durch die vollstaendige Konfiguration.")
@@ -1599,46 +1608,235 @@ def step_summary(state: WizardState, step: int, total: int) -> None:
 # ── Haupt-Wizard ──────────────────────────────────────────────────
 
 
+def _block_status(name: str, cfg: object) -> tuple[str, str]:
+    """Gibt (badge, hinweis) zurück für einen Block basierend auf der Config.
+
+    Rückgabe:
+      badge  – "✅", "⚠️ " oder "⬜"
+      hinweis – kurzer Klartext was fehlt (leer wenn ok)
+    """
+    def _get(*attrs):
+        obj = cfg
+        for a in attrs:
+            obj = getattr(obj, a, None)
+            if obj is None:
+                return None
+        return obj
+
+    if name == "Kern":
+        llm_ok = bool(
+            _get("llm", "api_key")
+            or _get("llm", "backend") in ("local", "ollama")
+        )
+        tok_ok = bool(_get("api", "secret_key"))
+        agent_ok = bool(_get("agent_name"))
+        if llm_ok and tok_ok and agent_ok:
+            return "✅", ""
+        missing = []
+        if not llm_ok:
+            missing.append("LLM")
+        if not tok_ok:
+            missing.append("API-Token")
+        if not agent_ok:
+            missing.append("Agent-Name")
+        return "⚠️ ", "fehlt: " + ", ".join(missing)
+
+    if name == "Kommunikation":
+        tg_ok = bool(_get("telegram", "token") and _get("telegram", "chat_id"))
+        dc_ok = bool(_get("discord", "token"))
+        if tg_ok or dc_ok:
+            configured = []
+            if tg_ok:
+                configured.append("Telegram")
+            if dc_ok:
+                configured.append("Discord")
+            return "✅", ", ".join(configured)
+        return "⬜", "kein Messenger konfiguriert"
+
+    if name == "Smart Home":
+        ha_ok = bool(_get("homeassistant", "url") and _get("homeassistant", "token"))
+        mq_ok = bool(_get("mqtt", "host"))
+        if ha_ok or mq_ok:
+            configured = []
+            if ha_ok:
+                configured.append("Home Assistant")
+            if mq_ok:
+                configured.append("MQTT")
+            return "✅", ", ".join(configured)
+        return "⬜", "nicht eingerichtet"
+
+    if name == "Erweitert":
+        extra_llm = bool(_get("llm_registry"))
+        proactive = bool(_get("proactive", "enabled"))
+        soul_path = Path("/etc/piclaw/SOUL.md")
+        soul_ok = soul_path.exists()
+        configured = []
+        if extra_llm:
+            configured.append("Weitere LLMs")
+        if proactive:
+            configured.append("Proaktiv")
+        if soul_ok:
+            configured.append("Soul")
+        if configured:
+            return "✅", ", ".join(configured)
+        return "⬜", "optional – kann später eingerichtet werden"
+
+    return "⬜", ""
+
+
 def run() -> None:
     """
-    Führt den vollständigen Einrichtungs-Wizard aus.
-    Alle Schritte können übersprungen werden.
+    Einrichtungs-Wizard mit Blockauswahl.
+    Der User wählt welche Bereiche er jetzt einrichten möchte.
+    Jeder Schritt kann innerhalb eines Blocks übersprungen werden.
     """
     from piclaw.config import load
+
+    # ── Alle verfügbaren Steps nach Blöcken ──────────────────────
+    BLOCKS: list[tuple[str, str, list[tuple[str, object]]]] = [
+        (
+            "Kern",
+            "🚀  Agent-Name, KI-Anbieter (LLM), Web-UI Token\n"
+            "     Mindestanforderung – ohne das startet PiClaw nicht sinnvoll.",
+            [
+                ("Agent",     step_agent),
+                ("LLM",       step_llm),
+                ("API-Token", step_api_token),
+            ],
+        ),
+        (
+            "Kommunikation",
+            "💬  Telegram-Bot, Discord\n"
+            "     Benachrichtigungen und Chat über Smartphone.",
+            [
+                ("Telegram", step_telegram),
+                ("Discord",  step_discord),
+            ],
+        ),
+        (
+            "Smart Home",
+            "🏠  Home Assistant, MQTT\n"
+            "     Nur relevant wenn ein HA-Server im Netzwerk läuft.",
+            [
+                ("Home Assistant", step_homeassistant),
+                ("MQTT",           step_mqtt),
+            ],
+        ),
+        (
+            "Erweitert",
+            "⚙️   Weitere LLMs, Proaktiver Agent, WLAN, Hardware, Soul\n"
+            "     Feintuning – kann auch später eingerichtet werden.",
+            [
+                ("Weitere LLMs", step_llm_extra),
+                ("Proaktiv",     step_proactive),
+                ("WLAN",         step_wifi),
+                ("Hardware",     step_hardware),
+                ("Soul",         step_soul),
+            ],
+        ),
+    ]
+
+    def _run_steps(
+        state: WizardState,
+        steps: list[tuple[str, object]],
+        step_offset: int,
+        total: int,
+    ) -> int:
+        """Führt eine Liste von Steps aus. Gibt neue step_offset zurück."""
+        for name, fn in steps:
+            step_offset += 1
+            try:
+                fn(state, step_offset, total)  # type: ignore[call-arg]
+            except KeyboardInterrupt:
+                _w()
+                _skip(f"Schritt '{name}' abgebrochen -- weiter mit naechstem Schritt")
+            except Exception as e:
+                _err(f"Fehler in Schritt '{name}': {e}")
+                _info("Weiter mit naechstem Schritt...")
+        return step_offset
 
     try:
         cfg = load()
         state = WizardState(cfg=cfg)
-
-        STEPS = [
-            ("Agent", lambda s, n, t: step_agent(s, n, t)),
-            ("LLM", lambda s, n, t: step_llm(s, n, t)),
-            ("Weitere LLMs", lambda s, n, t: step_llm_extra(s, n, t)),
-            ("Telegram", lambda s, n, t: step_telegram(s, n, t)),
-            ("Discord", lambda s, n, t: step_discord(s, n, t)),
-            ("Home Assistant", lambda s, n, t: step_homeassistant(s, n, t)),
-            ("Proaktiv", lambda s, n, t: step_proactive(s, n, t)),
-            ("MQTT", lambda s, n, t: step_mqtt(s, n, t)),
-            ("WLAN", lambda s, n, t: step_wifi(s, n, t)),
-            ("Hardware", lambda s, n, t: step_hardware(s, n, t)),
-            ("API-Token", lambda s, n, t: step_api_token(s, n, t)),
-            ("Soul", lambda s, n, t: step_soul(s, n, t)),
-        ]
-        total = len(STEPS) + 1  # +1 für Abschluss
-
         step_welcome(state)
 
-        for i, (name, fn) in enumerate(STEPS, start=1):
-            try:
-                fn(state, i, total)
-            except KeyboardInterrupt:
-                _w()
-                _skip(f"Schritt '{name}' abgebrochen -- weiter mit naechstem Schritt")
-                continue
-            except Exception as e:
-                _err(f"Fehler in Schritt '{name}': {e}")
-                _info("Weiter mit naechstem Schritt...")
-                continue
+        # ── Block-Auswahlmenü ─────────────────────────────────────
+        _rule()
+        _w()
+        print(f"  {B}Was möchtest du jetzt einrichten?{R}\n")
+
+        block_badges: list[str] = []
+        for i, (name, desc, _steps) in enumerate(BLOCKS, 1):
+            badge, hinweis = _block_status(name, state.cfg)
+            block_badges.append(badge)
+            badge_col = FG_GREEN if badge == "✅" else (FG_YELLOW if "⚠" in badge else FG_GRAY)
+            badge_str = f"{badge_col}{badge}{R}" if not _NO_COLOR else badge
+            hinweis_str = f"  {FG_GRAY}({hinweis}){R}" if hinweis else ""
+            print(f"  {FG_CYAN}{B}{i}.{R}  {B}{name}{R}  {badge_str}{hinweis_str}")
+            for line in desc.split("\n"):
+                print(f"     {FG_GRAY}{line.strip()}{R}")
+            _w()
+
+        total_steps = sum(len(s) for _, _, s in BLOCKS)
+        print(f"  {FG_CYAN}{B}a.{R}  {B}Alles{R}  {FG_GRAY}(alle {total_steps} Schritte – vollständige Einrichtung){R}")
+        print(f"  {FG_GRAY}0.  Überspringen – direkt zur Zusammenfassung{R}")
+        _w()
+        print(f"  {FG_GRAY}Mehrere Blöcke: Nummern mit Komma trennen, z.B. {B}1,2{R}")
+        _w()
+
+        _flush_stdin()
+        raw = input(f"  {FG_BLUE}{ARROW}{R} Auswahl [a/0/1-4]: ").strip().lower()
+        _w()
+
+        if raw in ("0", ""):
+            selected_blocks: list[int] = []
+        elif raw == "a":
+            selected_blocks = list(range(len(BLOCKS)))
+        else:
+            selected_blocks = []
+            for part in raw.split(","):
+                part = part.strip()
+                if part.isdigit():
+                    idx = int(part) - 1
+                    if 0 <= idx < len(BLOCKS):
+                        selected_blocks.append(idx)
+                    else:
+                        _warn(f"Block {part} unbekannt – ignoriert")
+
+        # ── Ausgewählte Blöcke berechnen ──────────────────────────
+        chosen_steps: list[tuple[str, object]] = []
+        for idx in selected_blocks:
+            _, _, steps = BLOCKS[idx]
+            chosen_steps.extend(steps)
+
+        total = len(chosen_steps) + 1  # +1 für Zusammenfassung
+
+        if not chosen_steps:
+            _info("Keine Blöcke ausgewählt – überspringe zur Zusammenfassung.")
+        else:
+            block_names = " + ".join(BLOCKS[i][0] for i in selected_blocks)
+            _ok(f"Starte: {block_names}  ({len(chosen_steps)} Schritte)")
+            _w()
+            _run_steps(state, chosen_steps, step_offset=0, total=total)
+
+        # ── Hinweis auf noch offene Blöcke ──────────────────────────
+        skipped = [
+            BLOCKS[i][0]
+            for i in range(len(BLOCKS))
+            if i not in selected_blocks
+        ]
+        if skipped and chosen_steps:
+            _w()
+            _rule()
+            _w()
+            print(f"  {FG_YELLOW}Noch nicht eingerichtet:{R}")
+            for bname in skipped:
+                badge, hinweis = _block_status(bname, state.cfg)
+                hint = f"  {FG_GRAY}({hinweis}){R}" if hinweis else ""
+                print(f"     {FG_GRAY}•{R}  {bname}{hint}")
+            _w()
+            print(f"  {FG_GRAY}Jederzeit nachholen mit: {B}piclaw setup{R}")
+            _w()
 
         step_summary(state, total, total)
 
@@ -1648,7 +1846,6 @@ def run() -> None:
         print(f"  {FG_GRAY}Bisherige Aenderungen wurden gespeichert.{R}\n")
         try:
             from piclaw.config import save
-
             save(state.cfg)  # type: ignore
         except Exception as _e:
             log.debug("wizard config save on abort: %s", _e)
