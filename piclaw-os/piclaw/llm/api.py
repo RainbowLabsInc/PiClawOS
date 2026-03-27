@@ -27,6 +27,16 @@ _KNOWN_PROVIDERS_BY_PREFIX = {
         "https://api.fireworks.ai/inference/v1",
         "accounts/fireworks/models/llama-v3p1-70b-instruct",
     ),
+    "gsk_": (
+        "openai",
+        "https://api.groq.com/openai/v1",
+        "llama-3.3-70b-versatile",
+    ),
+    "csk-": (
+        "openai",
+        "https://api.cerebras.ai/v1",
+        "llama-3.3-70b",
+    ),
 }
 
 # Bevorzugte NIM-Modelle (in dieser Reihenfolge, erstes verfügbares wird genutzt)
