@@ -66,6 +66,7 @@ class LLMRegistry:
 
     def __init__(self):
         self._backends: dict[str, BackendConfig] = {}
+        self._file_mtime: float = 0.0
         self._load()
 
     # ── Persistence ───────────────────────────────────────────────
@@ -77,10 +78,23 @@ class LLMRegistry:
         try:
             data = json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
             self._backends = {k: BackendConfig(**v) for k, v in data.items()}
+            self._file_mtime = REGISTRY_FILE.stat().st_mtime
             log.info("LLM registry loaded: %s backends", len(self._backends))
         except Exception as e:
             log.error("Registry load error: %s", e)
             self._backends = {}
+
+    def _reload_if_changed(self):
+        """Lädt Registry neu wenn die Datei sich geändert hat (Hot-Reload)."""
+        if not REGISTRY_FILE.exists():
+            return
+        try:
+            mtime = REGISTRY_FILE.stat().st_mtime
+            if mtime != self._file_mtime:
+                log.info("LLM registry file changed – reloading")
+                self._load()
+        except Exception:
+            pass
 
     def _save(self):
         REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -123,6 +137,7 @@ class LLMRegistry:
         return self._backends.get(name)
 
     def list_all(self) -> list[BackendConfig]:
+        self._reload_if_changed()
         return sorted(self._backends.values(), key=lambda b: (-b.priority, b.name))
 
     def list_enabled(self) -> list[BackendConfig]:
