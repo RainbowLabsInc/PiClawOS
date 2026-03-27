@@ -1,5 +1,46 @@
 # PiClaw OS – Changelog
 
+## v0.15.2-rc – 2026-03-27
+
+### Technical Debt bereinigt
+- **T1 – llama.cpp verbose Output** (`llm/local.py`)
+  - `_suppress_stderr()` → `_suppress_output()`: jetzt fd 1 (stdout) + fd 2 (stderr)
+  - `LLAMA_CPP_LOG_LEVEL=0`, `GGML_LOG_LEVEL=0`, `LLAMA_LOG_LEVEL=4` vor Import gesetzt
+  - Fix: `_infer()` nutzte hardcodierte Phi3-Stop-Tokens – jetzt `_stop_tokens(model_path)`
+- **T3 – Dashboard Version** (`piclaw/__init__.py`, `api.py`, `web/index.html`)
+  - Single Source of Truth: `__version__ = "0.15.1"` in `__init__.py`
+  - `FastAPI(version=__version__)` statt hardcodierter `"0.8.0"`
+  - `/api/stats` gibt `version`-Feld zurück
+  - Dashboard Header: `hostname · ip · v0.15.1`
+  - Neue Version-Karte im Stats-Grid (zeigt Version + Agent-Name)
+- **T4 – boot/ pyproject.toml** (`boot/piclaw-src/pyproject.toml`)
+  - Version 0.15.0 → 0.15.1
+  - `scrapling>=0.2` ergänzt (fehlte)
+  - `make sync` hält dies künftig automatisch aktuell
+- **T2 – GitHub Token** entfällt mit Public Release
+
+### piclaw doctor erweitert (`cli.py`)
+- scrapling-Verfügbarkeitscheck
+- Symlink-Check: `/opt/piclaw/piclaw` muss Symlink sein (INV_021)
+- Log-Dir-Check: `/var/log/piclaw` Owner = piclaw (INV_022)
+- IPC-Dir-Check: `/etc/piclaw/ipc` chmod 1777 (Watchdog)
+
+### Neue Debug-Scripts (`tests/debug/`)
+- **`test_debug_install.py`** — Installationsprüfung:
+  Python-Version, piclaw-Import, CONFIG_DIR, Symlink, Log-Dir, IPC-Rechte,
+  Sudoers, pyproject.toml build-backend, alle Abhängigkeiten, lokales Modell
+- **`test_debug_services.py`** — Services & Konnektivität:
+  systemd is-active (4 Services + Timer), HTTP /health, WebSocket + Ping,
+  Log-Analyse auf Errors/Tracebacks, QMD CPU-Check, Timer-Status
+
+### Wizard UX (`wizard.py`)
+- **Status-Badges pro Block**: ✅/⚠️/⬜ mit Kurzhinweis was fehlt
+- **Dynamischer Titel**: "Ersteinrichtung" nur bei frischer Installation, sonst "Einstellungen"
+- **Offene Blöcke**: Nach Abschluss Hinweis welche Blöcke noch einzurichten sind
+- Hilfsfunktion `_block_status(name, cfg)` ausgelagert
+
+---
+
 ## v0.15.1 – 2026-03-21 🎉
 
 ### Highlights
