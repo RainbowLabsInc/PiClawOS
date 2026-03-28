@@ -206,6 +206,59 @@ piclaw-os/
 
 ---
 
+## 🛡️ Netzwerk-Sicherheit & Offensive Verteidigung
+
+PiClaw OS kann aktiv auf Angriffe reagieren – von passiver Überwachung bis zur offensiven Täuschung:
+
+### Passive Überwachung
+```
+> Scan das Netzwerk auf alle verbundenen Geräte
+> Scanne die Ports von 192.168.178.50
+> Überwache mein Netzwerk auf neue Geräte
+> Ping 192.168.178.1
+```
+
+### Angreifer identifizieren & melden
+```
+> Whois-Lookup für 185.220.101.5
+> Erstelle einen Abuse-Report für 185.220.101.5 – SSH-Brute-Force seit 03:00 Uhr
+```
+
+### Angreifer blockieren (iptables)
+```
+> Blockiere die IP 185.220.101.5
+> Setze eine Tarpit-Falle für 185.220.101.5 auf Port 22
+```
+
+> ⚠️ iptables-Befehle erfordern sudo. Nur für externe IPs – lokale IPs (192.168.x.x, 10.x.x.x) sind automatisch geschützt.
+
+### Honey Traps – Täuschfallen
+Lockt Angreifer in Fallen die Zeit verschwenden oder sie verwirren:
+
+| Typ | Beschreibung |
+|---|---|
+| `labyrinth` | Simuliert eine SSH-Session mit Endlos-Prompt – hält Angreifer beschäftigt |
+| `rickroll` | HTTP-Redirect zu YouTube – für Web-Scanner und Crawler |
+| `sinkhole` | Antwortet mit gefälschten, ungültigen gzip-Daten – verwirrt automatisierte Tools |
+
+```
+> Deploye eine Labyrinth-Falle auf Port 2222
+> Setze eine Rickroll-Falle auf Port 8080
+> Zeig alle aktiven Honey Traps
+> Stopp die Falle auf Port 2222
+```
+
+Lokale IPs bekommen automatisch harmlose Antworten – kein Risiko für eigene Geräte.
+
+### Notfall-Abschaltung
+```
+> Notfall: Trenne das Internet sofort!
+```
+Dameon fragt zur Sicherheit nach – erst bei expliziter Bestätigung wird der Modem-Smart-Plug
+via Home Assistant abgeschaltet.
+
+---
+
 ## 🛠️ Troubleshooting
 
 ```bash

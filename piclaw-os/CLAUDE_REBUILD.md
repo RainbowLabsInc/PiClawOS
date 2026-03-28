@@ -313,7 +313,16 @@ network_monitor_tools:  # piclaw/tools/network_monitor.py
   - ping_host        # Erreichbarkeit prüfen
 
 network_security_tools:  # piclaw/tools/network_security.py
-  - emergency_network_off  # Alle Netzwerkinterfaces deaktivieren
+  - whois_lookup          # WHOIS-Info für eine IP (extern via whois-Tool)
+  - block_ip              # IP via iptables DROP blockieren (nur externe IPs)
+  - tarpit_ip             # TCP-DROP auf Port für eine IP (verlangsamt Angreifer)
+  - generate_abuse_report # Strukturierter Abuse-Report für ISP/Hoster
+  - deploy_honey_trap     # Täuschfalle auf Port: labyrinth/rickroll/sinkhole
+  - stop_honey_trap       # Falle deaktivieren
+  - list_honey_traps      # Aktive Fallen anzeigen
+  - emergency_network_off # Modem via HA Smart-Plug abschalten (Notfall)
+  NOTE: Lokale IPs (RFC1918) sind automatisch gegen aggressive Aktionen geschützt
+  NOTE: iptables-Befehle brauchen sudo (Sudoers-Regel für piclaw-user)
 
 gpio_tools:  # piclaw/tools/gpio.py
   - gpio_read        # GPIO-Pin lesen
