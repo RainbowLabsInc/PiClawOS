@@ -1,6 +1,6 @@
 # PiClaw OS – Offene Punkte für nächste Session
-# Erstellt: 2026-03-28
-# Fokus: Release-Vorbereitung
+# Letzte Aktualisierung: 2026-03-28 (Session 4)
+# Version: 0.15.3
 
 ---
 
@@ -9,61 +9,44 @@
 ### 1. /api/shell Endpoint entfernen
 **Datei:** `piclaw-os/piclaw/api.py`
 **Suche:** `@app.post("/api/shell")`
-**Aktion:** Gesamten Block (~50 Zeilen) löschen
-**Warum:** Erlaubt beliebige Shell-Befehle mit nur Bearer-Token – zu gefährlich für Produktion
+**Block löschen** (~50 Zeilen bis zur nächsten `@app.` Annotation)
+**Test:** `curl -X POST http://localhost:7842/api/shell` → muss 404 zurückgeben
 
-```bash
-# Auf dem Pi nach dem Entfernen testen:
-curl -X POST http://localhost:7842/api/shell \
-  -H "Authorization: Bearer TOKEN" \
-  -d '{"cmd":"id"}' 
-# Muss 404 zurückgeben
-```
-
-### 2. Groq API Key aus Git-History entfernen
-Der Key `gsk_ZVWVs...` wurde im Chat geteilt – muss aus Git getilgt werden:
+### 2. Groq API Key aus Git-History tilgen
 ```bash
 # BFG Repo Cleaner (empfohlen):
 java -jar bfg.jar --replace-text secrets.txt PiClawOS.git
 git reflog expire --expire=now --all && git gc --prune=now --aggressive
 git push --force
-
-# Oder git filter-repo:
-git filter-repo --replace-text <(echo "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==>REDACTED")
 ```
 
-### 3. Telegram debuggen – Nachrichten kommen nicht an
-Log sagt "Telegram-Notify OK (154 Zeichen)" aber Nachrichten fehlen:
+### 3. Dashboard API-Token rotieren
+Aktuell: `L1gFu490BMv_50TFYek6Yveh3FwFfEoW3ycDaCCFsLA`
+```bash
+piclaw config set api_token $(openssl rand -base64 32)
 ```
-piclaw messaging test
-```
-Dann in Log schauen: `strings /var/log/piclaw/agent.log | grep -i telegram`
-Mögliche Ursachen: Bot-Token abgelaufen, Chat-ID falsch, Bot nicht in Chat
 
 ---
 
-## 🔧 Kurzfristige Verbesserungen
+## 🔧 Kurzfristige Features
 
-### 4. github_token in config.toml eintragen
-Damit `piclaw update` ohne Fehler läuft:
-```toml
-[updater]
-repo_url = "https://github.com/RainbowLabsInc/PiClawOS"
-github_token = "ghp_..."
-```
-
-### 5. Camera-Tools registrieren
+### 4. Camera-Tools registrieren
 `piclaw/hardware/camera.py` hat TOOL_DEFS aber fehlt in `agent.py _build_tools()`:
 ```python
-# In agent.py _build_tools() ergänzen:
 from piclaw.hardware import camera as camera_mod
 if camera_mod.is_available():
     _reg(camera_mod.TOOL_DEFS, camera_mod.build_handlers())
 ```
 
-### 6. Willhaben Kategorie-Filter
-"Notebooks" findet auch Taschen und RAM-Riegel.
-Willhaben unterstützt `category_id` Parameter – muss noch gemappt werden.
+### 5. Willhaben Kategorie-Filter
+"Notebooks" findet auch Taschen und RAM → `category_id` muss noch gemappt werden
+
+### 6. github_token in config.toml
+```toml
+[updater]
+repo_url = "https://github.com/RainbowLabsInc/PiClawOS"
+github_token = "ghp_..."
+```
 
 ---
 
@@ -72,31 +55,27 @@ Willhaben unterstützt `category_id` Parameter – muss noch gemappt werden.
 | Version | Feature |
 |---|---|
 | v0.16 | Emergency Shutdown via schaltbare Steckdose (ohne HA) |
-| v0.17 | fail2ban Integration (SSH Brute-Force-Schutz) |
+| v0.17 | fail2ban Integration |
 | v0.18 | Queue System (parallele CLI + Telegram Anfragen) |
 | v0.19 | Willhaben Kategorie-Filter |
 | v0.20 | Camera-Tools vollständig integriert |
 
 ---
 
-## 🔑 Laufende Konfiguration (Pi)
+## ✅ Session 4 erledigt
 
-- **IP:** 192.168.178.120
-- **Dashboard:** http://192.168.178.120:7842
-- **Primary LLM:** Groq / moonshotai/kimi-k2-instruct (Prio 9)
-- **Secondary:** NVIDIA NIM / meta/llama-3.3-70b-instruct (Prio 7)
-- **CPU:** ~52°C (normal)
-
-### Laufende Sub-Agenten
-- `Monitor_Netzwerk` – alle 5 Min, Telegram bei neuen Geräten ✅
-- `CronJob_0715` – täglich 07:15 Uhr, CPU-Temperatur ✅ (Telegram-Notify noch zu debuggen)
+- Telegram-Bug gefixt (send ohne async with → Response nie gelesen → stiller 400 Fehler)
+- Markdown-Bug gefixt (**bold** → *bold* für Telegram MarkdownV1)
+- Netzwerk-Monitor Heartbeat: 1x/Stunde statt alle 5 Min
+- Heuristik: "alles quiet außer Gerätekennzeichen" – robust gegen LLM-Freitext
+- Briefing-Uhrzeiten im Setup konfigurierbar (HH:MM → Cron)
+- /api/shell Endpoint für direkte Pi-Verbindung implementiert (DEV ONLY)
+- IPC-Fix: /api/subagents/{id}/run triggert jetzt den Daemon (nicht API-Prozess)
 
 ---
 
-## 🛠️ Entwicklungs-Tools (nur lokal, nicht im Release)
+## 🛠️ Entwicklungs-Tool (solange aktiv)
 
-### /api/shell – Browser-basierte Shell
-Solange der Endpoint noch aktiv ist, im Browser-Kontext nutzbar:
 ```javascript
 window.pi = async (cmd, timeout=30) => {
     const r = await fetch('/api/shell', {
@@ -110,12 +89,4 @@ window.pi = async (cmd, timeout=30) => {
     const d = await r.json();
     return d.stdout || d.stderr || d.error;
 };
-
-// Beispiele:
-pi('tail -20 /var/log/piclaw/agent.log').then(console.log)
-pi('systemctl status piclaw-agent --no-pager').then(console.log)
-pi('strings /var/log/piclaw/agent.log | grep Telegram | tail -10').then(console.log)
 ```
-
-**API-Token:** L1gFu490BMv_50TFYek6Yveh3FwFfEoW3ycDaCCFsLA  
-⚠️ Vor Release rotieren!

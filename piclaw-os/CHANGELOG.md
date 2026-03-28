@@ -1,5 +1,29 @@
 # PiClaw OS – Changelog
 
+## v0.15.3 – 2026-03-28 🔔
+
+### Fixes
+
+#### Telegram
+- `send()` nutzt jetzt `async with` → Response-Status wird geprüft
+- Bei HTTP 400: Fehler wird geloggt + Fallback ohne `parse_mode` (plain text)
+- `**Name**` → `*Name*` Konvertierung vor dem Senden (MarkdownV1-Fix)
+- runner.py Header war `**{name}**` → jetzt `*{name}*`
+- Root Cause: Nachrichten kamen trotz "Notify OK" nicht an, weil Response nie gelesen wurde
+
+#### Netzwerk-Monitor Heartbeat
+- Vorher: Alle 5 Minuten eine Telegram-Nachricht (LLM ignorierte Mission)
+- Nachher: 1x pro Stunde Heartbeat, sofort bei neuem Gerät
+- Fix: `_is_quiet_network_result()` Heuristik – erkennt "alles ruhig" unabhängig
+  von der LLM-Formulierung. Logik: alles ist quiet außer der Text enthält
+  explizite Gerätekennzeichen (mac:, ip:, 🚨, "neues gerät" etc.)
+- Mission verschärft: explizite Anweisung FALL A / FALL B mit Token-Pflicht
+
+#### Briefings (Setup)
+- Morgen- und Abend-Briefing Uhrzeit im `piclaw setup` konfigurierbar
+- Eingabe HH:MM → wird zu Cron-Expression umgewandelt und in routines.json gespeichert
+
+
 ## v0.15.2 – 2026-03-28 🔒⚡
 
 ### Highlights
