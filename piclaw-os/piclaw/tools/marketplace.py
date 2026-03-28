@@ -956,7 +956,7 @@ def format_results(results: dict, mode: str = "text") -> str:
     max_price = results.get("max_price")
 
     if not new:
-        return f"Keine neuen Inserate gefunden für '{query}'."
+        return "__NO_NEW_RESULTS__"  # Signal an runner: still bleiben
 
     loc_str = f" in {location}" if location else ""
     price_str = f" (max. {max_price:.0f} €)" if max_price else ""
