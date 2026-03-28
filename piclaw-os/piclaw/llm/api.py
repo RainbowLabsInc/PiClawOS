@@ -212,6 +212,13 @@ def _extract_text_tool_calls(text: str, tools) -> list:
                 candidates.append(text[start : i + 1])
                 start = None
 
+    # Auch Markdown-Code-Blöcke durchsuchen: ```json {...} ``` oder ``` {...} ```
+    import re as _re
+    code_blocks = _re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, _re.DOTALL)
+    for cb in code_blocks:
+        if cb not in candidates:
+            candidates.append(cb)
+
     for blob in candidates:
         try:
             obj = json.loads(blob)

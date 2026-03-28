@@ -429,6 +429,48 @@ class Agent:
         await self._queue.put(task)
         return await task.future
 
+    def _detect_cron_agent_intent(self, text: str) -> dict | None:
+        """Erkennt Anfragen einen zeitgesteuerten Sub-Agenten zu erstellen."""
+        import re
+        t = text.lower()
+
+        create_kw = ["erstell", "create", "mach", "baue", "neuen agenten",
+                     "einen job", "einen task", "einen agenten"]
+        time_kw = ["uhr", "taeglich", "taegl", "jeden tag", "jede woche",
+                   "morgens", "abends", "nachts", "cron", "um "]
+
+        if not any(k in t for k in create_kw):
+            return None
+        if not any(k in t for k in time_kw):
+            return None
+        market_kw = ["kleinanzeigen", "ebay", "willhaben", "inserat", "marktplatz"]
+        if any(k in t for k in market_kw):
+            return None
+
+        # Zeit extrahieren
+        time_match = re.search(r"um\s+(\d{1,2})[:\.](\d{2})(?:\s*uhr)?", t)
+        if time_match:
+            hour = int(time_match.group(1))
+            minute = int(time_match.group(2))
+        else:
+            time_match2 = re.search(r"um\s+(\d{1,2})\s*uhr", t)
+            if time_match2:
+                hour = int(time_match2.group(1))
+                minute = 0
+            else:
+                return None
+
+        cron_expr = f"{minute} {hour} * * *"
+
+        task_match = re.search(
+            r"(?:agenten?|job|task)\s+der\s+(.+?)(?:\s+um\s+\d|\s+jeden|\Z)",
+            t
+        )
+        task = task_match.group(1).strip() if task_match else text.strip()
+
+        return {"cron_expr": cron_expr, "hour": hour, "minute": minute,
+                "task": task, "original": text}
+
     def _detect_network_monitor_intent(self, text: str) -> bool:
         """Erkennt natürliche Netzwerk-Monitoring-Anfragen."""
         import re
@@ -441,6 +483,40 @@ class Agent:
             "wer ist im netz", "welche geräte", "neue verbindung",
         ]
         return any(k in t for k in monitor_kw)
+
+    async def _create_cron_agent(self, intent: dict) -> str:
+        """Erstellt einen zeitgesteuerten Sub-Agenten basierend auf erkanntem Intent."""
+        from piclaw.agents.sa_tools import agent_create as _agent_create
+
+        hour = intent["hour"]
+        minute = intent["minute"]
+        cron_expr = intent["cron_expr"]
+        task = intent["task"]
+
+        name = f"CronJob_{hour:02d}{minute:02d}"
+        mission = (
+            f"Du bist ein autonomer Hintergrund-Agent. Deine Aufgabe: {task}\n\n"
+            f"Fuehre diese Aufgabe aus und sende das Ergebnis via Telegram."
+        )
+
+        result = await _agent_create(
+            name=name,
+            description=f"Taeglicher Job um {hour:02d}:{minute:02d} Uhr: {task}",
+            mission=mission,
+            tools=["shell", "memory_write", "memory_log"],
+            schedule=f"cron:{cron_expr}",
+        )
+
+        if "created" in result.lower() or name.lower() in result.lower():
+            return (
+                f"Cron-Agent erstellt!\n"
+                f"  Laeuft taeglich um {hour:02d}:{minute:02d} Uhr\n"
+                f"  Aufgabe: {task}\n"
+                f"  Name: {name}\n"
+                f"  Cron: {cron_expr}\n\n"
+                f"Der Agent startet beim naechsten geplanten Zeitpunkt automatisch."
+            )
+        return result
 
     async def _create_network_monitor_agent(self, interval_sec: int = 300) -> str:
         """Erstellt einen Sub-Agenten der das Netzwerk auf neue Geräte überwacht."""
@@ -940,6 +1016,11 @@ class Agent:
                 if handler:
                     log.info("Agent-Start-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
+
+        # Cron-Agent-Intent: "Erstelle einen Agenten der täglich um X Uhr Y tut"
+        _cron_intent = self._detect_cron_agent_intent(user_input)
+        if _cron_intent:
+            return await self._create_cron_agent(_cron_intent)
 
         # Netzwerk-Monitor-Intent: "Überwache mein Netzwerk", "neue Geräte erkennen" etc.
         if self._detect_network_monitor_intent(user_input):
