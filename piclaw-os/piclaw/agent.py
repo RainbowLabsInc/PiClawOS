@@ -887,6 +887,26 @@ class Agent:
             "nähe von",
             "in der",
             "nach einem",
+            # Query-Rauschen bei Formulierungen wie "ob es neue Anzeigen zu X gibt"
+            "ob es neue anzeigen zu",
+            "ob es neue inserate zu",
+            "ob es neue",
+            "neue anzeigen zu",
+            "neue inserate zu",
+            "neue angebote zu",
+            "anzeigen zu",
+            "inserate zu",
+            "ob es",
+            "neue",
+            "anzeigen",
+            "inserate",
+            "gibt",
+            "ob",
+            "es",
+            "zu",
+            "für",
+            "über",
+            "wegen",
         ]
         for w in stopwords:
             query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
