@@ -572,11 +572,15 @@ class Agent:
                 f"Fasse das Ergebnis in 1-2 Saetzen zusammen."
             )
         else:
-            tools = ["thermal_status", "pi_info", "memory_log", "http_fetch"]
+            tools = ["thermal_status", "pi_info", "memory_log"]
             mission = (
                 f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
                 f"Deine Aufgabe: {task}\n\n"
-                f"Fasse das Ergebnis in 1-2 Saetzen zusammen."
+                f"Vorgehensweise:\n"
+                f"1. Nutze thermal_status und pi_info um den Systemstatus abzurufen.\n"
+                f"2. Fasse das Ergebnis in 1-2 Saetzen auf DEUTSCH zusammen.\n"
+                f"3. Protokolliere das Ergebnis mit memory_log.\n\n"
+                f"WICHTIG: Antworte ausschliesslich auf Deutsch."
             )
 
         # Collision check
