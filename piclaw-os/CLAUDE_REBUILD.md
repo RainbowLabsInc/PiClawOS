@@ -1,18 +1,19 @@
 # PICLAW_OS_RECONSTRUCTION_GUIDE
 # Format: Machine-readable AI reference | Lang: mixed | Version: 0.15.2
 # Purpose: Full project rebuild from zero without repeating known mistakes
-# Generated: 2026-03-27
+# Generated: 2026-03-28
 
 ---
 ## META
 project=PiClaw_OS
-version=0.15.1
+version=0.15.2
 target_hw=Raspberry_Pi_5_arm64
 python_min=3.11
 tested_python=3.13.5
 pi_ip=192.168.178.120
 agent_name=Dameon
-llm_primary=moonshotai/kimi-k2.5@nvidia_nim
+llm_primary=groq/llama-3.3-70b-versatile (Prio 9)
+llm_secondary=moonshotai/kimi-k2.5@nvidia_nim (Prio 7)
 llm_secondary=nvidia/llama-3.1-nemotron-70b-instruct@nvidia_nim
 llm_local=gemma-2b-q4@llama.cpp
 install_dir=/opt/piclaw
@@ -277,41 +278,170 @@ GEMINI_API:
 
 ---
 ## TOOL_SYSTEM
+# Vollständiges Tool-Inventar: 74 Tools in 19 Modulen (Stand v0.15.2)
+# Registrierung: agent.py _build_tools() via _reg(MODULE.TOOL_DEFS, handlers)
 
-marketplace_tool:
-  file: piclaw/tools/marketplace.py
-  platforms: [kleinanzeigen, ebay, web]
-  ebay_fetch: Scrapling → aiohttp → Tandem (cascade, Bot-Schutz)  ← NEW 0.15.1
+# ── FETCH-KASKADE (gilt für alle Plattformen seit v0.15.2) ─────────────────
+fetch_cascade:
+  function: _fetch_html(url, label) in piclaw/tools/marketplace.py
+  1_scrapling: stealth HTTP, kein echter Browser, schnell
+  2_aiohttp:   Standard HTTP mit Browser-Headers
+  3_tandem:    echter Headless-Browser, Port 8765 (Pi lokal)
+  NOTE: _fetch_ebay_html() ist jetzt nur noch ein Compat-Wrapper
+
+# ── TOOLS NACH MODUL ───────────────────────────────────────────────────────
+
+soul_tools:  # agent.py (inline)
+  - soul_read        # SOUL.md lesen
+  - soul_write       # SOUL.md überschreiben
+  - soul_append      # Abschnitt anhängen
+
+shell_tools:  # piclaw/tools/shell.py
+  - shell            # Shell-Befehl ausführen (Allowlist)
+  - system_info      # CPU, RAM, Temp, Uptime
+
+network_tools:  # piclaw/tools/network.py
+  - network_status   # IP, Interface, Verbindungsstatus
+  - wifi_scan        # Verfügbare WLANs scannen
+  - wifi_connect     # WLAN verbinden
+  - wifi_disconnect  # WLAN trennen
+
+network_monitor_tools:  # piclaw/tools/network_monitor.py
+  - network_scan     # nmap-Scan (braucht: sudo apt install nmap)
+  - port_scan        # Ports eines Hosts scannen
+  - check_new_devices  # Neue Geräte seit letztem Scan
+  - ping_host        # Erreichbarkeit prüfen
+
+network_security_tools:  # piclaw/tools/network_security.py
+  - emergency_network_off  # Alle Netzwerkinterfaces deaktivieren
+
+gpio_tools:  # piclaw/tools/gpio.py
+  - gpio_read        # GPIO-Pin lesen
+  - gpio_write       # GPIO-Pin setzen
+  - gpio_pwm         # PWM-Signal ausgeben
+  - gpio_status      # Alle konfigurierten Pins anzeigen
+
+services_tools:  # piclaw/tools/services.py
+  - service_status   # systemd Service-Status
+  - service_control  # start / stop / restart
+  - service_list     # Alle piclaw-Services auflisten
+
+updater_tools:  # piclaw/tools/updater.py
+  - system_update    # git pull + pip install + systemctl restart
+  NOTE: braucht github_token in [updater] config.toml
+
+scheduler_tools:  # piclaw/tools/scheduler.py
+  - schedule_add     # Wiederkehrende Aufgabe planen
+  - schedule_list    # Alle Schedules anzeigen
+  - schedule_remove  # Schedule löschen
+
+memory_tools:  # piclaw/memory/tools.py
+  - memory_search    # BM25 + Vektor-Suche in QMD
+  - memory_write     # Neue Erinnerung speichern
+  - memory_log       # Ereignis protokollieren
+  - memory_stats     # Speicher-Statistiken
+
+agent_tools:  # piclaw/agents/sa_tools.py
+  - agent_list       # Alle Sub-Agenten anzeigen
+  - agent_create     # Neuen Sub-Agenten erstellen
+  - agent_start      # Sub-Agenten starten
+  - agent_stop       # Sub-Agenten stoppen
+  - agent_remove     # Sub-Agenten löschen
+  - agent_update     # Konfiguration aktualisieren
+  - agent_run_now    # Sofort einmal ausführen
+
+orchestration_tools:  # piclaw/agents/orchestration.py
+  - crawl_create     # Web-Crawler-Job erstellen
+  - crawl_list       # Crawler-Jobs anzeigen
+  - crawl_cancel     # Crawler-Job abbrechen
+  - crawl_result     # Crawler-Ergebnis abrufen
+  - watchdog_alerts  # Watchdog-Alarme abrufen
+  - watchdog_forward # Alert weiterleiten
+  - watchdog_status  # Watchdog-Status
+
+hardware_tools:  # piclaw/hardware/tools.py
+  - pi_info          # Raspberry Pi Modell, RAM, etc.
+  - i2c_scan         # I2C-Bus scannen
+  - sensor_list      # Konfigurierte Sensoren
+  - sensor_read      # Einzelnen Sensor auslesen
+  - sensor_read_all  # Alle Sensoren auslesen
+  - sensor_add       # Sensor registrieren
+  - sensor_remove    # Sensor entfernen
+  - thermal_status   # CPU-Temperatur + Thermal-State
+
+llm_mgmt_tools:  # piclaw/llm/mgmt_tools.py
+  - llm_list         # Alle LLM-Backends anzeigen
+  - llm_add          # Backend hinzufügen
+  - llm_update       # Backend aktualisieren (Priority, Model etc.)
+  - llm_remove       # Backend entfernen
+  - llm_test         # Backend testen (Ping)
+  - llm_classify     # Task-Klassifikation debuggen
+  NOTE: priority MUSS int sein! llm_update übergibt str → BackendConfig.__post_init__ coerct
+
+routine_tools:  # piclaw/routines.py
+  - routine_list     # Alle Routinen anzeigen
+  - routine_enable   # Routine aktivieren
+  - routine_disable  # Routine deaktivieren
+  - routine_create   # Neue Routine erstellen
+  - routine_run_now  # Routine sofort ausführen
+  - briefing_now     # Morning Briefing sofort senden
+
+http_tools:  # piclaw/tools/http.py
+  - http_fetch       # URL abrufen (GET)
+
+tandem_tools:  # piclaw/tools/tandem.py
+  port: 8765 (Headless Browser Bridge, Pi lokal)
+  - browser_open     # URL in neuem Tab öffnen
+  - browser_snapshot # Accessibility-Tree der aktiven Seite
+  - browser_click    # Element anklicken (ref oder text)
+  - browser_type     # Text in Formularfeld eingeben
+  - browser_close    # Tab schließen
+
+agentmail_tools:  # piclaw/tools/agentmail.py
+  requires: AGENTMAIL_API_KEY in config
+  - agentmail_create_inbox  # Temporäre Inbox erstellen
+  - agentmail_list_inboxes  # Inboxen anzeigen
+  - agentmail_send_email    # E-Mail senden
+  - agentmail_list_messages # Eingegangene E-Mails abrufen
+
+installer_tools:  # piclaw/tools/installer.py
+  - installer_confirm  # Privilegierte Installation bestätigen (InstallerAgent)
+
+marketplace_tool:  # piclaw/tools/marketplace.py (kein TOOL_DEF, direkter Handler)
+  registered_as: marketplace_search
+  platforms: [kleinanzeigen, ebay, willhaben, web]
+  fetch_cascade: _fetch_html (Scrapling → aiohttp → Tandem) für alle Plattformen
   seen_file: /etc/piclaw/marketplace_seen.json
-  regex: all patterns pre-compiled at module level (RE_CLEAN_PLZ etc.)
+
+  willhaben_location:
+    method: areaId als Query-Parameter (?areaId=601)
+    static_map: _WH_AREA_IDS (30+ Einträge, Wien=100, Steiermark=600, Graz=601 ...)
+    dynamic_fallback: _fetch_willhaben_area_id() via Scrapling für unbekannte Orte
+    html_fallback: _parse_willhaben_html() via __NEXT_DATA__ wenn JSON-API versagt
+
+  intent_detection:  # agent.py _detect_marketplace_intent()
+    location_extraction: PLZ (5 Ziffern) ODER Stadtname aus _KNOWN_CITIES Liste
+    city_list: 40+ Städte (Österreich + Deutschland)
+    NOTE: Stadtname wird aus Query entfernt nach Extraktion
 
   ebay_url_params:
-    location: _stpos=<PLZ>   # z.B. _stpos=21224
-    radius:   _sadis=<km>    # z.B. _sadis=20 (eBay unterstützt: 5,10,20,50,100,200)
-    WRONG: location/radius_km nicht an _search_ebay übergeben → 0 Ergebnisse
+    location: _stpos=<PLZ>
+    radius:   _sadis=<km>  (eBay: 5/10/20/50/100/200 km)
 
   ebay_html_structure_2026:
-    # eBay hat HTML-Struktur Anfang 2026 geändert – alte Regex trifft nicht mehr!
-    WRONG_OLD: data-view="mi:1686" id="item123"  → s-item__title / s-item__price
-    RIGHT_NEW: data-view=mi:1686 data-listingid=123 → s-card__title / s-card__price
-    link_old:  href="https://www.ebay.de/itm/..."  (mit Anführungszeichen, www, .de)
-    link_new:  href=https://ebay.com/itm/...        (ohne Quotes, kein www, .com)
-    fix: links auf ebay.de normalisieren nach dem Parsen
-    filter: "Shop on eBay" AND "Anzeige" Items überspringen
+    RIGHT: data-listingid=123 → s-card__title / s-card__price
+    link:  href=https://ebay.com/itm/... → normalisiert auf ebay.de
 
-network_security_tool:
-  file: piclaw/tools/network_security.py
-  features: tarpit, emergency_network_off, whois
+homeassistant_tools:  # piclaw/tools/homeassistant.py (conditional)
+  requires: ha_url + ha_token in config
+  NOTE: wird nur registriert wenn HA konfiguriert ist
+  features: 11 Tools (Geräte steuern, Sensoren lesen, Events empfangen)
 
-agentmail_tool:
-  file: piclaw/tools/agentmail.py
-  features: email_send, email_list, email_read, email_reply
-  requires: AGENTMAIL_API_KEY in config
-
-tandem_tool:
-  file: piclaw/tools/tandem.py
-  port: 8765 (local browser bridge)
-  features: browser_open, snapshot, click, type, close
+# ── NICHT REGISTRIERT (vorhanden aber nicht in _build_tools) ──────────────
+camera_tools:  # piclaw/hardware/camera.py
+  NOTE: TOOL_DEFS vorhanden aber NICHT in _build_tools() registriert
+  - camera_snapshot, camera_stream, etc.
+  FIX_IF_NEEDED: _reg(camera_mod.TOOL_DEFS, camera_mod.build_handlers()) in agent.py
 
 ---
 ## INSTALLER
