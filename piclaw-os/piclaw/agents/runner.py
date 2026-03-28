@@ -252,13 +252,23 @@ class SubAgentRunner:
             create_background_task(self.memory_log(mem_entry))
 
         # ── Notify via messaging hub ────────────────────────────────
-        if agent.notify and self.notify and result:
-            # __NO_NEW_DEVICES__ ist ein internes Signal – keine Telegram-Nachricht senden
-            if result.strip() == "__NO_NEW_DEVICES__":
-                log.debug("Sub-agent '%s': keine neuen Geräte – kein Notify", agent.name)
-            else:
-                header = f"🤖 **{agent.name}** [{status}]\n"
+        log.info("Sub-agent '%s': result=%r notify=%s hub=%s",
+                 agent.name, (result or "")[:80], agent.notify, bool(self.notify))
+        if not result or not result.strip() or result.strip() == "(no output)":
+            log.warning("Sub-agent '%s': leeres/kein Ergebnis – kein Notify", agent.name)
+        elif not agent.notify:
+            log.debug("Sub-agent '%s': notify=False", agent.name)
+        elif not self.notify:
+            log.error("Sub-agent '%s': KEIN Notify-Callback! Telegram nicht konfiguriert?", agent.name)
+        elif result.strip() == "__NO_NEW_DEVICES__":
+            log.debug("Sub-agent '%s': keine neuen Geräte – kein Notify", agent.name)
+        else:
+            header = f"🤖 **{agent.name}** [{status}]\n"
+            try:
                 await self.notify(header + result[:1500])
+                log.info("Sub-agent '%s': Telegram-Notify OK (%d Zeichen)", agent.name, len(result))
+            except Exception as e:
+                log.error("Sub-agent '%s': Notify FEHLER: %s", agent.name, e)
 
     async def _agentic_loop(self, agent: SubAgentDef) -> str:
         """
