@@ -453,6 +453,16 @@ camera_tools:  # piclaw/hardware/camera.py
   FIX_IF_NEEDED: _reg(camera_mod.TOOL_DEFS, camera_mod.build_handlers()) in agent.py
 
 ---
+## IPC
+  file: piclaw/ipc.py
+  purpose: API und Daemon sind separate Prozesse – direkter _execute()-Aufruf im API-Prozess
+           würde ohne LLM/Tools/Messaging laufen → Sub-Agent-Ergebnisse kämen nie an.
+  API_side:    write_run_now(agent_id) → schreibt /etc/piclaw/ipc/run_now_<id>.trigger
+  Daemon_side: poll_triggers(sa_runner) → Background-Task, pollt alle 1s, führt Agent aus
+  IMPORTANT: /api/subagents/{id}/run MUSS write_run_now() nutzen, NICHT _execute() direkt
+
+
+---
 ## INSTALLER
 
 install_flow:
@@ -486,9 +496,9 @@ update_command: |
 
 ---
 ## WEBSOCKET
-  ping_interval: 20s
-  ping_timeout: 300s (5 min — large models + marketplace can take >2 min)
-  keepalive_task: fires every 20s during agent.run() to prevent 1011 timeout
+  uvicorn: ws_ping_interval=None, ws_ping_timeout=None (disabled – app handles keepalive)
+  app_keepalive: fires every 10s during agent.run() via _keepalive() task in api.py
+  REASON: uvicorn's own ping caused 1011 keepalive timeout during long operations (INV_025)
 
 ---
 ## DASHBOARD_PERFORMANCE

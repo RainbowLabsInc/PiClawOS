@@ -210,6 +210,8 @@ piclaw-os/
 
 PiClaw OS kann aktiv auf Angriffe reagieren – von passiver Überwachung bis zur offensiven Täuschung:
 
+> **Voraussetzung:** `sudo apt install nmap` für Netzwerk-Scans
+
 ### Passive Überwachung
 ```
 > Scan das Netzwerk auf alle verbundenen Geräte
