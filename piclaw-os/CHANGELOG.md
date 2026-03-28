@@ -28,6 +28,21 @@
 - Technisch: _direct_tool_call() in runner.py, direct_tool Feld in sa_registry.py
   und api.py POST /api/subagents leitet das Feld durch
 
+### ClawHub Integration
+- Neues Tool-Modul `piclaw/tools/clawhub.py` – Skills von clawhub.ai installieren
+- API: `https://wry-manatee-359.convex.site/api/v1/`
+- `clawhub_search()`, `clawhub_info()`, `clawhub_install()`, `clawhub_list_installed()`, `clawhub_uninstall()`
+- Neuer CLI-Befehl: `piclaw skill install/search/list/remove <slug>`
+- Installierte SKILL.md Dateien werden automatisch in jeden System-Prompt injiziert
+- `/etc/piclaw/skills/<slug>/` mit korrekter piclaw:piclaw Ownership im install.sh
+
+### Bug-Fixes (Session 5)
+- `piclaw briefing` NameError: `if __name__ == "__main__"` stand vor `cmd_briefing()` – ans Ende verschoben
+- `camera.py` PermissionError: modul-level `mkdir()` durch lazy `_ensure_capture_dir()` ersetzt
+- Camera-Tools in `agent.py` registriert (waren nie eingebunden)
+- CronJob Mission: Explizite Deutsch-Anweisung damit LLM nicht auf Englisch antwortet
+- `piclaw briefing send`: `hub.close()` fehlte → Unclosed session Warning behoben
+
 #### Briefings (Setup)
 - Morgen- und Abend-Briefing Uhrzeit im `piclaw setup` konfigurierbar
 - Eingabe HH:MM → wird zu Cron-Expression umgewandelt und in routines.json gespeichert
