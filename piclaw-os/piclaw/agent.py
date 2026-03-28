@@ -191,6 +191,14 @@ class Agent:
         except Exception as _e:
             log.debug("Network security tools not loaded: %s", _e)
 
+        # ── ClawHub-Tools ──────────────────────────────────────────
+        try:
+            from piclaw.tools import clawhub as clawhub_mod
+            _reg(clawhub_mod.TOOL_DEFS, clawhub_mod.build_handlers())
+            log.info("ClawHub tools registered")
+        except Exception as _e:
+            log.debug("ClawHub tools not loaded: %s", _e)
+
         # ── Kamera-Tools ───────────────────────────────────────────
         try:
             from piclaw.hardware import camera as camera_mod

@@ -50,6 +50,7 @@ Commands:
   routine enable    Enable a routine (e.g. 'morning_briefing')
   routine disable   Disable a routine
   briefing          Generate and print a briefing now
+  skill             Manage ClawHub skills (search, install, list, remove)
   briefing send     Generate and send via messaging (morning/evening/status)
   update            Update PiClaw via git pull (update check|piclaw|system)
   setup             First-boot setup wizard (LLM, Telegram, Soul)
@@ -1154,6 +1155,8 @@ def main():
         cmd_routine(args[1:])
     elif cmd == "briefing":
         cmd_briefing(args[1:])
+    elif cmd == "skill":
+        cmd_skill(args[1:])
     elif cmd == "llm":
         cmd_llm(args[1:])
     elif cmd == "update":
@@ -1432,6 +1435,45 @@ def cmd_briefing(args: list):
 
         print(msg)
         print()
+
+    asyncio.run(_run())
+
+
+# ── ClawHub Skill CLI ──────────────────────────────────────────────
+
+
+def cmd_skill(args: list):
+    """piclaw skill <search|install|list|remove> [slug]"""
+    import asyncio
+    from piclaw.tools.clawhub import (
+        clawhub_search, clawhub_info, clawhub_install,
+        clawhub_list_installed, clawhub_uninstall,
+    )
+
+    sub = args[0] if args else "list"
+    slug = args[1] if len(args) > 1 else ""
+
+    async def _run():
+        if sub in ("search", "s") and slug:
+            print(await clawhub_search(slug))
+        elif sub in ("info", "i") and slug:
+            print(await clawhub_info(slug))
+        elif sub in ("install", "add") and slug:
+            print(await clawhub_install(slug))
+        elif sub in ("list", "ls", "l"):
+            print(clawhub_list_installed())
+        elif sub in ("remove", "rm", "uninstall") and slug:
+            print(await clawhub_uninstall(slug))
+        else:
+            print("Verwendung:")
+            print("  piclaw skill search <name>    Skill suchen")
+            print("  piclaw skill info <slug>      Details anzeigen")
+            print("  piclaw skill install <slug>   Skill installieren")
+            print("  piclaw skill list             Installierte Skills")
+            print("  piclaw skill remove <slug>    Skill entfernen")
+            print()
+            print("Beispiel: piclaw skill install caldav-calendar")
+            print("Browse:   https://clawhub.ai")
 
     asyncio.run(_run())
 
