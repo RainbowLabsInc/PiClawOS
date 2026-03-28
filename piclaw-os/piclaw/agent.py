@@ -475,14 +475,26 @@ class Agent:
         """Erkennt natürliche Netzwerk-Monitoring-Anfragen."""
         import re
         t = re.sub(r"\[.*?\]", " ", text).lower()
-        monitor_kw = [
-            "überwach", "beobacht", "netzwerk", "network", "monitor",
-            "neues gerät", "neuen gerät", "fremdes gerät", "unbekannt",
-            "lan scan", "wlan scan", "nmap", "gerät im netz",
-            "sag mir wenn.*gerät", "benachrichtig.*gerät",
+
+        # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
+        market_kw = ["kleinanzeigen", "ebay", "willhaben", "inserat",
+                     "anzeige", "marktplatz", "kaufen", "verkaufen",
+                     "sonnenschirm", "fahrrad", "auto", "wohnung"]
+        if any(k in t for k in market_kw):
+            return False
+
+        # Netzwerk-spezifische Keywords müssen vorhanden sein
+        network_specific = [
+            "netzwerk", "network", "gerät", "device", "router",
+            "lan", "wlan", "wifi", "nmap", "ip adresse",
             "wer ist im netz", "welche geräte", "neue verbindung",
+            "fremdes gerät", "unbekanntes gerät",
         ]
-        return any(k in t for k in monitor_kw)
+        monitor_kw = ["überwach", "beobacht", "monitor", "scan"]
+
+        has_network = any(k in t for k in network_specific)
+        has_monitor = any(k in t for k in monitor_kw)
+        return has_network and has_monitor
 
     async def _create_cron_agent(self, intent: dict) -> str:
         """Erstellt einen zeitgesteuerten Sub-Agenten basierend auf erkanntem Intent."""
