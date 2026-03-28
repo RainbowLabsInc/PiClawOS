@@ -179,6 +179,75 @@ async def detect_provider_and_model(api_key: str) -> tuple[str, str, str]:
     return "openai", "https://api.openai.com/v1", "gpt-4o"
 
 
+
+def _extract_text_tool_calls(text: str, tools) -> list:
+    """
+    Fallback-Parser für Modelle (z.B. Groq llama-3.3) die Tool-Calls als
+    JSON-Text zurückgeben statt über die native tool_calls API.
+
+    Erkannte Formate:
+      {"name": "tool_name", "parameters": {...}}
+      {"type": "function", "name": "tool_name", "parameters": {...}}
+      {"function": {"name": "tool_name", "arguments": {...}}}
+    """
+    import re
+    if not text or not tools:
+        return []
+
+    known_names = {t.name for t in tools} if hasattr(tools[0], "name") else set()
+    results = []
+
+    # Alle JSON-Objekte im Text suchen (auch verschachtelt)
+    depth = 0
+    start = None
+    candidates = []
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                candidates.append(text[start : i + 1])
+                start = None
+
+    for blob in candidates:
+        try:
+            obj = json.loads(blob)
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+        # Format A: {"name": ..., "parameters": {...}}
+        name = obj.get("name")
+        args = obj.get("parameters") or obj.get("arguments") or {}
+
+        # Format B: {"type": "function", "name": ..., "parameters": {...}}
+        if not name and obj.get("type") == "function":
+            name = obj.get("name")
+            args = obj.get("parameters") or obj.get("arguments") or {}
+
+        # Format C: {"function": {"name": ..., "arguments": {...}}}
+        if not name and "function" in obj:
+            func = obj["function"]
+            name = func.get("name")
+            args = func.get("arguments") or func.get("parameters") or {}
+
+        if not name or name not in known_names:
+            continue
+
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except (json.JSONDecodeError, ValueError):
+                args = {}
+
+        import uuid
+        results.append(ToolCall(id=f"txt-{uuid.uuid4().hex[:8]}", name=name, arguments=args))
+
+    return results
+
+
 class AnthropicBackend(LLMBackend):
     def __init__(self, api_key, model, temperature, max_tokens, timeout, **_):
         self.api_key = api_key
@@ -407,6 +476,18 @@ class OpenAIBackend(LLMBackend):
             if tc_name:  # Nur gültige Tool-Calls übernehmen
                 tool_calls.append(ToolCall(id=tc_id, name=tc_name, arguments=args))
         finish = choice.get("finish_reason", "stop")
+
+        # ── Fallback: Text-basierte Tool-Calls erkennen ───────────────────────
+        # Manche Modelle (z.B. Groq llama-3.3) geben Tool-Calls als JSON-Text
+        # zurück statt über die native tool_calls API (finish_reason="stop").
+        if not tool_calls and content and tools:
+            _fallback = _extract_text_tool_calls(content, tools)
+            if _fallback:
+                tool_calls = _fallback
+                content = ""
+                finish = "tool_calls"
+        # ─────────────────────────────────────────────────────────────────────
+
         return LLMResponse(content=content, tool_calls=tool_calls, finish_reason=finish)
 
     async def stream_chat(self, messages, tools=None) -> AsyncIterator[str]:
