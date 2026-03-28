@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import re
+import socket
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
@@ -75,6 +76,20 @@ TOOL_DEFS = [
                 }
             },
             "required": ["host"],
+        },
+    ),
+    ToolDefinition(
+        name="wake_device",
+        description="Wakes up a device on the local network using a Wake-on-LAN (WoL) Magic Packet.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "MAC address, IP address, or hostname of the device to wake.",
+                }
+            },
+            "required": ["target"],
         },
     ),
 ]
@@ -199,6 +214,43 @@ async def ping_host(host: str) -> bool:
         return False
 
 
+def wake_device(target: str) -> str:
+    """Wakes up a device using a Wake-on-LAN Magic Packet."""
+    mac = None
+
+    # Check if target is a MAC address
+    if re.match(r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$", target):
+        mac = target.replace("-", ":")
+    else:
+        # Try to resolve IP or hostname to MAC address using known_devices
+        known = load_known_devices()
+        target_lower = target.lower()
+        for k, v in known.items():
+            # Check IP or hostname match
+            if v.get("ip") == target or v.get("hostname", "").lower() == target_lower:
+                if "mac" in v and v["mac"] != "unknown":
+                    mac = v["mac"].replace("-", ":")
+                    break
+
+    if not mac:
+        return f"❌ Could not resolve MAC address for target '{target}'. Ensure it has been scanned before."
+
+    try:
+        # Construct the WoL Magic Packet
+        mac_bytes = bytes.fromhex(mac.replace(":", ""))
+        magic_packet = b"\xff" * 6 + mac_bytes * 16
+
+        # Broadcast the packet on UDP port 9
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            s.sendto(magic_packet, ("255.255.255.255", 9))
+
+        return f"✅ Magic packet sent to {target} ({mac})."
+    except Exception as e:
+        logger.error("Failed to send Wake-on-LAN packet: %s", e)
+        return f"❌ Error sending Wake-on-LAN packet: {e}"
+
+
 def build_handlers():
     async def _check_new_devices_handler(**_) -> str:
         devices = await check_new_devices()
@@ -228,4 +280,5 @@ def build_handlers():
         "port_scan": lambda ip, fast=True, **_: port_scan(ip, fast),
         "check_new_devices": _check_new_devices_handler,
         "ping_host": lambda host, **_: ping_host(host),
+        "wake_device": lambda target, **_: wake_device(target),
     }
