@@ -1,66 +1,150 @@
 # PiClaw OS – Offene Punkte für nächste Session
 # Erstellt: 2026-03-28
-# Letztes Update: 2026-03-28 (Session 2 – alle Tests grün)
+# Letztes Update: 2026-03-28 (Session 3 – IPC, Shell-API, Sub-Agent Debugging)
 
 ---
 
-## ✅ Alles getestet und funktioniert
+## ✅ Gefixt & implementiert in Session 3
 
-- Groq (Kimi K2 via Groq) als Primary-LLM ✅
-- Tool-Calls (Temperatur, Shell) ✅
-- Willhaben Standortfilter Graz (areaId=601) ✅
-- Kleinanzeigen Stadtname-Erkennung (Hamburg) ✅
-- Netzwerk-Monitor Sub-Agent ✅
-- Cron-Agent (täglich um 06:45 Uhr) ✅
+### 1. /api/shell – Entwicklungs-Tool (⚠️ VOR RELEASE ENTFERNEN)
+- POST /api/shell mit Auth-Token erlaubt direkte Shell-Befehle über den Browser
+- Implementiert in: `piclaw/api.py`
+- Zweck: Schnelles Debugging ohne manuelle Copy-Paste vom Pi
+- **MUSS vor öffentlichem Release deaktiviert/entfernt werden!**
+- Entfernen: Den gesamten Block in api.py löschen (siehe Abschnitt unten)
+
+### 2. IPC zwischen piclaw-api und piclaw-agent (Bug-Fix)
+- Root Cause: API und Daemon sind zwei separate Python-Prozesse
+- /api/subagents/{id}/run rief _execute() im falschen Prozess auf
+- Fix: File-basiertes IPC via /etc/piclaw/ipc/run_now_<id>.trigger
+- Neue Datei: `piclaw/ipc.py`
+- Getestet: Trigger-Datei wird erstellt, Daemon konsumiert sie in <1s ✅
+
+### 3. Telegram-Notify funktioniert
+- Monitor_Netzwerk → Telegram-Notify OK ✅
+- CronJob_0715 → Telegram-Notify OK (154 Zeichen) ✅
+- Log-Eintrag: `Sub-agent 'X': Telegram-Notify OK (NNN Zeichen)`
+
+### 4. piclaw llm test <n> – neuer CLI-Subcommand
+- Testet ein LLM-Backend direkt: `piclaw llm test groq-fallback`
+- Zeigt Latenz und Antwort
+
+### 5. Groq – Kimi K2 als Primary
+- Model: moonshotai/kimi-k2-instruct auf api.groq.com
+- Prio 9 (höher als NIM mit Prio 7)
+- Tool-Calling funktioniert ✅
 
 ---
 
-## 🔧 Aktive Sub-Agenten auf dem Pi
+## 🔧 Noch offen / Nächste Schritte
 
-- `Monitor_Netzwerk` – Netzwerk-Scan alle 5 Min
-- `CPU_Temperatur_Melder` – täglich 06:45 Uhr (cron:45 6 * * *)
-- (3 weitere aus früheren Sessions)
+### A. Telegram-Nachricht von CronJob_0715 nicht angekommen
+- Log sagt "Telegram-Notify OK (154 Zeichen)" aber User hat nichts erhalten
+- Nächste Session: Telegram-Adapter direkt debuggen
+  ```bash
+  strings /var/log/piclaw/agent.log | grep -i "telegram\|send\|error" | tail -20
+  ```
+- Mögliche Ursache: Telegram Bot-Token abgelaufen? Chat-ID falsch?
+- Test: `piclaw messaging test`
+
+### B. ⚠️ /api/shell VOR RELEASE ENTFERNEN
+- Datei: `piclaw/api.py`
+- Zu entfernender Block: Suche nach `@app.post("/api/shell")`
+- Der gesamte Endpoint (ca. 40 Zeilen) muss entfernt werden
+- Alternativ: Hinter Flag `if cfg.dev_mode:` schützen
+
+### C. Cron-Agent Aufgabenbeschreibung
+- "jeden tag" landet als Aufgabe statt "die CPU Temperatur meldet"
+- Fix ist im Code (Regex), aber bestehender Agent hat noch alte Beschreibung
+- Testen: neuen Cron-Agenten erstellen und Mission im Log prüfen
 
 ---
 
-## 📋 Roadmap (nächste Features)
+## 📋 Roadmap (längerfristig)
 
 1. **fail2ban Integration** (v0.17)
-   Brute-Force Schutz für SSH und API
-
 2. **Emergency Shutdown** via schaltbare Steckdose (v0.16)
-   Direktes Abschalten ohne Home Assistant
-
-3. **Queue System v0.14** – parallele CLI + Telegram Anfragen
-   Momentan: eine Anfrage zu Zeit
-
-4. **Willhaben Kategorie-Filter**
-   "Notebooks" findet auch Taschen + RAM → category_id Parameter
-   Browser-Inspektion: areaId=601 funktioniert ✅, Kategorie noch offen
-
-5. **Camera-Tools registrieren**
-   piclaw/hardware/camera.py hat TOOL_DEFS aber fehlt in _build_tools()
-   Fix: _reg(camera_mod.TOOL_DEFS, camera_mod.build_handlers()) in agent.py
-
-6. **LLM Hot-Reload testen**
-   `piclaw llm update <n> --priority X` → sofort ohne Neustart aktiv?
+3. **Queue System** – parallele CLI + Telegram Anfragen
+4. **Willhaben Kategorie-Filter** – "Notebooks" findet auch Taschen
+5. **Camera-Tools registrieren** – TOOL_DEFS vorhanden, fehlt in _build_tools()
 
 ---
 
 ## 🔑 Wichtige Infos
 
-- Pi IP: 192.168.178.120
-- Primäres LLM: Groq / moonshotai/kimi-k2-instruct (Prio 9)
-- Sekundär: NVIDIA NIM / meta/llama-3.3-70b-instruct (Prio 7)
-- Nemotron: nvidia/llama-3.1-nemotron-70b-instruct (Prio 6, oft 404)
-- Lokales Fallback: Gemma 2B Q4 (automatisch)
-- Letzter erfolgreicher piclaw doctor: alle grün, CPU ~52°C
-- Groq-Modelle verfügbar: llama-3.3-70b-versatile, moonshotai/kimi-k2-instruct,
-  qwen/qwen3-32b, openai/gpt-oss-120b (kein Tool-Calling), meta-llama/llama-4-scout-17b
-- github_token in /etc/piclaw/config.toml für piclaw update eintragen!
+### Pi
+- IP: 192.168.178.120
+- SSH: pi@192.168.178.120
+- Dashboard: http://192.168.178.120:7842
+- API Token (Dashboard): REDACTED_PICLAW_TOKEN
 
-## ⚠️  Vor Repo-Veröffentlichung
+### LLM-Backends
+- Primary: groq-fallback / moonshotai/kimi-k2-instruct (Prio 9)
+- Secondary: openai-default / meta/llama-3.3-70b-instruct (Prio 7, NIM)
+- Tertiary: nemotron-nvidia / nvidia/llama-3.1-nemotron-70b-instruct (Prio 6)
+- Lokal: Gemma 2B Q4 (automatischer Fallback)
 
-- Groq API Key aus Git-History entfernen (wurde im Chat geteilt)
-  → git filter-branch oder BFG Repo Cleaner
-- NEXT_SESSION.md auf keine Keys prüfen
+### Laufende Sub-Agenten
+- Monitor_Netzwerk – alle 5 Min Netzwerk-Scan, Telegram bei neuen Geräten
+- CronJob_0715 – täglich 07:15 Uhr CPU-Temperatur, Telegram-Notify
+
+---
+
+## ⚠️ VOR RELEASE CHECKLISTE
+
+1. [ ] /api/shell Endpoint aus api.py entfernen
+2. [ ] Groq API Key aus Git-History entfernen (wurde im Chat geteilt)
+       → git filter-branch oder BFG Repo Cleaner
+3. [ ] API-Token (Dashboard) rotieren
+4. [ ] Pi-IP aus Dokumentation entfernen oder ersetzen
+5. [ ] NEXT_SESSION.md auf keine Keys prüfen
+
+---
+
+## 📐 Architektur-Notizen
+
+### Zwei-Prozess-Architektur
+```
+piclaw-api  (Port 7842)    ←→   HTTP/REST/WS   ←→   Browser/CLI
+piclaw-agent (Daemon)      ←→   Telegram/HA    ←→   Messaging
+
+IPC: /etc/piclaw/ipc/
+  API schreibt:  run_now_<id>.trigger
+  Daemon liest:  poll_triggers() alle 1s (Background-Task)
+  → Daemon führt Sub-Agent mit vollem LLM+Tools+Messaging aus
+```
+
+### /api/shell Entwicklungs-Endpoint (TEMPORÄR)
+```
+POST http://192.168.178.120:7842/api/shell
+Authorization: Bearer <token>
+Content-Type: application/json
+
+Body: {"cmd": "tail -20 /var/log/piclaw/agent.log", "timeout": 30}
+
+Response: {"ok": true, "stdout": "...", "stderr": "...", "returncode": 0}
+```
+
+Im Browser-Kontext nutzbar als:
+```javascript
+window.pi = async (cmd) => {
+    const r = await fetch('/api/shell', {
+        method: 'POST',
+        headers: new Headers({
+            'Authorization': 'Bearer REDACTED_PICLAW_TOKEN',
+            'Content-Type': 'application/json'
+        }),
+        body: JSON.stringify({cmd, timeout: 30})
+    });
+    const d = await r.json();
+    return d.stdout || d.stderr || d.error;
+};
+
+// Beispiele:
+pi('tail -20 /var/log/piclaw/agent.log').then(console.log)
+pi('systemctl status piclaw-agent').then(console.log)
+pi('strings /var/log/piclaw/agent.log | grep "Telegram"').then(console.log)
+```
+
+**SICHERHEITSHINWEIS:** Dieser Endpoint erlaubt beliebige Shell-Befehle
+auf dem Pi (mit einfacher Blocklist). Nur für Entwicklung/Debugging!
