@@ -68,6 +68,23 @@ async def _daemon_main():
 
     log.info("piclaw-agent daemon running.")
 
+    # ── LLM Health Monitor ─────────────────────────────────────────
+    try:
+        from piclaw.llm.health_monitor import start_monitor
+        from piclaw.taskutils import create_background_task
+        _monitor = start_monitor(
+            registry=agent.llm.registry if hasattr(agent.llm, "registry") else None,
+            multirouter=agent.llm,
+            notify=_notify_all,
+        )
+        if _monitor.registry:
+            create_background_task(_monitor.start(stop), name="llm-health-monitor")
+            log.info("LLM Health Monitor gestartet.")
+        else:
+            log.info("LLM Health Monitor: kein Registry – übersprungen.")
+    except Exception as _e:
+        log.warning("LLM Health Monitor konnte nicht starten: %s", _e)
+
     # IPC: Trigger-Polling starten (run_now via API)
     from piclaw.ipc import poll_triggers
     from piclaw.taskutils import create_background_task
