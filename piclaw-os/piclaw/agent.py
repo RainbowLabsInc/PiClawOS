@@ -506,16 +506,38 @@ class Agent:
         task = intent["task"]
 
         name = f"CronJob_{hour:02d}{minute:02d}"
-        mission = (
-            f"Du bist ein autonomer Hintergrund-Agent. Deine Aufgabe: {task}\n\n"
-            f"Fuehre diese Aufgabe aus und sende das Ergebnis via Telegram."
-        )
+        # Tool-Auswahl basierend auf Aufgabe
+        t = task.lower()
+        if any(k in t for k in ["temperatur", "temp", "cpu", "hardware", "pi info", "wärme"]):
+            tools = ["thermal_status", "pi_info", "memory_log"]
+            mission = (
+                f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
+                f"Deine Aufgabe: {task}\n\n"
+                f"Nutze thermal_status um die CPU-Temperatur abzurufen und\n"
+                f"memory_log um das Ergebnis zu protokollieren.\n"
+                f"Fasse das Ergebnis in 1-2 Saetzen zusammen."
+            )
+        elif any(k in t for k in ["service", "dienst", "status"]):
+            tools = ["service_status", "service_list", "memory_log"]
+            mission = (
+                f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
+                f"Deine Aufgabe: {task}\n\n"
+                f"Nutze service_status und service_list um den Status zu pruefen.\n"
+                f"Fasse das Ergebnis in 1-2 Saetzen zusammen."
+            )
+        else:
+            tools = ["thermal_status", "pi_info", "memory_log", "http_fetch"]
+            mission = (
+                f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
+                f"Deine Aufgabe: {task}\n\n"
+                f"Fasse das Ergebnis in 1-2 Saetzen zusammen."
+            )
 
         result = await _agent_create(
             name=name,
             description=f"Taeglicher Job um {hour:02d}:{minute:02d} Uhr: {task}",
             mission=mission,
-            tools=["shell", "memory_write", "memory_log"],
+            tools=tools,
             schedule=f"cron:{cron_expr}",
         )
 
