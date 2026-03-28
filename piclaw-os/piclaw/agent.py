@@ -716,6 +716,27 @@ class Agent:
         plz_match = re.search(r"\b(\d{5})\b", text_clean)
         location = plz_match.group(1) if plz_match else None
 
+        # Städtenamen erkennen (Österreich + Deutschland) falls keine PLZ
+        # Reihenfolge: längere Namen zuerst um Konflikte zu vermeiden
+        _KNOWN_CITIES = [
+            # Österreich
+            "Wien", "Graz", "Linz", "Salzburg", "Innsbruck", "Klagenfurt",
+            "Villach", "Wels", "Steyr", "Dornbirn", "Feldkirch", "Bregenz",
+            "Leoben", "Kapfenberg", "Eisenstadt", "St. Pölten", "Wiener Neustadt",
+            "Krems", "Baden", "Mödling",
+            # Deutschland
+            "Hamburg", "Berlin", "München", "Köln", "Frankfurt", "Bremen",
+            "Hannover", "Düsseldorf", "Leipzig", "Dresden", "Stuttgart",
+            "Dortmund", "Essen", "Nürnberg", "Duisburg", "Bochum",
+            "Wuppertal", "Bielefeld", "Bonn", "Mannheim", "Karlsruhe",
+            "Rosengarten", "Augsburg", "Münster", "Wiesbaden",
+        ]
+        if not location:
+            for city in sorted(_KNOWN_CITIES, key=len, reverse=True):
+                if re.search(r"(?i)\b" + re.escape(city) + r"\b", text_clean):
+                    location = city
+                    break
+
         # Radius
         radius_match = re.search(r"(\d+)\s*km", t)
         radius_km = int(radius_match.group(1)) if radius_match else None
@@ -746,9 +767,12 @@ class Agent:
             query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
         # .at und .de Domain-Suffixe entfernen
         query = re.sub(r"\.(at|de)\b", " ", query, flags=re.IGNORECASE)
-        # PLZ entfernen
+        # PLZ + Stadtname aus Query entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
+        if location and not (plz_match and location == plz_match.group(1)):
+            # Stadtname entfernen (war kein PLZ)
+            query = re.sub(r"(?i)\b" + re.escape(location) + r"\b", " ", query)
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
         query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
         # Stoppwörter entfernen
@@ -775,16 +799,8 @@ class Agent:
             "der",
             "die",
             "das",
-            "rosengarten",
-            "hamburg",
-            "berlin",
-            "münchen",
-            "köln",
-            "frankfurt",
-            "bremen",
-            "hannover",
-            "düsseldorf",
-            "leipzig",
+            # Städtenamen werden jetzt als location extrahiert (siehe oben)
+            # und aus dem Query via location-Removal entfernt
             "schnäppchen",
             "angebot",
             "angebote",
