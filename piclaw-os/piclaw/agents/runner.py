@@ -280,6 +280,13 @@ class SubAgentRunner:
             mem_entry = f"[{ts}] Sub-Agent '{agent.name}' ({status}): {result[:800]}"
             create_background_task(self.memory_log(mem_entry))
 
+        # ── Stille Tokens herausfiltern ────────────────────────────
+        # Manche Tools signalisieren "kein Output nötig" mit speziellen Tokens
+        _SILENT_TOKENS = ("__NO_NEW_RESULTS__", "__NO_NEW_DEVICES__", "__SILENT__")
+        if result and result.strip() in _SILENT_TOKENS:
+            log.debug("Sub-agent '%s': stilles Token (%s) – keine Telegram-Nachricht", agent.name, result.strip())
+            result = ""  # leerer Result → kein Notify
+
         # ── Notify via messaging hub ────────────────────────────────
         log.info("Sub-agent '%s': result=%s notify=%s",
                  agent.name, "ok" if result and result.strip() else "empty", agent.notify)
@@ -305,8 +312,9 @@ class SubAgentRunner:
             log.debug("Sub-agent '%s': notify=False", agent.name)
         elif not self.notify:
             log.error("Sub-agent '%s': KEIN Notify-Callback! Telegram nicht konfiguriert?", agent.name)
-        elif self._is_quiet_network_result(result):
-            # Heartbeat-Logik: max. einmal pro Stunde "alles ruhig" senden.
+        elif agent.direct_tool and self._is_quiet_network_result(result):
+            # Heartbeat-Logik: nur für Direct-Tool-Agenten (z.B. Netzwerk-Monitor).
+            # Marktplatz-Agenten sollen kein Netzwerk-Heartbeat senden.
             # Greift sowohl bei __NO_NEW_DEVICES__ als auch wenn der LLM
             # trotzdem Freitext schreibt (z.B. "Alles ruhig, keine neuen Geräte").
             import time as _time
