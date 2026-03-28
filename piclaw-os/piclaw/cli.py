@@ -1425,6 +1425,7 @@ def cmd_briefing(args: list):
 
                 hub = build_hub(cfg)
                 await hub.send_all(msg)
+                await hub.close()
                 print(f"\033[32m✓ Briefing gesendet ({kind})\033[0m\n")
             except Exception as e:
                 print(f"\033[33m⚠ Senden fehlgeschlagen: {e}\033[0m\n")
