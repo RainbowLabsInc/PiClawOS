@@ -668,6 +668,86 @@ class Agent:
             )
         return "❌ Sub-agent runner nicht bereit."
 
+    async def _ha_shortcut(self, text: str) -> str | None:
+        """
+        Direkte HA-Ausführung ohne LLM – für einfache Schalt-Befehle.
+        Erkennt: "Licht an/aus", "schalte X ein/aus", "mach X an/aus"
+        Spart den gesamten LLM-Call + System-Prompt.
+        """
+        import re
+        t = text.lower().strip()
+
+        # Nur wenn HA konfiguriert
+        from piclaw.tools import homeassistant as _ha_mod
+        client = _ha_mod.get_client()
+        if not client:
+            return None
+
+        # Intent erkennen
+        on_kw  = ["ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen"]
+        off_kw = ["aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen"]
+        toggle_kw = ["toggle", "umschalten", "wechseln"]
+        cmd_kw = ["schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
+                  "licht", "lampe", "leuchte", "steckdose", "schalter"]
+
+        # Muss mindestens ein Befehlswort enthalten
+        if not any(k in t for k in cmd_kw):
+            return None
+
+        # Richtung bestimmen
+        action = None
+        if any(k in t for k in on_kw):
+            action = "on"
+        elif any(k in t for k in off_kw):
+            action = "off"
+        elif any(k in t for k in toggle_kw):
+            action = "toggle"
+        else:
+            return None  # Kein klarer On/Off Intent
+
+        # Raum/Gerät extrahieren – alles zwischen Befehlswort und Richtungswort
+        # Stopwörter entfernen
+        stop = {"das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
+                "bitte", "mal", "doch", "jetzt", "sofort", "kurz", "einmal"}
+        words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
+        # Raum-Keywords suchen
+        area_words = [w for w in words if w not in
+                      on_kw + off_kw + toggle_kw +
+                      ["schalte", "mach", "mache", "stell", "stelle",
+                       "knips", "dreh", "licht", "lampe", "leuchte",
+                       "steckdose", "schalter", "bitte"]]
+        area = " ".join(area_words).strip() if area_words else ""
+
+        # Entität suchen
+        entity_id = None
+        if area:
+            entities = await client.get_states(area=area)
+            # Schaltbare Domains
+            entities = [e for e in entities
+                        if e.domain in ("light", "switch", "cover", "fan")]
+            if entities:
+                entity_id = entities[0].entity_id
+
+        if not entity_id:
+            return None  # Kein Match → LLM übernimmt
+
+        # Ausführen
+        try:
+            if action == "on":
+                ok = await client.turn_on(entity_id)
+                icon = "💡" if entity_id.startswith("light.") else "✅"
+                return f"{icon} {entity_id} eingeschaltet." if ok else f"❌ Konnte {entity_id} nicht einschalten."
+            elif action == "off":
+                ok = await client.turn_off(entity_id)
+                icon = "🌑" if entity_id.startswith("light.") else "✅"
+                return f"{icon} {entity_id} ausgeschaltet." if ok else f"❌ Konnte {entity_id} nicht ausschalten."
+            else:  # toggle
+                ok = await client.toggle(entity_id)
+                return f"🔄 {entity_id} umgeschaltet." if ok else f"❌ Toggle fehlgeschlagen."
+        except Exception as e:
+            log.warning("HA-Shortcut Fehler: %s", e)
+            return None  # LLM übernimmt bei Fehler
+
     def _detect_monitor_intent(self, text: str) -> dict | None:
         """Erkennt natürliche Monitoring-Anfragen wie 'Sag mir wenn ein Pi 5 auftaucht'."""
         import re
@@ -1133,6 +1213,13 @@ class Agent:
                 if handler:
                     log.info("Agent-Start-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
+
+        # ── HA-Shortcut: Licht/Schalter ohne LLM ──────────────────────
+        # Spart den gesamten LLM-Call für einfache Schalt-Befehle
+        _ha_result = await self._ha_shortcut(user_input)
+        if _ha_result is not None:
+            log.info("HA-Shortcut ausgeführt (kein LLM): %s", _ha_result[:50])
+            return _ha_result
 
         # Cron-Agent-Intent: "Erstelle einen Agenten der täglich um X Uhr Y tut"
         _cron_intent = self._detect_cron_agent_intent(user_input)
