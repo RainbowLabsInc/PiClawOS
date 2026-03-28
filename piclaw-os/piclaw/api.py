@@ -256,6 +256,9 @@ async def subagent_create(request: Request, _: str = Depends(require_auth)):
 
 @app.delete("/api/subagents/{name}")
 async def subagent_remove(name: str, _: str = Depends(require_auth)):
+    from piclaw.agents.sa_tools import _PROTECTED_AGENTS
+    if name in _PROTECTED_AGENTS:
+        raise HTTPException(403, f"'{name}' ist ein geschützter Sicherheits-Agent und kann nicht gelöscht werden.")
     if not _agent or not _agent.sa_runner:
         raise HTTPException(503, "Agent not ready")
     sa = _agent.sa_registry.get(name)
@@ -277,6 +280,9 @@ async def subagent_start(name: str, _: str = Depends(require_auth)):
 
 @app.post("/api/subagents/{name}/stop")
 async def subagent_stop(name: str, _: str = Depends(require_auth)):
+    from piclaw.agents.sa_tools import _PROTECTED_AGENTS
+    if name in _PROTECTED_AGENTS:
+        raise HTTPException(403, f"'{name}' ist ein geschützter Sicherheits-Agent und kann nicht gestoppt werden.")
     if not _agent or not _agent.sa_runner:
         raise HTTPException(503, "Agent not ready")
     result = await _agent.sa_runner.stop_agent(name)
