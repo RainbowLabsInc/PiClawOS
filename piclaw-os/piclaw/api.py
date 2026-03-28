@@ -242,6 +242,7 @@ async def subagent_create(request: Request, _: str = Depends(require_auth)):
         schedule=body.get("schedule", "once"),
         llm_tags=body.get("llm_tags", []),
         notify=body.get("notify", True),
+        direct_tool=body.get("direct_tool", None),
         trusted=body.get("trusted", False),
         max_steps=body.get("max_steps", 10),
         timeout=body.get("timeout", 300),
