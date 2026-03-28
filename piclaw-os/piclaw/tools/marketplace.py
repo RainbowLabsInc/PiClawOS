@@ -280,14 +280,9 @@ async def _search_kleinanzeigen(
     if params:
         url += "?" + "&".join(params)
 
-    try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-            if resp.status != 200:
-                log.debug("Kleinanzeigen HTTP %s", resp.status)
-                return []
-            html = await resp.text(errors="replace")
-    except Exception as e:
-        log.debug("Kleinanzeigen Fehler: %s", e)
+    html = await _fetch_html(url, label="Kleinanzeigen")
+    if not html:
+        log.warning("Kleinanzeigen: Keine Antwort für '%s'", query)
         return []
 
     # Inserate parsen
@@ -344,22 +339,29 @@ async def _search_kleinanzeigen(
 # ── eBay.de ────────────────────────────────────────────────────────────────────
 
 
-async def _fetch_ebay_html(url: str) -> str | None:
-    """Holt eBay-HTML – Kaskade: Scrapling → aiohttp Fallback → Tandem."""
+async def _fetch_html(url: str, label: str = "web") -> str | None:
+    """
+    Universelle HTML-Fetch-Kaskade für alle Marktplätze:
+      1. Scrapling  – stealth HTTP, kein echter Browser, schnell
+      2. aiohttp    – Standard HTTP mit Browser-Headers
+      3. Tandem     – echter Headless-Browser (Pi lokal, Port 8765)
 
-    # 1. Scrapling (stealth HTTP, kein echter Browser nötig)
+    Args:
+        url:   Die zu ladende URL
+        label: Plattform-Name für Logging (z.B. "eBay", "Kleinanzeigen")
+    """
+    # 1. Scrapling (stealth HTTP)
     try:
         from scrapling import Fetcher
-
         fetcher = Fetcher(auto_match=False)
         page = await asyncio.to_thread(
             fetcher.get, url, stealthy_headers=True, follow_redirects=True
         )
         if page and len(str(page.content)) > 500:
-            log.debug("eBay via Scrapling geholt")
+            log.debug("%s via Scrapling geholt", label)
             return str(page.content)
     except Exception as e:
-        log.debug("Scrapling fehlgeschlagen: %s", e)
+        log.debug("Scrapling fehlgeschlagen (%s): %s", label, e)
 
     # 2. aiohttp mit Browser-Headers
     try:
@@ -367,10 +369,11 @@ async def _fetch_ebay_html(url: str) -> str | None:
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
+                "Chrome/124.0.0.0 Safari/537.36"
             ),
-            "Accept-Language": "de-DE,de;q=0.9",
+            "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "DNT": "1",
         }
         async with aiohttp.ClientSession() as s:
             async with s.get(
@@ -379,29 +382,37 @@ async def _fetch_ebay_html(url: str) -> str | None:
                 if resp.status == 200:
                     html = await resp.text(errors="replace")
                     if len(html) > 500:
-                        log.debug("eBay via aiohttp geholt")
+                        log.debug("%s via aiohttp geholt", label)
                         return html
+                else:
+                    log.debug("%s aiohttp HTTP %s", label, resp.status)
     except Exception as e:
-        log.debug("aiohttp fehlgeschlagen: %s", e)
+        log.debug("aiohttp fehlgeschlagen (%s): %s", label, e)
 
-    # 3. Tandem Browser (letzter Ausweg – echter Browser)
+    # 3. Tandem Browser (echter Headless-Browser, Pi lokal)
     try:
         async with aiohttp.ClientSession() as s:
             async with s.post(
                 "http://127.0.0.1:8765/navigate",
                 json={"url": url},
-                timeout=aiohttp.ClientTimeout(total=30),
+                timeout=aiohttp.ClientTimeout(total=45),
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     html = data.get("html", "")
                     if len(html) > 500:
-                        log.debug("eBay via Tandem geholt")
+                        log.debug("%s via Tandem geholt", label)
                         return html
     except Exception as e:
-        log.debug("Tandem nicht verfügbar: %s", e)
+        log.debug("Tandem nicht verfügbar (%s): %s", label, e)
 
+    log.warning("Alle Fetch-Methoden fehlgeschlagen für %s: %s", label, url)
     return None
+
+
+# Rückwärts-Kompatibilität: eBay nutzte _fetch_ebay_html
+async def _fetch_ebay_html(url: str) -> str | None:
+    return await _fetch_html(url, label="eBay")
 
 
 async def _search_ebay(
@@ -595,6 +606,68 @@ async def _fetch_willhaben_area_id(location: str) -> str | None:
     return None
 
 
+async def _parse_willhaben_html(url: str, max_results: int, max_price: float | None) -> list[dict]:
+    """
+    HTML-Fallback für Willhaben wenn die JSON-API nicht antwortet.
+    Nutzt _fetch_html Kaskade (Scrapling → aiohttp → Tandem).
+    """
+    import re as _re
+    html = await _fetch_html(url, label="Willhaben-HTML")
+    if not html:
+        return []
+
+    results = []
+    # Willhaben HTML: Inserate sind in <article data-testid="advert-listitem">
+    # oder alternativ in Script-Tags als JSON (Next.js __NEXT_DATA__)
+    # Ansatz 1: __NEXT_DATA__ JSON aus Script-Tag
+    next_data_match = _re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, _re.DOTALL)
+    if next_data_match:
+        try:
+            import json as _json
+            nd = _json.loads(next_data_match.group(1))
+            # Pfad: props.pageProps.searchResult.advertSummaryList.advertSummary
+            adverts = (nd.get("props", {})
+                         .get("pageProps", {})
+                         .get("searchResult", {})
+                         .get("advertSummaryList", {})
+                         .get("advertSummary", []))
+            def _attr(item, name):
+                for a in item.get("attributes", {}).get("attribute", []):
+                    if a.get("name") == name:
+                        v = a.get("values", [])
+                        return v[0] if v else ""
+                return ""
+            for item in adverts:
+                if len(results) >= max_results:
+                    break
+                title = _attr(item, "HEADING")
+                price_text = _attr(item, "PRICE_FOR_DISPLAY") or _attr(item, "PRICE")
+                location_text = _attr(item, "LOCATION")
+                seo_url = _attr(item, "SEO_URL")
+                price = _parse_price(price_text)
+                if max_price and price and price > max_price:
+                    continue
+                if not title:
+                    continue
+                item_id = str(item.get("id", ""))
+                link = (f"https://www.willhaben.at/iad/{seo_url.lstrip('/')}"
+                        if seo_url else
+                        f"https://www.willhaben.at/iad/kaufen-und-verkaufen/d/{item_id}")
+                results.append({
+                    "id": item_id, "platform": "willhaben",
+                    "title": title, "price": price, "price_text": price_text,
+                    "location": location_text, "url": link,
+                })
+            if results:
+                log.info("Willhaben HTML-Fallback (__NEXT_DATA__): %d Inserate", len(results))
+                return results
+        except Exception as e:
+            log.debug("Willhaben __NEXT_DATA__ Parse-Fehler: %s", e)
+
+    log.warning("Willhaben HTML-Fallback: Kein parse-bares Format gefunden")
+    return results
+
+
 async def _search_willhaben(
     session: aiohttp.ClientSession,
     query: str,
@@ -662,12 +735,23 @@ async def _search_willhaben(
                     timeout=aiohttp.ClientTimeout(total=20),
                 ) as resp:
                     if resp.status != 200:
-                        log.debug("Willhaben API HTTP %s", resp.status)
-                        return []
+                        log.debug("Willhaben API HTTP %s – versuche HTML-Fallback", resp.status)
+                        # Fallback: HTML-Seite via _fetch_html Kaskade
+                        from urllib.parse import urlencode
+                        fallback_url = (
+                            f"https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz"
+                            f"?{urlencode(params)}"
+                        )
+                        return await _parse_willhaben_html(fallback_url, max_results, max_price)
                     data = await resp.json(content_type=None)
             except Exception as e:
-                log.debug("Willhaben API Fehler: %s", e)
-                return []
+                log.debug("Willhaben API Fehler: %s – versuche HTML-Fallback", e)
+                from urllib.parse import urlencode
+                fallback_url = (
+                    f"https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz"
+                    f"?{urlencode(params)}"
+                )
+                return await _parse_willhaben_html(fallback_url, max_results, max_price)
     except Exception as e:
         log.debug("Willhaben Session Fehler: %s", e)
         return []
