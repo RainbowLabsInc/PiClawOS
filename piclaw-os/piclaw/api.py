@@ -284,15 +284,18 @@ async def subagent_stop(name: str, _: str = Depends(require_auth)):
 
 @app.post("/api/subagents/{name}/run")
 async def subagent_run_now(name: str, _: str = Depends(require_auth)):
-    if not _agent or not _agent.sa_runner:
+    if not _agent or not _agent.sa_registry:
         raise HTTPException(503, "Agent not ready")
     sa = _agent.sa_registry.get(name)
     if not sa:
         raise HTTPException(404, f"Sub-agent '{name}' not found")
-    create_background_task(
-        _agent.sa_runner._execute(sa),
-        name=f"subagent-api-run-{sa.id}",
-    )
+    # IPC: Trigger-Datei schreiben → Daemon führt den Agent aus
+    # (API und Daemon sind separate Prozesse – direkter _execute()-Aufruf
+    # würde im falschen Prozess laufen ohne LLM/Tools/Messaging)
+    from piclaw.ipc import write_run_now
+    ok = write_run_now(sa.id)
+    if not ok:
+        raise HTTPException(500, "IPC trigger konnte nicht geschrieben werden")
     return {"triggered": True, "name": name}
 
 

@@ -68,6 +68,11 @@ async def _daemon_main():
 
     log.info("piclaw-agent daemon running.")
 
+    # IPC: Trigger-Polling starten (run_now via API)
+    from piclaw.ipc import poll_triggers
+    from piclaw.taskutils import create_background_task
+    create_background_task(poll_triggers(agent.sa_runner), name="ipc-poll")
+
     stop = asyncio.Event()
 
     # ── Proaktiver Agent ───────────────────────────────────────────
