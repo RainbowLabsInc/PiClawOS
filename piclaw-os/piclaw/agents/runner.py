@@ -356,7 +356,10 @@ class SubAgentRunner:
             result = handler()
             if asyncio.iscoroutine(result):
                 result = await result
-            return str(result) if result else ""
+            # Leeres Ergebnis = kein neues Gerät → stilles Token
+            if not result:
+                return "__NO_NEW_DEVICES__"
+            return str(result)
         except Exception as e:
             return f"[ERROR] Direct tool '{agent.direct_tool}' Fehler: {e}"
 
