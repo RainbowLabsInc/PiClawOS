@@ -19,10 +19,10 @@ try:
     path = Path(inspect.getfile(llm_api))
     info(f"Geladen von: {path}")
     src = path.read_text()
-    if "tool_choice wird NICHT gesetzt" in src or "NIM entscheidet selbst" in src:
+    if "tool_choice wird BEWUSST NICHT gesetzt" in src or "INV_024" in src:
         ok("Fix ist aktiv – tool_choice wird für NIM weggelassen")
-    elif '"auto"' in src and "_is_nim" in src:
-        fail("Alter Code aktiv – tool_choice='auto' wird für NIM gesetzt!")
+    elif '"auto"' in src and "_no_tool_choice" in src and "llama-3.3" in src:
+        fail("Alter Code aktiv – tool_choice='auto' wird für NIM/Llama-3.3 gesetzt!")
         fail(f"Bitte kopieren: sudo cp /opt/piclaw/piclaw-os/piclaw/llm/api.py {path}")
     else:
         info("Unbekannte Version – Quellcode prüfen")

@@ -1033,26 +1033,22 @@ class Agent:
 
         for step in range(MAX_STEPS):
             try:
-                if on_token and step == 0:
+                if on_token and step == 0 and not self._tool_defs:
+                    # Stream nur wenn KEINE Tools definiert sind (reiner Text-Response).
+                    # Mit Tools MUSS chat() genutzt werden, da stream_chat keine
+                    # tool_calls zurückgibt und das Modell sonst halluziniert
+                    # statt Tools aufzurufen.
                     collected = ""
                     async for token in self.llm.stream_chat(
-                        messages, tools=self._tool_defs
+                        messages, tools=None
                     ):
                         collected += token
                         await on_token(token)
-                    # Only do a second chat() call if the streamed response
-                    # looks like it might contain tool calls (starts with {, [, or <)
-                    # Otherwise use the streamed content directly to avoid a
-                    # redundant API call that triggers fallback warnings.
-                    _might_have_tools = collected.strip().startswith(("{", "[", "<"))
-                    if _might_have_tools:
-                        response = await self.llm.chat(messages, tools=self._tool_defs)
-                    else:
-                        from piclaw.llm.base import LLMResponse
+                    from piclaw.llm.base import LLMResponse
 
-                        response = LLMResponse(
-                            content=collected, tool_calls=[], finish_reason="stop"
-                        )
+                    response = LLMResponse(
+                        content=collected, tool_calls=[], finish_reason="stop"
+                    )
                     if not response.tool_calls:
                         final_reply = response.content or collected
                         break

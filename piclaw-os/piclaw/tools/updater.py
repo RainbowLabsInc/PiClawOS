@@ -19,6 +19,15 @@ log = logging.getLogger("piclaw.updater")
 INSTALL_DIR = Path("/opt/piclaw")
 VENV_PIP = INSTALL_DIR / ".venv" / "bin" / "pip"
 
+
+def _git_remote_url(cfg: UpdaterConfig) -> str:
+    """Baut die Git-Remote-URL mit Token-Auth für private Repos."""
+    if cfg.github_token:
+        # https://x-access-token:<TOKEN>@github.com/org/repo.git
+        url = cfg.repo_url.replace("https://", f"https://x-access-token:{cfg.github_token}@")
+        return url
+    return cfg.repo_url
+
 TOOL_DEFS = [
     ToolDefinition(
         name="system_update",
@@ -60,6 +69,11 @@ async def _run(cmd: str, timeout: int = 120) -> tuple[int, str]:
 
 
 async def system_update(target: str, cfg: UpdaterConfig) -> str:
+    # Remote-URL mit Token aktualisieren (für private Repos)
+    _remote_url = _git_remote_url(cfg)
+    if cfg.github_token:
+        await _run(f"cd {INSTALL_DIR} && git remote set-url origin '{_remote_url}' 2>&1")
+
     if target == "check":
         rc, out = await _run(
             f"cd {INSTALL_DIR} && git fetch origin && "
