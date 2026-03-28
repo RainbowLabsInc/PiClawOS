@@ -19,6 +19,15 @@
   explizite Gerätekennzeichen (mac:, ip:, 🚨, "neues gerät" etc.)
 - Mission verschärft: explizite Anweisung FALL A / FALL B mit Token-Pflicht
 
+### Direct Tool Mode (Netzwerk-Monitor)
+- Monitor_Netzwerk läuft jetzt ohne LLM: 0 API-Calls bei ruhigem Netzwerk
+- Neues Feld `direct_tool` in SubAgentDef – Tool wird direkt aufgerufen
+- Bei neuem Gerät: Tool gibt Gerätedaten zurück → Heartbeat-Heuristik
+  erkennt MAC/IP und sendet sofort (kein LLM für "alles ruhig")
+- Vorher: 864 Groq-Calls/Tag | Nachher: 0 Calls/Tag (nur nmap)
+- Technisch: _direct_tool_call() in runner.py, direct_tool Feld in sa_registry.py
+  und api.py POST /api/subagents leitet das Feld durch
+
 #### Briefings (Setup)
 - Morgen- und Abend-Briefing Uhrzeit im `piclaw setup` konfigurierbar
 - Eingabe HH:MM → wird zu Cron-Expression umgewandelt und in routines.json gespeichert
