@@ -191,6 +191,17 @@ class Agent:
         except Exception as _e:
             log.debug("Network security tools not loaded: %s", _e)
 
+        # ── Kamera-Tools ───────────────────────────────────────────
+        try:
+            from piclaw.hardware import camera as camera_mod
+            if camera_mod.is_available():
+                _reg(camera_mod.TOOL_DEFS, camera_mod.build_handlers())
+                log.info("Camera tools registered (%d cameras)", len(camera_mod.list_cameras()))
+            else:
+                log.debug("Keine Kamera gefunden – Camera-Tools deaktiviert")
+        except Exception as _e:
+            log.debug("Camera tools not loaded: %s", _e)
+
         # Routinen-Tools werden lazy registriert (ProactiveRunner startet nach __init__)
         # Siehe: _register_late_tools() wird vor dem ersten run() aufgerufen
 
@@ -537,9 +548,12 @@ class Agent:
             mission = (
                 f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
                 f"Deine Aufgabe: {task}\n\n"
-                f"Nutze thermal_status um die CPU-Temperatur abzurufen und\n"
-                f"memory_log um das Ergebnis zu protokollieren.\n"
-                f"Fasse das Ergebnis in 1-2 Saetzen zusammen."
+                f"Vorgehensweise:\n"
+                f"1. Ruf thermal_status auf um die CPU-Temperatur zu lesen.\n"
+                f"2. Ruf pi_info auf fuer weitere Systeminfos.\n"
+                f"3. Fasse das Ergebnis in 1-2 Saetzen auf DEUTSCH zusammen.\n"
+                f"4. Protokolliere das Ergebnis mit memory_log.\n\n"
+                f"WICHTIG: Antworte ausschliesslich auf Deutsch."
             )
         elif any(k in t for k in ["service", "dienst", "status"]):
             tools = ["service_status", "service_list", "memory_log"]

@@ -1167,10 +1167,6 @@ def main():
         print("Run 'piclaw help' for available commands.")
 
 
-if __name__ == "__main__":
-    main()
-
-
 # ── Backup ─────────────────────────────────────────────────────────
 
 
@@ -1437,3 +1433,7 @@ def cmd_briefing(args: list):
         print()
 
     asyncio.run(_run())
+
+
+if __name__ == "__main__":
+    main()
