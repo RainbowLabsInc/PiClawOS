@@ -491,74 +491,79 @@ async def _search_ebay(
     return results
 
 
-# ── Willhaben Standort-Mapping ────────────────────────────────────────────────
-# Willhaben nutzt SEO-URL-Pfade für Standortfilter: /marktplatz/bundesland/stadt
-# Dies ist stabiler als numerische areaIds (undokumentiert, können sich ändern).
+# ── Willhaben Standort-Mapping (areaId) ──────────────────────────────────────
+# Willhaben nutzt interne areaIds für den Standortfilter im webapi-Endpoint.
+# Bundesland-IDs: 100er-Schritte. Bezirks/Stadt-IDs: Bundesland + 2 Ziffern.
 
-_WH_LOCATION_MAP: dict[str, str] = {
+_WH_AREA_IDS: dict[str, str] = {
     # Bundesländer
-    "wien":              "wien",
-    "vienna":            "wien",
-    "steiermark":        "steiermark",
-    "styria":            "steiermark",
-    "niederösterreich":  "niederoesterreich",
-    "niederoesterreich": "niederoesterreich",
-    "niederosterreich":  "niederoesterreich",
-    "lower austria":     "niederoesterreich",
-    "oberösterreich":    "oberoesterreich",
-    "oberoesterreich":   "oberoesterreich",
-    "oberosterreich":    "oberoesterreich",
-    "upper austria":     "oberoesterreich",
-    "salzburg":          "salzburg",
-    "tirol":             "tirol",
-    "tyrol":             "tirol",
-    "vorarlberg":        "vorarlberg",
-    "kärnten":           "kaernten",
-    "kaernten":          "kaernten",
-    "carinthia":         "kaernten",
-    "burgenland":        "burgenland",
-    # Städte → bundesland/stadt
-    "graz":              "steiermark/graz",
-    "linz":              "oberoesterreich/linz",
-    "salzburg stadt":    "salzburg/salzburg-stadt",
-    "salzburg city":     "salzburg/salzburg-stadt",
-    "innsbruck":         "tirol/innsbruck",
-    "klagenfurt":        "kaernten/klagenfurt",
-    "villach":           "kaernten/villach",
-    "wels":              "oberoesterreich/wels",
-    "steyr":             "oberoesterreich/steyr",
-    "st. pölten":        "niederoesterreich/st-poelten",
-    "st pölten":         "niederoesterreich/st-poelten",
-    "st. poelten":       "niederoesterreich/st-poelten",
-    "wiener neustadt":   "niederoesterreich/wiener-neustadt",
-    "krems":             "niederoesterreich/krems-an-der-donau",
-    "bregenz":           "vorarlberg/bregenz",
-    "dornbirn":          "vorarlberg/dornbirn",
-    "feldkirch":         "vorarlberg/feldkirch",
-    "leoben":            "steiermark/leoben",
-    "kapfenberg":        "steiermark/kapfenberg",
-    "bruck an der mur":  "steiermark/bruck-an-der-mur",
-    "eisenstadt":        "burgenland/eisenstadt",
+    "wien":              "100",
+    "vienna":            "100",
+    "niederösterreich":  "200",
+    "niederoesterreich": "200",
+    "niederosterreich":  "200",
+    "lower austria":     "200",
+    "burgenland":        "300",
+    "oberösterreich":    "400",
+    "oberoesterreich":   "400",
+    "oberosterreich":    "400",
+    "upper austria":     "400",
+    "salzburg":          "500",
+    "steiermark":        "600",
+    "styria":            "600",
+    "kärnten":           "700",
+    "kaernten":          "700",
+    "carinthia":         "700",
+    "tirol":             "800",
+    "tyrol":             "800",
+    "vorarlberg":        "900",
+    # Städte / Bezirke
+    "graz":              "601",
+    "graz-umgebung":     "602",
+    "deutschlandsberg":  "603",
+    "leibnitz":          "610",
+    "leoben":            "604",
+    "bruck an der mur":  "605",
+    "kapfenberg":        "605",
+    "weiz":              "614",
+    "linz":              "401",
+    "wels":              "404",
+    "steyr":             "411",
+    "salzburg stadt":    "501",
+    "salzburg city":     "501",
+    "innsbruck":         "801",
+    "innsbruck land":    "803",
+    "klagenfurt":        "701",
+    "villach":           "703",
+    "st. pölten":        "202",
+    "st pölten":         "202",
+    "st. poelten":       "202",
+    "wiener neustadt":   "216",
+    "krems":             "206",
+    "eisenstadt":        "301",
+    "bregenz":           "901",
+    "dornbirn":          "902",
+    "feldkirch":         "903",
 }
 
 
 def _resolve_willhaben_location(location: str | None) -> str | None:
     """
-    Gibt den Willhaben SEO-URL-Pfad für einen Standort zurück.
+    Gibt die Willhaben areaId für einen Standort zurück.
     Beispiele:
-      "Graz"       → "steiermark/graz"
-      "Steiermark" → "steiermark"
-      "Wien"       → "wien"
+      "Graz"       → "601"
+      "Steiermark" → "600"
+      "Wien"       → "100"
     Unbekannte Orte: None (österreichweit suchen).
     """
     if not location:
         return None
     key = location.strip().lower()
     # Direkter Treffer
-    if key in _WH_LOCATION_MAP:
-        return _WH_LOCATION_MAP[key]
-    # Teilstring-Treffer (z.B. "Graz, Österreich" → "graz")
-    for k, v in _WH_LOCATION_MAP.items():
+    if key in _WH_AREA_IDS:
+        return _WH_AREA_IDS[key]
+    # Teilstring-Treffer (z.B. "Graz, Österreich" → "graz" → "601")
+    for k, v in sorted(_WH_AREA_IDS.items(), key=lambda x: len(x[0]), reverse=True):
         if k in key:
             return v
     return None
@@ -610,16 +615,14 @@ async def _search_willhaben(
             }
             if max_price:
                 params["PRICE_TO"] = str(int(max_price))
-            # Willhaben nutzt SEO-URL-Pfade für Standortfilter
-            # Beispiel: /marktplatz/steiermark/graz
-            _wh_loc_path = _resolve_willhaben_location(location)
-            if _wh_loc_path:
-                url = f"https://www.willhaben.at/webapi/iad/search/atz/seo/kaufen-und-verkaufen/marktplatz/{_wh_loc_path}"
-                log.debug("Willhaben Standortfilter: %s → /%s", location, _wh_loc_path)
-            else:
-                url = "https://www.willhaben.at/webapi/iad/search/atz/seo/kaufen-und-verkaufen/marktplatz"
-                if location:
-                    log.debug("Willhaben: Unbekannter Ort '%s' – österreichweit", location)
+            # Willhaben nutzt areaId als Query-Parameter für Standortfilter
+            _wh_area_id = _resolve_willhaben_location(location)
+            if _wh_area_id:
+                params["areaId"] = _wh_area_id
+                log.debug("Willhaben Standortfilter: %s → areaId=%s", location, _wh_area_id)
+            elif location:
+                log.debug("Willhaben: Unbekannter Ort '%s' – österreichweit", location)
+            url = "https://www.willhaben.at/webapi/iad/search/atz/seo/kaufen-und-verkaufen/marktplatz"
 
             try:
                 async with wh_session.get(
