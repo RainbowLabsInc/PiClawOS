@@ -160,6 +160,12 @@ TOOL_DEFS = [
 ]
 
 
+
+# ── Geschützte System-Agenten ─────────────────────────────────────────────────
+# Diese Agenten sind Teil der Sicherheitsarchitektur und können nicht
+# durch Dameon oder Nutzer-Befehle gestoppt/gelöscht werden.
+_PROTECTED_AGENTS = {"Monitor_Netzwerk"}
+
 def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
 
     async def agent_list(**_) -> str:
@@ -232,9 +238,19 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         return await runner.start_agent(name)
 
     async def agent_stop(name: str, **_) -> str:
+        if name in _PROTECTED_AGENTS:
+            return (
+                f"⛔ '{name}' ist ein geschützter Sicherheits-Agent und kann nicht "
+                f"gestoppt werden. Er überwacht das Netzwerk auf neue Geräte."
+            )
         return await runner.stop_agent(name)
 
     async def agent_remove(name: str, **_) -> str:
+        if name in _PROTECTED_AGENTS:
+            return (
+                f"⛔ '{name}' ist ein geschützter Sicherheits-Agent und kann nicht "
+                f"gelöscht werden. Er ist Teil der Netzwerk-Sicherheitsarchitektur."
+            )
         # Stop first if running
         agent = registry.get(name)
         if not agent:

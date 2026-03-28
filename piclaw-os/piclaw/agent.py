@@ -1108,6 +1108,7 @@ class Agent:
                 return await handler()
 
         # Agent-Stop/Start/Remove-Shortcut: "Stopp den Monitor_X", "Lösch den X" etc.
+        # Geschützte Agenten (Sicherheitsarchitektur) sind via sa_tools._PROTECTED_AGENTS gesichert
         import re as _re
         _stop_kw   = ["stopp", "stop", "beend", "pause", "halte an", "deaktiviere"]
         _start_kw  = ["start", "starte", "aktiviere", "reaktiviere"]
@@ -1314,6 +1315,22 @@ class Agent:
         create_background_task(self._boot_memory(), name="memory-boot")
         create_background_task(heartbeat_loop(), name="heartbeat")
         if start_sub_agents:
+            # ── Sicherheits-Agenten sicherstellen ──────────────────
+            # Monitor_Netzwerk ist geschützt und muss immer laufen.
+            # Falls er aus der Registry fehlt (manuelle Bereinigung etc.)
+            # wird er automatisch neu angelegt bevor der Scheduler startet.
+            from piclaw.agents.sa_tools import _PROTECTED_AGENTS
+            for protected_name in _PROTECTED_AGENTS:
+                if not self.sa_registry.get(protected_name):
+                    log.warning(
+                        "Geschützter Agent '%s' fehlt in Registry – wird automatisch neu angelegt.",
+                        protected_name
+                    )
+                    if protected_name == "Monitor_Netzwerk":
+                        create_background_task(
+                            self._create_network_monitor_agent(300),
+                            name="recreate-network-monitor"
+                        )
             create_background_task(self.sa_runner.start_all_scheduled(), name="sa-boot")
             log.info("Sub-agent scheduler started.")
         else:
