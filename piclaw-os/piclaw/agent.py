@@ -462,11 +462,26 @@ class Agent:
 
         cron_expr = f"{minute} {hour} * * *"
 
-        task_match = re.search(
-            r"(?:agenten?|job|task)\s+der\s+(.+?)(?:\s+um\s+\d|\s+jeden|\Z)",
-            t
+        # Aufgabe extrahieren: alles nach "der" bis zur Zeitangabe/täglich
+        # Strategie: Suche nach dem Nomen das NACH "Uhr" kommt, oder dem ganzen Satz
+        # Beispiel: "...um 07:15 Uhr die CPU Temperatur meldet" → "die CPU Temperatur meldet"
+        time_str = f"um {hour:02d}" if minute == 0 else f"um {hour}"
+        after_time = re.search(
+            r"um\s+\d{1,2}[:.]\d{0,2}\s*uhr?\s+(.+?)(?:\s*[.,]?\s*$)",
+            text.lower()
         )
-        task = task_match.group(1).strip() if task_match else text.strip()
+        if after_time:
+            task = after_time.group(1).strip()
+        else:
+            # Fallback: alles nach "der täglich" oder "der jeden tag"
+            task_match = re.search(
+                r"(?:agenten?|job|task)\s+der\s+(?:jeden\s+tag\s+|täglich\s+|taeglich\s+)?(?:um\s+[\d:.]+\s*uhr?\s+)?(.+?)(?:\s*[.,]?\s*$)",
+                text.lower()
+            )
+            task = task_match.group(1).strip() if task_match else text.strip()
+        # Cleaning: Zeitrauschen entfernen
+        task = re.sub(r"(täglich|jeden tag|um \d{1,2}[:.]\d{0,2}\s*uhr?)", "", task, flags=re.IGNORECASE).strip()
+        task = re.sub(r"\s+", " ", task).strip() or text.strip()
 
         return {"cron_expr": cron_expr, "hour": hour, "minute": minute,
                 "task": task, "original": text}
