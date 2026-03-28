@@ -279,7 +279,24 @@ class SubAgentRunner:
         elif not self.notify:
             log.error("Sub-agent '%s': KEIN Notify-Callback! Telegram nicht konfiguriert?", agent.name)
         elif result.strip() == "__NO_NEW_DEVICES__":
-            log.debug("Sub-agent '%s': keine neuen Geräte – kein Notify", agent.name)
+            # Heartbeat-Logik: max. einmal pro Stunde "alles ruhig" senden
+            import time as _time
+            _HB_KEY = f"_hb_{agent.id}"
+            _last_hb = getattr(self, _HB_KEY, 0)
+            _now = _time.time()
+            _hb_interval = 3600  # 1 Stunde
+            if _now - _last_hb >= _hb_interval:
+                setattr(self, _HB_KEY, _now)
+                header = f"🤖 *{agent.name}* [heartbeat]\n"
+                heartbeat_msg = header + "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde."
+                try:
+                    await self.notify(heartbeat_msg)
+                    log.info("Sub-agent '%s': Heartbeat gesendet", agent.name)
+                except Exception as e:
+                    log.warning("Sub-agent '%s': Heartbeat-Fehler: %s", agent.name, e)
+            else:
+                _remaining = int((_hb_interval - (_now - _last_hb)) / 60)
+                log.debug("Sub-agent '%s': alles ruhig, nächster Heartbeat in %dmin", agent.name, _remaining)
         else:
             header = f"🤖 *{agent.name}* [{status}]\n"
             try:

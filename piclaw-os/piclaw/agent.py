@@ -603,22 +603,26 @@ class Agent:
         )
 
         mission = (
-            "Du bist ein Netzwerk-Sicherheitsmonitor für PiClaw OS.\n\n"
-            "Deine Aufgabe: Ruf 'check_new_devices' auf.\n"
-            "- Werden neue/unbekannte Geräte gefunden → melde sie detailliert (IP, MAC, Hersteller)\n"
-            "- Werden KEINE neuen Geräte gefunden → sende KEINE Nachricht (notify=False implizit)\n\n"
-            "Format bei neuem Gerät:\n"
-            "🔍 Neues Gerät im Netzwerk!\n"
-            "  📍 IP: <ip>\n"
-            "  🔌 MAC: <mac>\n"
-            "  🏭 Hersteller: <vendor>\n"
-            "  💻 Hostname: <hostname>\n\n"
-            "Bewerte kurz ob das Gerät verdächtig wirkt (unbekannter Hersteller, seltsame IP etc.)."
+            "Du bist ein Netzwerk-Sicherheitsmonitor fuer PiClaw OS.\n\n"
+            "Deine Aufgabe: Ruf 'check_new_devices' auf und reagiere so:\n\n"
+            "FALL 1 – Neues/unbekanntes Geraet gefunden:\n"
+            "  → Sofort melden! Format:\n"
+            "  🚨 Neues Geraet im Netzwerk!\n"
+            "    📍 IP: <ip>\n"
+            "    🔌 MAC: <mac>\n"
+            "    🏭 Hersteller: <vendor>\n"
+            "    💻 Hostname: <hostname>\n"
+            "  Bewerte ob das Geraet verdaechtig wirkt.\n"
+            "  Antworte mit dem vollstaendigen Bericht.\n\n"
+            "FALL 2 – Keine neuen Geraete (alles ruhig):\n"
+            "  → Antworte NUR mit dem exakten Token: __NO_NEW_DEVICES__\n"
+            "  → Kein weiterer Text, keine Erklaerung.\n"
+            "  Der Runner entscheidet selbst ob ein Heartbeat faellig ist."
         )
 
         agent_def = SubAgentDef(
             name=agent_name,
-            description=f"Netzwerk-Monitoring: neue Geräte erkennen – {interval_str}",
+            description=f"Netzwerk-Monitoring: neue Geraete erkennen – {interval_str}",
             mission=mission,
             tools=["check_new_devices", "network_scan"],
             schedule=f"interval:{interval_sec}",
