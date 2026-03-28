@@ -239,7 +239,7 @@ fi
 # ── Konfiguration anlegen ─────────────────────────────────────────
 section "Konfiguration anlegen"
 
-mkdir -p "$CONFIG_DIR/ipc"
+mkdir -p "$CONFIG_DIR/ipc" "$CONFIG_DIR/skills"
 chown -R "$PICLAW_USER":"$PICLAW_USER" "$CONFIG_DIR"
 
 # Generiere API-Token
