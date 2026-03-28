@@ -6,20 +6,23 @@
 ---
 ## META
 project=PiClaw_OS
-version=0.15.2
+version=0.15.4
 target_hw=Raspberry_Pi_5_arm64
 python_min=3.11
 tested_python=3.13.5
 pi_ip=192.168.178.120
 agent_name=Dameon
-llm_primary=groq/llama-3.3-70b-versatile (Prio 9)
-llm_secondary=moonshotai/kimi-k2.5@nvidia_nim (Prio 7)
-llm_secondary=nvidia/llama-3.1-nemotron-70b-instruct@nvidia_nim
-llm_local=gemma-2b-q4@llama.cpp
+llm_primary=groq-actions/llama-3.3-70b-versatile (Prio 10, tags: action,home_automation)
+llm_primary=groq-fallback/kimi-k2-instruct (Prio 9, tags: general,reasoning)
+llm_secondary=nemotron-nvidia/llama-4-maverick-17b@nvidia_nim (Prio 8)
+llm_secondary=openai-default/llama-3.3-70b-instruct@nvidia_nim (Prio 7, Fallback)
+llm_local=gemma-2b-q4@llama.cpp (letzter Fallback)
 install_dir=/opt/piclaw
 config_dir=/etc/piclaw
 repo=https://github.com/RainbowLabsInc/PiClawOS.git
 source_of_truth=piclaw-os/piclaw/   # NEVER boot/piclaw/piclaw-src/piclaw/
+ha_url=http://homeassistant:8123
+ha_token=in /etc/piclaw/config.toml [homeassistant] section
 
 ---
 ## REPOSITORY_STRUCTURE
@@ -607,3 +610,91 @@ checksum_invariants=27
 checksum_services=4+1timer
 status=PRODUCTION_STABLE
 last_updated=2026-03-27
+
+---
+## NEW_INVARIANTS_v0154
+# Kritische Regeln die seit v0.15.4 gelten
+
+INV_020: api.py MUSS ha_mod.start() VOR Agent(_cfg) aufrufen
+  REASON: Agent.__init__() → _build_tools() → ha_mod.get_client()
+          Wenn HA danach gestartet: get_client()=None → keine HA-Tools registriert
+          LLM fällt auf gpio_write zurück statt ha_turn_on
+  CODE: |
+    # HA VOR Agent starten!
+    from piclaw.tools import homeassistant as _ha_mod
+    await _ha_mod.start()
+    _agent = Agent(_cfg)  # ERST DANN Agent erstellen
+
+INV_021: daemon.py: start_sub_agents MUSS beim API-Prozess False sein
+  REASON: Beide Prozesse (api + agent) luden subagents.json → doppelte Sub-Agenten
+          → jede Telegram-Nachricht kam 2x
+  CODE: |
+    # In api.py:
+    create_background_task(_agent.boot(start_sub_agents=False), ...)
+    # In daemon.py:
+    await agent.boot()  # start_sub_agents=True (default)
+
+INV_022: Monitor_Netzwerk ist GESCHÜTZT – niemals in Registry löschen
+  REASON: Sicherheitsarchitektur
+  PROTECTION_LAYERS:
+    1. sa_tools.py: _PROTECTED_AGENTS = {"Monitor_Netzwerk"}
+    2. api.py: DELETE/STOP → HTTP 403
+    3. agent.boot(): Auto-Recreate falls fehlt
+
+INV_023: Silent Tokens dürfen nicht zu result="" werden
+  REASON: result="" triggert Fallback-Bericht → Telegram-Spam alle 5 Min
+  WRONG: result = ""  # nach Token-Erkennung
+  RIGHT: _intentionally_silent = True  # Flag setzen, result="" DANACH
+
+INV_024: HA config.toml Format
+  SECTION: [homeassistant]
+  FIELDS: url, token, verify_ssl, timeout, notify_on_events
+  LOAD: homeassistant.py._make_config() liest direkt aus CONFIG_FILE
+        NICHT über PiClawConfig Dataclass (kein homeassistant Feld dort!)
+
+---
+## CURRENT_ARCHITECTURE_v0154
+
+TWO_PROCESS_SETUP:
+  piclaw-api  (Port 7842):
+    - Telegram-Empfang + Antworten (Hub + Long-Polling)
+    - REST-API + WebSocket + Web-UI
+    - HA-Tools registriert (ha_mod.start() VOR Agent())
+    - Sub-Agenten: start_sub_agents=False
+    - IPC: schreibt run_now_<id>.trigger
+
+  piclaw-agent (Daemon):
+    - Sub-Agenten-Scheduler (alle 3 Agenten)
+    - LLM Health Monitor (stündlich)
+    - Proaktive Routinen
+    - Thermal Monitor
+    - IPC: liest trigger-Files (poll_triggers alle 1s)
+
+LLM_ROUTING:
+  Stage 0: _regex_classify() <1ms → HA-Befehle direkt nach groq-actions
+  Stage 1: _pattern_classify() → 25 Muster
+  Stage 2: LLM-Classifier (nur wenn confidence < 0.65)
+  Routing: find_by_tags() → Priority → Fallback-Kette
+
+HA_SHORTCUT:
+  "Licht an" → _ha_shortcut() → ha_mod.get_client().turn_on() → "💡 an"
+  Kein LLM, kein Token-Verbrauch, < 100ms
+
+HEALTH_MONITOR:
+  Datei: piclaw/llm/health_monitor.py
+  Start: daemon.py nach "piclaw-agent daemon running."
+  Erster Check: nach 600s (Boot abwarten)
+  Interval: 3600s (stündlich)
+  Auto-Repair: 404 → /models API → preferred list → registry.update()
+
+SUB_AGENTS (aktuell):
+  Monitor_Netzwerk  interval:300   direct_tool=check_new_devices  PROTECTED
+  CronJob_0715      cron:15 7 * * * LLM                           
+  Monitor_Gartentisch interval:3600 LLM                           
+
+ACTIVE_LLM_BACKENDS:
+  [10] groq-actions   llama-3.3-70b-versatile  Groq       30k TPM
+  [ 9] groq-fallback  kimi-k2-instruct         Groq       10k TPM
+  [ 8] nemotron-nvidia llama-4-maverick-17b    NVIDIA NIM free tier
+  [ 7] openai-default  llama-3.3-70b-instruct  NVIDIA NIM Fallback
+  local gemma-2b-q4                            llama.cpp  letzter Fallback
