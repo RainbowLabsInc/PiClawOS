@@ -310,31 +310,29 @@ class SubAgentRunner:
     def _is_quiet_network_result(self, result: str) -> bool:
         """
         Erkennt ob ein Sub-Agenten-Ergebnis "alles ruhig" bedeutet.
-        Greift für __NO_NEW_DEVICES__ UND für LLM-Freitext ohne Gerätedaten.
+
+        Logik: Standardmäßig ist alles "quiet" – nur wenn der Text
+        explizite Gerätedaten enthält (MAC, IP, 🚨 etc.) wird sofort
+        gesendet. So wird auch LLM-Freitext wie "Alles normal" korrekt
+        gedrosselt, ohne dass wir alle möglichen Formulierungen kennen müssen.
         """
         if not result or not result.strip():
             return False
         r = result.strip()
-        # Explizites Signal vom Tool
+        # Explizites "alles ok" Signal → immer quiet
         if r == "__NO_NEW_DEVICES__":
             return True
-        # Freitext-Erkennung: enthält KEINE Gerätekennzeichen?
-        device_keywords = [
-            "neues gerät", "new device", "neue gerät", "unbekannt",
-            "mac:", "ip:", "hersteller:", "vendor:", "hostname:",
-            "🚨", "🔍 neues", "new device detected",
+        # Enthält echte Gerätedaten → SOFORT senden (nicht quiet)
+        device_indicators = [
+            "mac:", "ip: ", "hersteller:", "vendor:", "hostname:",
+            "🚨", "neues gerät", "new device", "unbekanntes gerät",
+            "new device detected", "🔍 neues",
         ]
         r_lower = r.lower()
-        has_device = any(kw in r_lower for kw in device_keywords)
-        if has_device:
+        if any(kw in r_lower for kw in device_indicators):
             return False
-        # Enthält "ruhig", "keine neuen", "sauber" etc. → quiet
-        quiet_keywords = [
-            "keine neuen", "alles ruhig", "no new", "nichts auffälliges",
-            "netzwerk sauber", "ruhig", "sauber", "unauffällig",
-            "keine verdächtigen", "keine unbekannten",
-        ]
-        return any(kw in r_lower for kw in quiet_keywords)
+        # Alles andere (Freitext, "alles ruhig", "normal", etc.) → quiet
+        return True
 
     async def _agentic_loop(self, agent: SubAgentDef) -> str:
         """
