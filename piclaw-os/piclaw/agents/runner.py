@@ -122,7 +122,27 @@ class SubAgentRunner:
         return f"Sub-agent '{agent.name}' was not running."
 
     async def start_all_scheduled(self):
-        """Start all enabled sub-agents that have a recurring schedule."""
+        """Start all enabled sub-agents that have a recurring schedule.
+        
+        Bereinigt beim Start verwaiste once-Agenten die nie ausgeführt wurden
+        (entstehen wenn der Daemon während einer once-Ausführung neugestartet wird).
+        """
+        # ── Verwaiste once-Agenten bereinigen ──────────────────────
+        stale_once = [
+            a for a in self.registry.list_all()
+            if a.schedule == "once" or a.name.startswith("SearchAssistant")
+        ]
+        for agent in stale_once:
+            # Nur entfernen wenn letzter Status gesetzt (schon gelaufen)
+            # ODER wenn kein Status (nie gestartet – verwaist durch Neustart)
+            if agent.last_status in (None, "ok", "error", "timeout"):
+                self.registry.remove(agent.id)
+                log.info(
+                    "Startup-Cleanup: verwaister once-Agent '%s' (%s) entfernt",
+                    agent.name, agent.last_status
+                )
+
+        # ── Wiederkehrende Agenten starten ─────────────────────────
         for agent in self.registry.list_enabled():
             if agent.schedule not in ("once",):
                 await self.start_agent(agent.id)
