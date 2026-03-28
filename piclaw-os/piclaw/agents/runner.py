@@ -281,7 +281,7 @@ class SubAgentRunner:
         elif result.strip() == "__NO_NEW_DEVICES__":
             log.debug("Sub-agent '%s': keine neuen Geräte – kein Notify", agent.name)
         else:
-            header = f"🤖 **{agent.name}** [{status}]\n"
+            header = f"🤖 *{agent.name}* [{status}]\n"
             try:
                 await self.notify(header + result[:1500])
                 log.info("Sub-agent '%s': Telegram-Notify OK (%d Zeichen)", agent.name, len(result))

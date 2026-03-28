@@ -54,13 +54,30 @@ class TelegramAdapter(MessagingAdapter):
         cid = chat_id or self.chat_id
         if not self._session or self._session.closed:
             self._session = aiohttp.ClientSession()
-        for chunk in _split(text, 4096):
+        # Markdown-Bereinigung: Python **bold** → Telegram *bold*
+        # Und MarkdownV1-Sonderzeichen escapen die Probleme machen
+        clean = text.replace("**", "*")
+        for chunk in _split(clean, 4096):
             try:
-                await self._session.post(
+                async with self._session.post(
                     self._url("sendMessage"),
                     json={"chat_id": cid, "text": chunk, "parse_mode": "Markdown"},
                     timeout=aiohttp.ClientTimeout(total=10),
-                )
+                ) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        log.error("Telegram API Fehler %s: %s (text=%r)", resp.status, body, chunk[:100])
+                        # Fallback: ohne parse_mode nochmal versuchen
+                        async with self._session.post(
+                            self._url("sendMessage"),
+                            json={"chat_id": cid, "text": chunk},
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as resp2:
+                            if resp2.status != 200:
+                                body2 = await resp2.text()
+                                log.error("Telegram Fallback auch fehlgeschlagen: %s: %s", resp2.status, body2)
+                            else:
+                                log.info("Telegram Fallback (kein Markdown) OK")
             except Exception as e:
                 log.error("Telegram send error: %s", e)
 
