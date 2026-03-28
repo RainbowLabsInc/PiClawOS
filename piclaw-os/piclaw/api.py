@@ -58,16 +58,16 @@ def _setup_api_logging() -> None:
 
 
 _setup_api_logging()
-from piclaw.llm.base import Message
-from piclaw.messaging import build_hub, IncomingMessage
-from piclaw.auth import (
+from piclaw.llm.base import Message  # noqa: E402
+from piclaw.messaging import build_hub, IncomingMessage  # noqa: E402
+from piclaw.auth import (  # noqa: E402
     require_auth,
     require_auth_ws,
     set_token,
     get_token,
     generate_token,
 )
-from piclaw.taskutils import create_background_task
+from piclaw.taskutils import create_background_task  # noqa: E402
 
 log = logging.getLogger("piclaw.api")
 
@@ -131,7 +131,7 @@ async def lifespan(app: FastAPI):
 
 # ── App setup ─────────────────────────────────────────────────
 
-from piclaw import __version__
+from piclaw import __version__  # noqa: E402
 
 app = FastAPI(title="PiClaw OS", version=__version__, docs_url=None, lifespan=lifespan)
 
@@ -390,59 +390,6 @@ async def memory_search(
 
 
 # ── System endpoints ──────────────────────────────────────────────
-
-
-# ══════════════════════════════════════════════════════════════════
-# ⚠️  DEVELOPMENT ONLY – VOR RELEASE ENTFERNEN / REMOVE BEFORE RELEASE
-# Dieser Endpoint erlaubt direkte Shell-Befehle über die API.
-# Nur für Entwicklung und Debugging. Nicht für Produktion geeignet.
-# Zum Entfernen: Den gesamten @app.post("/api/shell") Block löschen.
-# ══════════════════════════════════════════════════════════════════
-@app.post("/api/shell")
-async def api_shell(request: Request, _: str = Depends(require_auth)):
-    """
-    ⚠️ DEV ONLY – Execute a shell command on the Pi and return stdout/stderr.
-    Auth required. Commands run via the existing ShellConfig (allowlist + blocklist).
-    Intended for trusted tooling (e.g. Claude browser automation).
-    """
-    import asyncio, shlex, traceback
-    body = await request.json()
-    cmd = body.get("cmd", "").strip()
-    timeout = min(int(body.get("timeout", 30)), 120)  # max 120s
-
-    if not cmd:
-        return {"ok": False, "error": "No command provided"}
-
-    # Security: blocklist for obviously dangerous commands
-    _BLOCKED = ["rm -rf", "mkfs", "dd if=", "> /dev/", ":(){ :|:& };:",
-                "shutdown", "reboot", "halt", "passwd", "visudo", "chmod 777 /"]
-    for b in _BLOCKED:
-        if b in cmd:
-            log.warning("api/shell blocked dangerous cmd: %s", cmd)
-            return {"ok": False, "error": f"Blocked: contains '{b}'"}
-
-    log.info("api/shell exec: %s", cmd)
-    try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            proc.kill()
-            return {"ok": False, "error": f"Timeout after {timeout}s", "returncode": -1}
-
-        return {
-            "ok": proc.returncode == 0,
-            "stdout": stdout.decode(errors="replace").strip(),
-            "stderr": stderr.decode(errors="replace").strip(),
-            "returncode": proc.returncode,
-        }
-    except Exception as e:
-        log.error("api/shell error: %s", e)
-        return {"ok": False, "error": str(e)}
 
 
 @app.get("/api/mode")
