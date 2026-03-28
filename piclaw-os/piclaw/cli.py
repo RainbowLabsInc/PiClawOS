@@ -297,8 +297,9 @@ def cmd_doctor():
                     ) as _r:
                         if _r.status == 200:
                             _data = await _r.json()
-                            _ver = _data.get("version", "?")
-                            print(f"  Home Assist : ✅ verbunden ({_ha_url}) – HA {_ver}")
+                            _ver = _data.get("version") or _data.get("ha_version") or ""
+                            _ver_str = f" – HA {_ver}" if _ver else ""
+                            print(f"  Home Assist : ✅ verbunden ({_ha_url}){_ver_str}")
                         else:
                             print(f"  Home Assist : ❌ HTTP {_r.status} – Token ungültig?")
             else:
