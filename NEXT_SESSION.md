@@ -72,6 +72,8 @@ sudo systemctl start piclaw-agent
 | v0.18 | Queue System (parallele CLI + Telegram) |
 | v0.19 | Willhaben Kategorie-Filter |
 | v0.20 | Camera-Tools vollständig integriert |
+| **v1.0** | **Release** |
+| v1.1  | **Mehrsprachigkeit** (DE/EN/ES) – Wizard + CLI + Agent reagiert frei in Nutzersprache |
 
 ---
 

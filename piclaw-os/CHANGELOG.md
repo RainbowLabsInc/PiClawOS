@@ -141,3 +141,25 @@
 - Watchdog, Crawler, API, Agent Services
 - Telegram-Integration
 - Web-Dashboard
+
+---
+
+## Roadmap
+
+| Version | Feature |
+|---|---|
+| v0.16 | Emergency Shutdown via schaltbare Steckdose |
+| v0.17 | fail2ban Integration |
+| v0.18 | Queue System (parallele CLI + Telegram) |
+| v0.19 | Willhaben Kategorie-Filter |
+| v0.20 | Camera-Tools vollständig integriert |
+| **v1.0** | **Release** |
+| v1.1 | Mehrsprachigkeit (DE/EN/ES) – Wizard, CLI, Agent reagiert frei in Nutzersprache |
+
+### v1.1 Mehrsprachigkeit – Konzept
+
+- **Wizard/CLI:** i18n-Dict mit ~172 übersetzbaren Strings, Sprachauswahl am Setup-Start
+- **Agent Dameon:** Reagiert bereits jetzt frei auf die Sprache des Nutzers (LLM-Fähigkeit)
+  Explizite SOUL.md-Direktive: "Antworte immer in der Sprache des Nutzers"
+- **Sprachen:** Deutsch (primär), English, Español
+- **Aufwand:** ~2 Sessions nach Release
