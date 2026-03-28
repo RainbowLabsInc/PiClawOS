@@ -1,5 +1,5 @@
 # PiClaw OS – Offene Punkte für nächste Session
-# Letzte Aktualisierung: 2026-03-28 (Session 4)
+# Letzte Aktualisierung: 2026-03-28 (Session 5)
 # Version: 0.15.3
 
 ---
@@ -9,44 +9,57 @@
 ### 1. /api/shell Endpoint entfernen
 **Datei:** `piclaw-os/piclaw/api.py`
 **Suche:** `@app.post("/api/shell")`
-**Block löschen** (~50 Zeilen bis zur nächsten `@app.` Annotation)
+**Gesamten Block löschen** (~50 Zeilen)
 **Test:** `curl -X POST http://localhost:7842/api/shell` → muss 404 zurückgeben
 
 ### 2. Groq API Key aus Git-History tilgen
 ```bash
-# BFG Repo Cleaner (empfohlen):
-java -jar bfg.jar --replace-text secrets.txt PiClawOS.git
-git reflog expire --expire=now --all && git gc --prune=now --aggressive
+git filter-repo --replace-text <(echo "gsk_ZVWVs...==>REDACTED")
 git push --force
 ```
 
-### 3. Dashboard API-Token rotieren
+### 3. API-Token rotieren
 Aktuell: `L1gFu490BMv_50TFYek6Yveh3FwFfEoW3ycDaCCFsLA`
-```bash
-piclaw config set api_token $(openssl rand -base64 32)
-```
 
 ---
 
-## 🔧 Kurzfristige Features
+## 🔧 Bekannte Bugs / Kurzfristig
 
-### 4. Camera-Tools registrieren
-`piclaw/hardware/camera.py` hat TOOL_DEFS aber fehlt in `agent.py _build_tools()`:
-```python
-from piclaw.hardware import camera as camera_mod
-if camera_mod.is_available():
-    _reg(camera_mod.TOOL_DEFS, camera_mod.build_handlers())
+### 4. direct_tool – neuer Monitor_Netzwerk muss via venv-Python erstellt werden
+Wenn Monitor_Netzwerk gelöscht wird, muss er mit venv-Python neu angelegt werden:
+```bash
+sudo systemctl stop piclaw-agent
+/opt/piclaw/.venv/bin/python3 -c "
+from piclaw.agents.sa_registry import SubAgentDef, SA_REGISTRY_FILE
+from dataclasses import asdict
+import json
+
+p = SA_REGISTRY_FILE
+d = json.loads(p.read_text())
+agent = SubAgentDef(
+    name='Monitor_Netzwerk',
+    description='Netzwerk-Monitoring: neue Geraete erkennen - alle 5 Minuten',
+    mission='Direct mode',
+    tools=['check_new_devices', 'network_scan'],
+    schedule='interval:300',
+    notify=True,
+    direct_tool='check_new_devices',
+    created_by='system'
+)
+d[agent.id] = asdict(agent)
+p.write_text(json.dumps(d, indent=2))
+print('OK:', agent.id)
+"
+sudo systemctl start piclaw-agent
 ```
+→ Besser: _create_network_monitor_agent() in agent.py korrekt setzt direct_tool,
+  und `piclaw chat` → "Überwache Netzwerk" funktioniert direkt.
 
-### 5. Willhaben Kategorie-Filter
-"Notebooks" findet auch Taschen und RAM → `category_id` muss noch gemappt werden
+### 5. Camera-Tools registrieren
+`piclaw/hardware/camera.py` hat TOOL_DEFS aber fehlt in `agent.py _build_tools()`.
 
-### 6. github_token in config.toml
-```toml
-[updater]
-repo_url = "https://github.com/RainbowLabsInc/PiClawOS"
-github_token = "ghp_..."
-```
+### 6. Willhaben Kategorie-Filter
+"Notebooks" findet auch Taschen/RAM → category_id muss gemappt werden.
 
 ---
 
@@ -54,23 +67,24 @@ github_token = "ghp_..."
 
 | Version | Feature |
 |---|---|
-| v0.16 | Emergency Shutdown via schaltbare Steckdose (ohne HA) |
+| v0.16 | Emergency Shutdown via schaltbare Steckdose |
 | v0.17 | fail2ban Integration |
-| v0.18 | Queue System (parallele CLI + Telegram Anfragen) |
+| v0.18 | Queue System (parallele CLI + Telegram) |
 | v0.19 | Willhaben Kategorie-Filter |
 | v0.20 | Camera-Tools vollständig integriert |
 
 ---
 
-## ✅ Session 4 erledigt
+## ✅ Session 5 erledigt
 
-- Telegram-Bug gefixt (send ohne async with → Response nie gelesen → stiller 400 Fehler)
-- Markdown-Bug gefixt (**bold** → *bold* für Telegram MarkdownV1)
-- Netzwerk-Monitor Heartbeat: 1x/Stunde statt alle 5 Min
-- Heuristik: "alles quiet außer Gerätekennzeichen" – robust gegen LLM-Freitext
-- Briefing-Uhrzeiten im Setup konfigurierbar (HH:MM → Cron)
-- /api/shell Endpoint für direkte Pi-Verbindung implementiert (DEV ONLY)
-- IPC-Fix: /api/subagents/{id}/run triggert jetzt den Daemon (nicht API-Prozess)
+- **Direct Tool Mode:** Monitor_Netzwerk läuft ohne LLM (0 Groq-Calls/Run)
+  - `direct_tool` Feld in SubAgentDef + runner._direct_tool_call()
+  - api.py leitet `direct_tool` bei POST /api/subagents durch
+  - Bestätigt: 14:15, 14:20, 14:25 – kein einziger LLM-Call ✅
+- Heartbeat-Heuristik invertiert (default: quiet, außer Gerätekennzeichen)
+- Briefing-Uhrzeiten im Setup konfigurierbar
+- Telegram-Bug (send ohne async with) gefixt
+- Markdown **bold** → *bold* gefixt
 
 ---
 
