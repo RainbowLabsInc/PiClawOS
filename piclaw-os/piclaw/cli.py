@@ -967,8 +967,44 @@ def cmd_llm(args):
         if name:
             print(f"  {registry.update(name, enabled=False)}")
 
+
+    elif sub == "test":
+        name = args[1] if len(args) > 1 else None
+        if not name:
+            print("  Usage: piclaw llm test <name>")
+            return
+        cfg = registry.get(name)
+        if not cfg:
+            print(f"  Backend '{name}' nicht gefunden.")
+            return
+        import asyncio, time
+        from piclaw.llm.api import OpenAIBackend, AnthropicBackend
+        from piclaw.llm.base import Message
+        api_key = cfg.api_key or ""
+        print(f"  Testing '{name}' ({cfg.provider}/{cfg.model})...")
+        t0 = time.time()
+        try:
+            if cfg.provider == "anthropic":
+                backend = AnthropicBackend(
+                    api_key=api_key, model=cfg.model,
+                    temperature=cfg.temperature, max_tokens=32, timeout=15
+                )
+            else:
+                backend = OpenAIBackend(
+                    api_key=api_key, model=cfg.model,
+                    base_url=cfg.base_url or "", temperature=cfg.temperature,
+                    max_tokens=32, timeout=15
+                )
+            msgs = [Message(role="user", content="Reply with exactly: OK")]
+            resp = asyncio.run(backend.chat(msgs))
+            ms = int((time.time() - t0) * 1000)
+            reply = (resp.content or "").strip()[:60]
+            print(f"  OK ({ms}ms) -> {reply!r}")
+        except Exception as e:
+            ms = int((time.time() - t0) * 1000)
+            print(f"  FEHLER ({ms}ms): {e}")
     else:
-        print("Usage: piclaw llm [list|add|remove|update|enable|disable]")
+        print("Usage: piclaw llm [list|add|remove|update|enable|disable|test]")
         print("  piclaw llm list")
         print(
             "  piclaw llm add --name <n> --provider openai --model <m> --api-key <k> --base-url <u> --priority 8 --tags general,coding"
