@@ -1339,9 +1339,11 @@ def step_proactive(state: WizardState, step: int, total: int) -> None:
     ]
 
     choices: list[str] = []
+    custom_cron: dict[str, str] = {}  # key → angepasste Cron-Expression
+
     print(f"  {B}Welche Routinen aktivieren?{R}")
     print(f"  {FG_GRAY}(Leerzeichen fuer keine, Enter fuer Vorschlag){R}\n")
-    for key, name, timing, _ in defaults:
+    for key, name, timing, default_cron in defaults:
         c = (
             input(
                 f"  {FG_BLUE}[{ARROW}]{R} {B}{name}{R}  {FG_GRAY}({timing}){R}  aktivieren? [j/N]: "
@@ -1351,6 +1353,29 @@ def step_proactive(state: WizardState, step: int, total: int) -> None:
         )
         if c == "j":
             choices.append(key)
+
+            # Uhrzeit konfigurierbar machen fuer Briefings
+            if key == "morning_briefing":
+                _flush_stdin()
+                uhrzeit = _prompt("  Uhrzeit fuer Morgen-Briefing (HH:MM)", default="07:00") or "07:00"
+                try:
+                    h, m = [int(x) for x in uhrzeit.split(":")]
+                    custom_cron[key] = f"{m} {h} * * *"
+                    _ok(f"Morgen-Briefing: taeglich {h:02d}:{m:02d} Uhr")
+                except Exception:
+                    _warn("Ungueltige Uhrzeit -- verwende 07:00")
+                    custom_cron[key] = "0 7 * * *"
+
+            elif key == "evening_check":
+                _flush_stdin()
+                uhrzeit = _prompt("  Uhrzeit fuer Abend-Briefing (HH:MM)", default="22:00") or "22:00"
+                try:
+                    h, m = [int(x) for x in uhrzeit.split(":")]
+                    custom_cron[key] = f"{m} {h} * * *"
+                    _ok(f"Abend-Briefing: taeglich {h:02d}:{m:02d} Uhr")
+                except Exception:
+                    _warn("Ungueltige Uhrzeit -- verwende 22:00")
+                    custom_cron[key] = "0 22 * * *"
 
     # Standort fuer Wetter
     lat = lon = None
@@ -1379,10 +1404,16 @@ def step_proactive(state: WizardState, step: int, total: int) -> None:
             import tomllib
             import tomli_w
 
-            # Routinen aktivieren
+            # Routinen aktivieren (mit angepassten Uhrzeiten)
             registry = RoutineRegistry(CONFIG_DIR / "routines.json")
             for key in choices:
-                registry.enable(key)
+                routine = registry.get(key)
+                if routine and key in custom_cron:
+                    routine.cron = custom_cron[key]
+                    routine.enabled = True
+                    registry.update(routine)
+                else:
+                    registry.enable(key)
                 _ok(f"Aktiviert: {key}")
 
             # Proaktive-Config in config.toml
