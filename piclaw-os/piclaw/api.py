@@ -371,10 +371,16 @@ async def memory_search(
 # ── System endpoints ──────────────────────────────────────────────
 
 
+# ══════════════════════════════════════════════════════════════════
+# ⚠️  DEVELOPMENT ONLY – VOR RELEASE ENTFERNEN / REMOVE BEFORE RELEASE
+# Dieser Endpoint erlaubt direkte Shell-Befehle über die API.
+# Nur für Entwicklung und Debugging. Nicht für Produktion geeignet.
+# Zum Entfernen: Den gesamten @app.post("/api/shell") Block löschen.
+# ══════════════════════════════════════════════════════════════════
 @app.post("/api/shell")
 async def api_shell(request: Request, _: str = Depends(require_auth)):
     """
-    Execute a shell command on the Pi and return stdout/stderr.
+    ⚠️ DEV ONLY – Execute a shell command on the Pi and return stdout/stderr.
     Auth required. Commands run via the existing ShellConfig (allowlist + blocklist).
     Intended for trusted tooling (e.g. Claude browser automation).
     """
