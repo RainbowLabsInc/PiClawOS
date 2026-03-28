@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
 
     _agent = Agent(_cfg)
     _agent.start_scheduler()
-    create_background_task(_agent.boot(), name="agent-boot")
+    create_background_task(_agent.boot(start_sub_agents=False), name="agent-boot")  # Daemon verwaltet Sub-Agenten
     _hub = build_hub(_cfg)
     _agent._telegram_send = lambda text: create_background_task(_hub.send_all(text))
     create_background_task(_hub.start(_agent_message_handler), name="messaging-hub")

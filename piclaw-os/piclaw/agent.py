@@ -1297,8 +1297,14 @@ class Agent:
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
-    async def boot(self):
-        """Boot LLM router, memory, heartbeat, and sub-agents."""
+    async def boot(self, start_sub_agents: bool = True):
+        """Boot LLM router, memory, heartbeat, and sub-agents.
+        
+        Args:
+            start_sub_agents: Sub-Agenten (Scheduler) starten.
+                              False in api.py – der Daemon übernimmt das.
+                              True in daemon.py (default).
+        """
         log.info(
             "PiClaw Agent v0.14.x booting (Marketplace Search Assistant active)..."
         )
@@ -1307,7 +1313,11 @@ class Agent:
         self._wire_sa_runner()
         create_background_task(self._boot_memory(), name="memory-boot")
         create_background_task(heartbeat_loop(), name="heartbeat")
-        create_background_task(self.sa_runner.start_all_scheduled(), name="sa-boot")
+        if start_sub_agents:
+            create_background_task(self.sa_runner.start_all_scheduled(), name="sa-boot")
+            log.info("Sub-agent scheduler started.")
+        else:
+            log.info("Sub-agent scheduler skipped (managed by daemon).")
         log.info("Soul loaded from %s", soul_mod.get_path())
 
     async def _boot_memory(self):
