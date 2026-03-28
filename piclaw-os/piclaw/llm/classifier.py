@@ -172,6 +172,11 @@ class TaskClassifier:
     async def classify(self, text: str) -> ClassificationResult:
         """Main entry point. Returns tags for the given user message."""
 
+        # Stage 0: Regex-Schnell-Erkennung (kein LLM, < 1ms)
+        regex_result = self._regex_classify(text)
+        if regex_result and regex_result.confidence >= 0.90:
+            return regex_result
+
         # Stage 1: Pattern matching
         result = self._pattern_classify(text)
 
@@ -193,6 +198,41 @@ class TaskClassifier:
     def classify_sync(self, text: str) -> ClassificationResult:
         """Pattern-only classification (synchronous, no LLM)."""
         return self._pattern_classify(text)
+
+    # ── Stage 0: Regex-Schnell-Erkennung ─────────────────────────
+
+    def _regex_classify(self, text: str) -> ClassificationResult | None:
+        """Schnelle Regex-Klassifizierung für HA-Befehle (kein LLM-Aufruf)."""
+        import re
+        t = text.lower()
+
+        _ha_action = (
+            r"(schalte?|mach[e]?|knips|dreh[e]?|stell[e]?|setz[e]?)"
+            r".{0,30}(licht|lampe|leuchte|steckdose|schalter|rolladen|rollo|jalousie|fernseher)"
+        )
+        _ha_action2 = (
+            r"(licht|lampe|leuchte|steckdose|rolladen|rollo|jalousie|fernseher)"
+            r".{0,20}(an|aus|ein|off|on|auf|zu|hoch|runter)"
+        )
+        if re.search(_ha_action, t) or re.search(_ha_action2, t):
+            return ClassificationResult(
+                tags=["action", "home_automation", "german"],
+                confidence=0.95,
+                method="regex",
+            )
+
+        _ha_query = (
+            r"(wie (warm|kalt|hell|dunkel)|temperatur|luftfeuchtigkeit|"
+            r"ist (das|die|der).*(an|aus|offen|geschlossen))"
+        )
+        if re.search(_ha_query, t):
+            return ClassificationResult(
+                tags=["query", "home_automation", "german"],
+                confidence=0.90,
+                method="regex",
+            )
+
+        return None
 
     # ── Stage 1: Patterns ─────────────────────────────────────────
 
@@ -230,22 +270,10 @@ class TaskClassifier:
         from piclaw.llm.base import Message
 
         all_tags = [
-            "coding",
-            "debugging",
-            "analysis",
-            "reasoning",
-            "creative",
-            "writing",
-            "summarization",
-            "translation",
-            "math",
-            "research",
-            "technical",
-            "general",
-            "german",
-            "english",
-            "french",
-            "spanish",
+            "coding", "debugging", "analysis", "reasoning", "creative",
+            "writing", "summarization", "translation", "math", "research",
+            "technical", "general", "german", "english", "french", "spanish",
+            "action", "home_automation", "query",
         ]
 
         prompt = (
