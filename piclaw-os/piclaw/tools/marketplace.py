@@ -569,6 +569,32 @@ def _resolve_willhaben_location(location: str | None) -> str | None:
     return None
 
 
+async def _fetch_willhaben_area_id(location: str) -> str | None:
+    """
+    Ermittelt die echte areaId von Willhaben für einen Standort,
+    indem die Willhaben-Suchseite über Scrapling geladen und der
+    API-Request aus dem Netzwerk-Traffic extrahiert wird.
+    Fallback: statisches Mapping.
+    """
+    try:
+        from scrapling import Fetcher
+        search_url = f"https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword=test&areaId=0&location={location}"
+        fetcher = Fetcher(auto_match=False)
+        page = await asyncio.to_thread(
+            fetcher.get, search_url, stealthy_headers=True, follow_redirects=True
+        )
+        if page:
+            import re
+            # Suche nach areaId in der API-URL oder im Page-State
+            match = re.search(r'"areaId"\s*:\s*"?(\d+)"?', str(page.content))
+            if match:
+                log.debug("Willhaben areaId via Scrapling: %s → %s", location, match.group(1))
+                return match.group(1)
+    except Exception as e:
+        log.debug("Scrapling areaId-Lookup fehlgeschlagen: %s", e)
+    return None
+
+
 async def _search_willhaben(
     session: aiohttp.ClientSession,
     query: str,
@@ -616,7 +642,11 @@ async def _search_willhaben(
             if max_price:
                 params["PRICE_TO"] = str(int(max_price))
             # Willhaben nutzt areaId als Query-Parameter für Standortfilter
+            # 1. Statisches Mapping (schnell, die meisten Städte)
             _wh_area_id = _resolve_willhaben_location(location)
+            # 2. Dynamisch via Scrapling falls unbekannter Ort
+            if not _wh_area_id and location:
+                _wh_area_id = await _fetch_willhaben_area_id(location)
             if _wh_area_id:
                 params["areaId"] = _wh_area_id
                 log.debug("Willhaben Standortfilter: %s → areaId=%s", location, _wh_area_id)
