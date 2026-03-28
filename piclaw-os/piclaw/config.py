@@ -137,6 +137,7 @@ class UpdaterConfig:
     auto_check: bool = True
     channel: str = "stable"  # stable | beta
     repo_url: str = "https://github.com/piclaw/piclaw"
+    github_token: str = ""  # PAT für private Repos (git pull auth)
 
 
 @dataclass

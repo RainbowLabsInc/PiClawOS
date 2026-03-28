@@ -1,26 +1,44 @@
 # PiClaw OS – Offene Punkte für nächste Session
 # Erstellt: 2026-03-28
+# Letztes Update: 2026-03-28 (Bugfixes applied)
 
 ---
 
-## 🔧 Bekannte Bugs
+## ✅ Gefixt in dieser Session
 
-### 1. `piclaw update` hängt gelegentlich
-- Symptom: Update dauert sehr lange, bricht manchmal ab
-- Verdacht: `git pull` Timeout oder git-Rechte Problem
-- Prüfen: `git pull` manuell in `/opt/piclaw` ausführen und Fehler anschauen
+### 1. Tool-Calling Halluzinationen (Bug #2) – GEFIXT
+- **Root Cause A:** `api.py` setzte `tool_choice="auto"` für Llama 3.3 auf NIM,
+  obwohl INV_024 dies verbietet → entfernt für ALLE NIM-Modelle.
+- **Root Cause B:** `agent.py` Streaming-Heuristik (Zeile 1047) prüfte ob
+  gestreamer Text mit `{`/`[`/`<` begann – wenn nicht, wurde der `chat()`-Aufruf
+  mit Tools **übersprungen** und die halluzinierte Text-Antwort direkt verwendet.
+- **Fix:** Wenn Tools definiert sind, wird IMMER `chat()` statt `stream_chat()`
+  verwendet. Streaming nur noch für reine Text-Responses ohne Tools.
+- Dateien: `piclaw/llm/api.py`, `piclaw/agent.py`
 
-### 2. Halluzinationen bei Tool Calling (Llama 3.3 70B / NIM)
-- Symptom: Dameon beschreibt was er tun würde statt das Tool aufzurufen
-  Beispiel: "Suche Laptop in Graz auf willhaben.at" → erfundene Ergebnisse
-- Ursache: NIM Tool-Calling Format-Problem (bekannt seit Kimi K2)
-- Fix-Ansatz: `tool_choice` in API-Payload oder System-Prompt Instruktion
-- Siehe CLAUDE_REBUILD.md: TOOL_SYSTEM → KNOWN_ISSUE
+### 2. `piclaw update` hängt (Bug #1) – GEFIXT
+- **Root Cause:** `git pull` wurde ohne Authentifizierung aufgerufen.
+  Bei einem privaten Repo wartet git auf Passwort-Eingabe bis zum 120s-Timeout.
+- **Fix:** `UpdaterConfig` hat neues Feld `github_token`. Updater setzt
+  `git remote set-url origin` mit Token-Auth vor jedem git-Befehl.
+- Dateien: `piclaw/config.py`, `piclaw/tools/updater.py`
+- **TODO:** `github_token` in `/etc/piclaw/config.toml` eintragen:
+  ```toml
+  [updater]
+  repo_url = "https://github.com/RainbowLabsInc/PiClawOS"
+  github_token = "ghp_..."
+  ```
+
+---
+
+## 🔧 Noch offen
 
 ### 3. Groq als primäres Backend noch nicht getestet
 - Priorität wurde auf 9 gesetzt (höher als NIM mit 7)
 - Hot-Reload Fix wurde implementiert (7d82bbf) aber noch nicht live getestet
 - Test: nach `piclaw update` → `piclaw` → "Bist du da?" → Log prüfen ob Groq antwortet
+- Mit dem Tool-Calling Fix sollte Groq jetzt `tool_choice="auto"` korrekt bekommen
+  (kein NIM-Sonderfall)
 
 ---
 
@@ -47,7 +65,7 @@
 1. **CLAUDE_REBUILD.md aktualisieren** auf v0.15.2 Stand
 2. **fail2ban Integration** (IP-Blocking bei Brute-Force)
 3. **Emergency Shutdown** ohne Home Assistant (direkt via schaltbare Steckdose)
-4. **Tool-Calling Fix** für NIM/Groq – `tool_choice: required` testen
+4. **Tool-Calling Fix** für NIM/Groq – `tool_choice: required` testen ← TEILWEISE ERLEDIGT
 5. **Queue System v0.14** – parallele CLI + Telegram Anfragen
 6. **Willhaben Umkreis-Suche** – PLZ → Bundesland-Mapping für areaId
 
