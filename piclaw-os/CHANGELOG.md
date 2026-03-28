@@ -1,5 +1,63 @@
 # PiClaw OS – Changelog
 
+## v0.15.4 – 2026-03-28 🏠🔧🧠
+
+### Highlights
+- **Home Assistant Integration** – HA-Befehle per Telegram, 11 Tools registriert
+- **Smart LLM Routing** – HA-Befehle laufen auf dediziertem groq-actions Backend (Llama 3.3, 30k TPM)
+- **HA-Shortcut** – Einfache Befehle (Licht an/aus) ohne LLM, 0 Token, <100ms
+- **LLM Health Monitor** – Automatische Selbstheilung bei ausgefallenen Modellen
+- **NVIDIA NIM gefixt** – nemotron (404) → Llama 4 Maverick auto-ersetzt
+- **Monitor_Netzwerk: Schutzarchitektur** – dreifach geschützt gegen Dameon/API
+
+### Home Assistant
+- `ha_mod.start()` läuft jetzt im API-Prozess VOR `Agent(_cfg)` → Tools korrekt registriert
+- 11 HA-Tools: `ha_turn_on`, `ha_turn_off`, `ha_toggle`, `ha_get_state`, `ha_list_entities`, u.a.
+- Fuzzy Entity-Suche: "Fernsehzimmer" → `light.licht_fernsehzimmer_switch_0`
+- `turn_off` Typo behoben (`turn_of` → `turn_off`)
+- HA-Shortcut: Schalt-Befehle direkt ohne LLM (~0ms, 0 Token)
+  - Erkennt: `schalte/mach/licht + Raum + an/aus`
+  - Antwort: "💡 eingeschaltet" / "🌑 ausgeschaltet"
+- `piclaw doctor` zeigt: `Home Assist : ✅ verbunden`
+
+### Smart LLM Routing
+- Neues `groq-actions` Backend: `llama-3.3-70b-versatile` auf Groq (Priority 10)
+  - Tags: `action, home_automation, query, german`
+  - 30.000 TPM Free Tier (3x mehr als Kimi K2)
+- Classifier: `_regex_classify()` als Stage 0 (< 1ms, kein LLM-Call)
+  - HA-Aktionsmuster (Regex) → `action, home_automation` mit 95% Confidence
+  - HA-Abfragemuster → `query, home_automation` mit 90% Confidence
+- Neue Tags: `action`, `home_automation`, `query`
+- Routing: "Licht an" → groq-actions | "Erkläre X" → groq-fallback (Kimi K2)
+
+### LLM Health Monitor (`piclaw/llm/health_monitor.py`)
+- Läuft stündlich als Background-Task im Daemon
+- **404 (Modell entfernt):** `/models` API des Providers abfragen → Preferred-Liste → Similarity-Match → auto-update Registry
+- **429 (Rate-Limit):** Priorität temporär senken, nach 1h wiederherstellen
+- **500/Timeout (3×):** Backend deaktivieren + Telegram-Notify
+- Provider-Support: Groq, NVIDIA NIM, Together AI, Cerebras, Mistral
+- Telegram-Benachrichtigung bei Auto-Repair
+
+### NVIDIA NIM Fix
+- `nvidia/llama-3.1-nemotron-70b-instruct` vom Anbieter entfernt (404)
+- Ersetzt durch `meta/llama-4-maverick-17b-128e-instruct` (Llama 4)
+- Automatisch über Health Monitor entdeckt und repariert
+
+### Bugs gefixt
+- **Doppel-Send:** `piclaw-api` und `piclaw-agent` starteten beide Sub-Agenten → `start_sub_agents=False` in api.py
+- **Monitor_Gartentisch sendet Netzwerk-Heartbeat:** Heartbeat-Guard nur noch bei `direct_tool` aktiv
+- **`__NO_NEW_RESULTS__` Token:** `_intentionally_silent` Flag statt `result=""` (verhindert Fallback-Spam)
+- **Monitor_Netzwerk leeres Ergebnis:** Direct-Tool ohne Ergebnis → `__NO_NEW_DEVICES__` statt Fallback-Loop
+- **Silent-Token Bug:** `result=""` triggerte Fallback-Bericht alle 5 Min → Flag-basierter Fix
+- **Groq TPM-Limit:** CalDAV-Skill entfernt, Context reduziert
+
+### Monitor_Netzwerk Schutzarchitektur
+- **Layer 1:** `_PROTECTED_AGENTS` in sa_tools.py → LLM-Tool-Calls blockiert (⛔ Fehlermeldung)
+- **Layer 2:** `api.py` REST-API → `DELETE/STOP` gibt HTTP 403 zurück
+- **Layer 3:** `agent.boot()` → Auto-Recreate falls fehlt beim Start
+- `piclaw doctor`: `Sub-agent scheduler skipped (managed by daemon)` in API-Prozess
+
+
 ## v0.15.3 – 2026-03-28 🔔
 
 ### Fixes
