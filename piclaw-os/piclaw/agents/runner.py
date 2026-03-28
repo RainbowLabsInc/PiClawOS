@@ -281,16 +281,22 @@ class SubAgentRunner:
             create_background_task(self.memory_log(mem_entry))
 
         # ── Stille Tokens herausfiltern ────────────────────────────
-        # Manche Tools signalisieren "kein Output nötig" mit speziellen Tokens
+        # Manche Tools signalisieren "kein Output nötig" mit speziellen Tokens.
+        # Wichtig: nicht auf "" setzen (das triggert den Fallback-Bericht!)
+        # Stattdessen notify=False simulieren via Flag.
         _SILENT_TOKENS = ("__NO_NEW_RESULTS__", "__NO_NEW_DEVICES__", "__SILENT__")
+        _intentionally_silent = False
         if result and result.strip() in _SILENT_TOKENS:
             log.debug("Sub-agent '%s': stilles Token (%s) – keine Telegram-Nachricht", agent.name, result.strip())
-            result = ""  # leerer Result → kein Notify
+            _intentionally_silent = True
+            result = ""
 
         # ── Notify via messaging hub ────────────────────────────────
         log.info("Sub-agent '%s': result=%s notify=%s",
                  agent.name, "ok" if result and result.strip() else "empty", agent.notify)
-        if not result or not result.strip() or result.strip() == "(no output)":
+        if _intentionally_silent:
+            log.debug("Sub-agent '%s': bewusst still – kein Telegram", agent.name)
+        elif not result or not result.strip() or result.strip() == "(no output)":
             # Fallback: Kein Output vom Sub-Agenten → Main Agent fragt nach Status
             log.warning("Sub-agent '%s': leeres/kein Ergebnis", agent.name)
             if agent.notify and self.notify and self.report_to_main:
