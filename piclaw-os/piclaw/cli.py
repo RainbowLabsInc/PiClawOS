@@ -278,6 +278,34 @@ def cmd_doctor():
             )
         else:
             print("  Sub-Agents  : ⬜ None defined")
+        # ── Home Assistant ────────────────────────────────────────
+        try:
+            from piclaw.config import CONFIG_FILE
+            import tomllib as _tomllib
+            _raw = _tomllib.load(open(CONFIG_FILE, "rb")) if CONFIG_FILE.exists() else {}
+            _ha = _raw.get("homeassistant", {})
+            _ha_url = _ha.get("url", "")
+            _ha_token = _ha.get("token", "")
+            if _ha_url and _ha_token:
+                import aiohttp as _aio
+                async with _aio.ClientSession() as _ses:
+                    async with _ses.get(
+                        f"{_ha_url.rstrip('/')}/api/",
+                        headers={"Authorization": f"Bearer {_ha_token}"},
+                        timeout=_aio.ClientTimeout(total=5),
+                        ssl=False
+                    ) as _r:
+                        if _r.status == 200:
+                            _data = await _r.json()
+                            _ver = _data.get("version", "?")
+                            print(f"  Home Assist : ✅ verbunden ({_ha_url}) – HA {_ver}")
+                        else:
+                            print(f"  Home Assist : ❌ HTTP {_r.status} – Token ungültig?")
+            else:
+                print("  Home Assist : ⬜ nicht konfiguriert (piclaw setup)")
+        except Exception as _e:
+            print(f"  Home Assist : ❌ Fehler: {_e}")
+
         try:
             import aiohttp
 
