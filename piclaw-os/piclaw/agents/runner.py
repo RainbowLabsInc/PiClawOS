@@ -278,8 +278,10 @@ class SubAgentRunner:
             log.debug("Sub-agent '%s': notify=False", agent.name)
         elif not self.notify:
             log.error("Sub-agent '%s': KEIN Notify-Callback! Telegram nicht konfiguriert?", agent.name)
-        elif result.strip() == "__NO_NEW_DEVICES__":
-            # Heartbeat-Logik: max. einmal pro Stunde "alles ruhig" senden
+        elif self._is_quiet_network_result(result):
+            # Heartbeat-Logik: max. einmal pro Stunde "alles ruhig" senden.
+            # Greift sowohl bei __NO_NEW_DEVICES__ als auch wenn der LLM
+            # trotzdem Freitext schreibt (z.B. "Alles ruhig, keine neuen Geräte").
             import time as _time
             _HB_KEY = f"_hb_{agent.id}"
             _last_hb = getattr(self, _HB_KEY, 0)
@@ -304,6 +306,35 @@ class SubAgentRunner:
                 log.info("Sub-agent '%s': Telegram-Notify OK (%d Zeichen)", agent.name, len(result))
             except Exception as e:
                 log.error("Sub-agent '%s': Notify FEHLER: %s", agent.name, e)
+
+    def _is_quiet_network_result(self, result: str) -> bool:
+        """
+        Erkennt ob ein Sub-Agenten-Ergebnis "alles ruhig" bedeutet.
+        Greift für __NO_NEW_DEVICES__ UND für LLM-Freitext ohne Gerätedaten.
+        """
+        if not result or not result.strip():
+            return False
+        r = result.strip()
+        # Explizites Signal vom Tool
+        if r == "__NO_NEW_DEVICES__":
+            return True
+        # Freitext-Erkennung: enthält KEINE Gerätekennzeichen?
+        device_keywords = [
+            "neues gerät", "new device", "neue gerät", "unbekannt",
+            "mac:", "ip:", "hersteller:", "vendor:", "hostname:",
+            "🚨", "🔍 neues", "new device detected",
+        ]
+        r_lower = r.lower()
+        has_device = any(kw in r_lower for kw in device_keywords)
+        if has_device:
+            return False
+        # Enthält "ruhig", "keine neuen", "sauber" etc. → quiet
+        quiet_keywords = [
+            "keine neuen", "alles ruhig", "no new", "nichts auffälliges",
+            "netzwerk sauber", "ruhig", "sauber", "unauffällig",
+            "keine verdächtigen", "keine unbekannten",
+        ]
+        return any(kw in r_lower for kw in quiet_keywords)
 
     async def _agentic_loop(self, agent: SubAgentDef) -> str:
         """

@@ -604,20 +604,18 @@ class Agent:
 
         mission = (
             "Du bist ein Netzwerk-Sicherheitsmonitor fuer PiClaw OS.\n\n"
-            "Deine Aufgabe: Ruf 'check_new_devices' auf und reagiere so:\n\n"
-            "FALL 1 – Neues/unbekanntes Geraet gefunden:\n"
-            "  → Sofort melden! Format:\n"
+            "Schritt 1: Ruf das Tool 'check_new_devices' auf.\n\n"
+            "Schritt 2: Werte das Ergebnis aus:\n\n"
+            "FALL A – Das Tool meldet neue/unbekannte Geraete:\n"
+            "  Antworte mit einem Bericht in diesem Format:\n"
             "  🚨 Neues Geraet im Netzwerk!\n"
-            "    📍 IP: <ip>\n"
-            "    🔌 MAC: <mac>\n"
-            "    🏭 Hersteller: <vendor>\n"
-            "    💻 Hostname: <hostname>\n"
-            "  Bewerte ob das Geraet verdaechtig wirkt.\n"
-            "  Antworte mit dem vollstaendigen Bericht.\n\n"
-            "FALL 2 – Keine neuen Geraete (alles ruhig):\n"
-            "  → Antworte NUR mit dem exakten Token: __NO_NEW_DEVICES__\n"
-            "  → Kein weiterer Text, keine Erklaerung.\n"
-            "  Der Runner entscheidet selbst ob ein Heartbeat faellig ist."
+            "  📍 IP: <ip>  🔌 MAC: <mac>  🏭 <vendor>  💻 <hostname>\n"
+            "  Kurze Bewertung ob verdaechtig.\n\n"
+            "FALL B – Das Tool gibt '__NO_NEW_DEVICES__' zurueck ODER meldet keine neuen Geraete:\n"
+            "  Antworte mit EXAKT diesem Token und NICHTS ANDEREM:\n"
+            "  __NO_NEW_DEVICES__\n\n"
+            "WICHTIG: Bei FALL B darf deine Antwort NUR '__NO_NEW_DEVICES__' enthalten.\n"
+            "Kein 'Alles ruhig', kein 'Netzwerk sauber', keine Erklaerung. NUR der Token."
         )
 
         agent_def = SubAgentDef(
