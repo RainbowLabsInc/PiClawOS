@@ -625,6 +625,7 @@ class Agent:
             tools=["check_new_devices", "network_scan"],
             schedule=f"interval:{interval_sec}",
             notify=True,
+            direct_tool="check_new_devices",  # kein LLM nötig – Tool direkt aufrufen
             created_by="mainagent",
         )
         agent_id = self.sa_registry.add(agent_def)

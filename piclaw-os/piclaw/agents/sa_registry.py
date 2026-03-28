@@ -77,6 +77,7 @@ class SubAgentDef:
     max_steps: int = 10
     timeout: int = 300
     notify: bool = True  # send result to messaging hub
+    direct_tool: str | None = None  # wenn gesetzt: Tool direkt aufrufen, kein LLM
     trusted: bool = (
         False  # if True, tier-2 restricted tools allowed when explicitly listed
     )
