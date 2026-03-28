@@ -112,17 +112,56 @@ def _write_default():
     log.info("Default soul written to %s", SOUL_FILE)
 
 
+def load_installed_skills() -> str:
+    """
+    Lädt alle installierten ClawHub-Skills aus /etc/piclaw/skills/.
+    Gibt den kombinierten Skill-Kontext als String zurück.
+    """
+    from piclaw.config import CONFIG_DIR
+    skills_dir = CONFIG_DIR / "skills"
+    if not skills_dir.exists():
+        return ""
+
+    sections = []
+    for skill_md in sorted(skills_dir.glob("*/SKILL.md")):
+        try:
+            content = skill_md.read_text(encoding="utf-8").strip()
+            slug = skill_md.parent.name
+            sections.append(f"## Skill: {slug}\n\n{content}")
+            log.debug("Skill geladen: %s", slug)
+        except Exception as e:
+            log.warning("Skill konnte nicht geladen werden (%s): %s", skill_md, e)
+
+    if not sections:
+        return ""
+
+    log.info("ClawHub Skills geladen: %d", len(sections))
+    return "\n\n---\n\n".join(sections)
+
+
 def build_system_prompt(
     name: str, date: str, hostname: str, base_capabilities: str
 ) -> str:
     """
     Build the complete system prompt:
       1. Soul (personality, purpose – user-defined, takes precedence)
-      2. Base capabilities (tool list, memory instructions)
+      2. Installed ClawHub skills (injected as additional context)
+      3. Base capabilities (tool list, memory instructions)
     """
     soul = load()
+    skills = load_installed_skills()
+
+    skills_block = ""
+    if skills:
+        skills_block = (
+            "\n\n---\n\n"
+            "# Installierte Skills\n\n"
+            "Die folgenden Skills sind installiert und stehen dir zur Verfügung:\n\n"
+            + skills
+        )
+
     return (
-        f"{soul}\n\n"
+        f"{soul}{skills_block}\n\n"
         "---\n\n"
         f"{base_capabilities.format(name=name, date=date, hostname=hostname)}"
     )
