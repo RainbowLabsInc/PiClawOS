@@ -1,45 +1,54 @@
 # PiClaw OS – Changelog
 
-## v0.15.2-rc – 2026-03-27
+## v0.15.2 – 2026-03-28 🔒⚡
 
-### Technical Debt bereinigt
-- **T1 – llama.cpp verbose Output** (`llm/local.py`)
-  - `_suppress_stderr()` → `_suppress_output()`: jetzt fd 1 (stdout) + fd 2 (stderr)
-  - `LLAMA_CPP_LOG_LEVEL=0`, `GGML_LOG_LEVEL=0`, `LLAMA_LOG_LEVEL=4` vor Import gesetzt
-  - Fix: `_infer()` nutzte hardcodierte Phi3-Stop-Tokens – jetzt `_stop_tokens(model_path)`
-- **T3 – Dashboard Version** (`piclaw/__init__.py`, `api.py`, `web/index.html`)
-  - Single Source of Truth: `__version__ = "0.15.1"` in `__init__.py`
-  - `FastAPI(version=__version__)` statt hardcodierter `"0.8.0"`
-  - `/api/stats` gibt `version`-Feld zurück
-  - Dashboard Header: `hostname · ip · v0.15.1`
-  - Neue Version-Karte im Stats-Grid (zeigt Version + Agent-Name)
-- **T4 – boot/ pyproject.toml** (`boot/piclaw-src/pyproject.toml`)
-  - Version 0.15.0 → 0.15.1
-  - `scrapling>=0.2` ergänzt (fehlte)
-  - `make sync` hält dies künftig automatisch aktuell
-- **T2 – GitHub Token** entfällt mit Public Release
+### Highlights
+- **Groq / Kimi K2 als Primary-LLM** – schnellstes verfügbares Modell, kostenlos, Tool-Calling
+- **Network Security Tools** – Tarpit, Honey Traps (Labyrinth/Rickroll/Sinkhole), IP-Block, WHOIS, Abuse-Reports
+- **IPC zwischen API und Daemon** – run_now Trigger via /etc/piclaw/ipc/ (2-Prozess-Fix)
+- **Sub-Agenten: Telegram-Notify** – Ergebnisse werden zuverlässig per Telegram gesendet
+- **Willhaben Standortfilter** – areaId-basiert, funktioniert für alle AT-Städte
 
-### piclaw doctor erweitert (`cli.py`)
-- scrapling-Verfügbarkeitscheck
-- Symlink-Check: `/opt/piclaw/piclaw` muss Symlink sein (INV_021)
-- Log-Dir-Check: `/var/log/piclaw` Owner = piclaw (INV_022)
-- IPC-Dir-Check: `/etc/piclaw/ipc` chmod 1777 (Watchdog)
+### Neue Features
 
-### Neue Debug-Scripts (`tests/debug/`)
-- **`test_debug_install.py`** — Installationsprüfung:
-  Python-Version, piclaw-Import, CONFIG_DIR, Symlink, Log-Dir, IPC-Rechte,
-  Sudoers, pyproject.toml build-backend, alle Abhängigkeiten, lokales Modell
-- **`test_debug_services.py`** — Services & Konnektivität:
-  systemd is-active (4 Services + Timer), HTTP /health, WebSocket + Ping,
-  Log-Analyse auf Errors/Tracebacks, QMD CPU-Check, Timer-Status
+#### 🔒 Network Security (piclaw/tools/network_security.py)
+- `whois_lookup` – IP-Eigentümer recherchieren
+- `block_ip` – IP via iptables DROP dauerhaft sperren
+- `tarpit_ip` – Angreifer verlangsamen (TCP-DROP auf Port)
+- `generate_abuse_report` – Strukturierter ISP-Abuse-Report
+- `deploy_honey_trap` – Täuschfallen: labyrinth/rickroll/sinkhole
+- `stop_honey_trap` / `list_honey_traps` – Fallen verwalten
+- Lokale IPs (RFC1918) automatisch gegen aggressive Aktionen geschützt
 
-### Wizard UX (`wizard.py`)
-- **Status-Badges pro Block**: ✅/⚠️/⬜ mit Kurzhinweis was fehlt
-- **Dynamischer Titel**: "Ersteinrichtung" nur bei frischer Installation, sonst "Einstellungen"
-- **Offene Blöcke**: Nach Abschluss Hinweis welche Blöcke noch einzurichten sind
-- Hilfsfunktion `_block_status(name, cfg)` ausgelagert
+#### 🤖 LLM
+- Groq als empfohlener Primary-Provider (Kimi K2 / Llama 3.3 70B)
+- `piclaw llm test <n>` – Backend direkt aus CLI testen
+- Fallback-Parser für Text-basierte Tool-Calls (Groq-Bug-Workaround)
+- `BackendConfig.__post_init__` – Priority/Temperature immer korrekt typisiert
 
----
+#### 🛒 Marketplace
+- Willhaben Standortfilter via areaId (?areaId=601 für Graz etc.)
+- Stadtname-Erkennung in Suchanfragen (40+ Städte DE/AT)
+- Einheitliche `_fetch_html` Kaskade: Scrapling → aiohttp → Tandem
+- Query-Bereinigung für natürlichsprachliche Formulierungen ("ob es neue Anzeigen zu X gibt")
+
+#### 👁️ Sub-Agenten
+- Cron-Agent Shortcut: "Erstelle einen Agenten der täglich um HH:MM Uhr X tut"
+- IPC-Fix: `/api/subagents/{id}/run` triggert jetzt den richtigen Prozess (Daemon)
+- Sandbox-Fix: Cron-Agenten nutzen jetzt `thermal_status`/`pi_info` statt `shell` (BLOCKED_ALWAYS)
+- Regex-Fix: Aufgabenbeschreibung wird korrekt aus Zeitangabe extrahiert
+
+#### 🔌 API
+- `/api/shell` Endpoint (⚠️ DEV ONLY – vor Release entfernen)
+- `ws_ping_interval=None` in uvicorn – kein 1011-Keepalive-Timeout mehr
+- IPC-Modul `piclaw/ipc.py` für saubere API↔Daemon-Kommunikation
+
+### Bugfixes
+- `TypeError: bad operand type for unary -: 'str'` in registry.py (priority als str)
+- `WebSocket-Fehler: 1011 keepalive ping timeout` bei langen Marketplace-Searches
+- `_detect_network_monitor_intent` feuerte auf Marketplace-Anfragen
+- Groq Tool-Calls als Markdown-Code-Blöcke werden jetzt erkannt
+- Willhaben: areaId wurde nie übergeben → österreichweite Suche statt lokale
 
 ## v0.15.1 – 2026-03-21 🎉
 

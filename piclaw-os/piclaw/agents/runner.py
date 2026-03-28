@@ -254,8 +254,8 @@ class SubAgentRunner:
             create_background_task(self.memory_log(mem_entry))
 
         # ── Notify via messaging hub ────────────────────────────────
-        log.info("Sub-agent '%s': result=%r notify=%s hub=%s",
-                 agent.name, (result or "")[:80], agent.notify, bool(self.notify))
+        log.info("Sub-agent '%s': result=%s notify=%s",
+                 agent.name, "ok" if result and result.strip() else "empty", agent.notify)
         if not result or not result.strip() or result.strip() == "(no output)":
             # Fallback: Kein Output vom Sub-Agenten → Main Agent fragt nach Status
             log.warning("Sub-agent '%s': leeres/kein Ergebnis", agent.name)
