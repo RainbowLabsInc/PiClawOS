@@ -100,6 +100,21 @@ async def lifespan(app: FastAPI):
 
     _agent = Agent(_cfg)
     _agent.start_scheduler()
+
+    # ── Home Assistant in API-Prozess starten ──────────────────────
+    # Der API-Prozess verarbeitet Telegram-Nachrichten und braucht HA-Tools.
+    # ha_mod.start() setzt den globalen _client den agent._build_tools() nutzt.
+    try:
+        from piclaw.tools import homeassistant as _ha_mod
+        _ha_client = await _ha_mod.start()
+        if _ha_client:
+            ok, info = await _ha_client.ping()
+            log.info("API: Home Assistant %s", "verbunden" if ok else f"nicht erreichbar: {info}")
+        else:
+            log.info("API: Home Assistant nicht konfiguriert")
+    except Exception as _he:
+        log.warning("API: HA-Start Fehler: %s", _he)
+
     create_background_task(_agent.boot(start_sub_agents=False), name="agent-boot")  # Daemon verwaltet Sub-Agenten
     _hub = build_hub(_cfg)
     _agent._telegram_send = lambda text: create_background_task(_hub.send_all(text))
