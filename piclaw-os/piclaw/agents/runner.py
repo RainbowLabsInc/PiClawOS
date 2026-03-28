@@ -52,12 +52,14 @@ class SubAgentRunner:
         handlers: dict[str, Callable],
         notify: Callable[[str], Awaitable] | None = None,
         memory_log: Callable[[str], Awaitable] | None = None,
+        report_to_main: Callable[[str], Awaitable] | None = None,
     ):
         self.registry = registry
         self.llm = llm
         self.tool_defs = tool_defs
         self.handlers = handlers
         self.notify = notify  # async fn(text) → sends to messaging hub
+        self.report_to_main = report_to_main  # async fn(prompt) → Main Agent antwortet
         self.memory_log = memory_log  # async fn(text) → writes to QMD memory
         self._tasks: dict[str, asyncio.Task] = {}  # agent_id → Task
         self._stop_events: dict[str, asyncio.Event] = {}
@@ -255,7 +257,23 @@ class SubAgentRunner:
         log.info("Sub-agent '%s': result=%r notify=%s hub=%s",
                  agent.name, (result or "")[:80], agent.notify, bool(self.notify))
         if not result or not result.strip() or result.strip() == "(no output)":
-            log.warning("Sub-agent '%s': leeres/kein Ergebnis – kein Notify", agent.name)
+            # Fallback: Kein Output vom Sub-Agenten → Main Agent fragt nach Status
+            log.warning("Sub-agent '%s': leeres/kein Ergebnis", agent.name)
+            if agent.notify and self.notify and self.report_to_main:
+                # An Main Agent weiterleiten damit dieser eine sinnvolle Antwort formuliert
+                fallback_prompt = (
+                    f"Der Sub-Agent '{agent.name}' hat soeben seine Aufgabe ausgeführt "
+                    f"(schedule: {agent.schedule}). Aufgabe: {agent.description}. "
+                    f"Bitte fasse den aktuellen Status kurz zusammen und sende es als Bericht."
+                )
+                try:
+                    summary = await self.report_to_main(fallback_prompt)
+                    if summary and summary.strip():
+                        header = f"🤖 **{agent.name}** [bericht]\n"
+                        await self.notify(header + summary[:1500])
+                        log.info("Sub-agent '%s': Fallback-Bericht via Main Agent gesendet", agent.name)
+                except Exception as e:
+                    log.warning("Sub-agent '%s': Fallback-Bericht Fehler: %s", agent.name, e)
         elif not agent.notify:
             log.debug("Sub-agent '%s': notify=False", agent.name)
         elif not self.notify:

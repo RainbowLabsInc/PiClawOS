@@ -328,6 +328,14 @@ class Agent:
                 if asyncio.iscoroutine(result):
                     await result
 
+        async def _report_to_main(prompt: str) -> str:
+            """Sub-Agent übergibt Aufgabe an Main Agent zur Formulierung."""
+            try:
+                return await self._run_internal(prompt)
+            except Exception as e:
+                log.warning("report_to_main Fehler: %s", e)
+                return ""
+
         self.sa_runner = SubAgentRunner(
             registry=self.sa_registry,
             llm=self.llm,
@@ -335,6 +343,7 @@ class Agent:
             handlers=self._handlers,
             notify=_notify,
             memory_log=_memory_log,
+            report_to_main=_report_to_main,
         )
         # Register sub-agent tools
         sa_defs = SA_TOOL_DEFS
