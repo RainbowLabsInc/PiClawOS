@@ -218,10 +218,17 @@ class SubAgentRunner:
         start = datetime.now()
 
         try:
-            result = await asyncio.wait_for(
-                self._agentic_loop(agent),
-                timeout=agent.timeout,
-            )
+            # ── Direct Mode: Tool direkt aufrufen, kein LLM ────────
+            if agent.direct_tool:
+                result = await asyncio.wait_for(
+                    self._direct_tool_call(agent),
+                    timeout=agent.timeout,
+                )
+            else:
+                result = await asyncio.wait_for(
+                    self._agentic_loop(agent),
+                    timeout=agent.timeout,
+                )
             status = "ok"
             log.info(
                 "Sub-agent '%s' done in %ss",
@@ -306,6 +313,24 @@ class SubAgentRunner:
                 log.info("Sub-agent '%s': Telegram-Notify OK (%d Zeichen)", agent.name, len(result))
             except Exception as e:
                 log.error("Sub-agent '%s': Notify FEHLER: %s", agent.name, e)
+
+    async def _direct_tool_call(self, agent: SubAgentDef) -> str:
+        """
+        Führt ein einzelnes Tool direkt aus – ohne LLM.
+        Ideal für periodische Checks (Netzwerk-Scan, Temperatur etc.)
+        die keine Intelligenz brauchen, nur ein Tool-Ergebnis.
+        Spart 3 LLM-Calls pro Run.
+        """
+        handler = self.handlers.get(agent.direct_tool)
+        if not handler:
+            return f"[ERROR] Direct tool '{agent.direct_tool}' nicht gefunden."
+        try:
+            result = handler()
+            if asyncio.iscoroutine(result):
+                result = await result
+            return str(result) if result else ""
+        except Exception as e:
+            return f"[ERROR] Direct tool '{agent.direct_tool}' Fehler: {e}"
 
     def _is_quiet_network_result(self, result: str) -> bool:
         """
