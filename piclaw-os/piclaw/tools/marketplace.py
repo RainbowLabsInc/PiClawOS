@@ -491,6 +491,79 @@ async def _search_ebay(
     return results
 
 
+# ── Willhaben Standort-Mapping ────────────────────────────────────────────────
+# Willhaben nutzt SEO-URL-Pfade für Standortfilter: /marktplatz/bundesland/stadt
+# Dies ist stabiler als numerische areaIds (undokumentiert, können sich ändern).
+
+_WH_LOCATION_MAP: dict[str, str] = {
+    # Bundesländer
+    "wien":              "wien",
+    "vienna":            "wien",
+    "steiermark":        "steiermark",
+    "styria":            "steiermark",
+    "niederösterreich":  "niederoesterreich",
+    "niederoesterreich": "niederoesterreich",
+    "niederosterreich":  "niederoesterreich",
+    "lower austria":     "niederoesterreich",
+    "oberösterreich":    "oberoesterreich",
+    "oberoesterreich":   "oberoesterreich",
+    "oberosterreich":    "oberoesterreich",
+    "upper austria":     "oberoesterreich",
+    "salzburg":          "salzburg",
+    "tirol":             "tirol",
+    "tyrol":             "tirol",
+    "vorarlberg":        "vorarlberg",
+    "kärnten":           "kaernten",
+    "kaernten":          "kaernten",
+    "carinthia":         "kaernten",
+    "burgenland":        "burgenland",
+    # Städte → bundesland/stadt
+    "graz":              "steiermark/graz",
+    "linz":              "oberoesterreich/linz",
+    "salzburg stadt":    "salzburg/salzburg-stadt",
+    "salzburg city":     "salzburg/salzburg-stadt",
+    "innsbruck":         "tirol/innsbruck",
+    "klagenfurt":        "kaernten/klagenfurt",
+    "villach":           "kaernten/villach",
+    "wels":              "oberoesterreich/wels",
+    "steyr":             "oberoesterreich/steyr",
+    "st. pölten":        "niederoesterreich/st-poelten",
+    "st pölten":         "niederoesterreich/st-poelten",
+    "st. poelten":       "niederoesterreich/st-poelten",
+    "wiener neustadt":   "niederoesterreich/wiener-neustadt",
+    "krems":             "niederoesterreich/krems-an-der-donau",
+    "bregenz":           "vorarlberg/bregenz",
+    "dornbirn":          "vorarlberg/dornbirn",
+    "feldkirch":         "vorarlberg/feldkirch",
+    "leoben":            "steiermark/leoben",
+    "kapfenberg":        "steiermark/kapfenberg",
+    "bruck an der mur":  "steiermark/bruck-an-der-mur",
+    "eisenstadt":        "burgenland/eisenstadt",
+}
+
+
+def _resolve_willhaben_location(location: str | None) -> str | None:
+    """
+    Gibt den Willhaben SEO-URL-Pfad für einen Standort zurück.
+    Beispiele:
+      "Graz"       → "steiermark/graz"
+      "Steiermark" → "steiermark"
+      "Wien"       → "wien"
+    Unbekannte Orte: None (österreichweit suchen).
+    """
+    if not location:
+        return None
+    key = location.strip().lower()
+    # Direkter Treffer
+    if key in _WH_LOCATION_MAP:
+        return _WH_LOCATION_MAP[key]
+    # Teilstring-Treffer (z.B. "Graz, Österreich" → "graz")
+    for k, v in _WH_LOCATION_MAP.items():
+        if k in key:
+            return v
+    return None
+
+
 async def _search_willhaben(
     session: aiohttp.ClientSession,
     query: str,
@@ -537,10 +610,16 @@ async def _search_willhaben(
             }
             if max_price:
                 params["PRICE_TO"] = str(int(max_price))
-            # Willhaben nutzt areaId für Bundesland-Filter (keine PLZ-Suche)
-            # Österreich-weit ist der Default (kein areaId nötig)
-
-            url = "https://www.willhaben.at/webapi/iad/search/atz/seo/kaufen-und-verkaufen/marktplatz"
+            # Willhaben nutzt SEO-URL-Pfade für Standortfilter
+            # Beispiel: /marktplatz/steiermark/graz
+            _wh_loc_path = _resolve_willhaben_location(location)
+            if _wh_loc_path:
+                url = f"https://www.willhaben.at/webapi/iad/search/atz/seo/kaufen-und-verkaufen/marktplatz/{_wh_loc_path}"
+                log.debug("Willhaben Standortfilter: %s → /%s", location, _wh_loc_path)
+            else:
+                url = "https://www.willhaben.at/webapi/iad/search/atz/seo/kaufen-und-verkaufen/marktplatz"
+                if location:
+                    log.debug("Willhaben: Unbekannter Ort '%s' – österreichweit", location)
 
             try:
                 async with wh_session.get(
