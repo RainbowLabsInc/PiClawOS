@@ -49,6 +49,16 @@ class BackendConfig:
     timeout: int = 60
     notes: str = ""  # user-visible description
 
+    def __post_init__(self):
+        """Coerce field types after init/JSON load to prevent TypeError in sort."""
+        self.priority = int(self.priority)
+        self.max_tokens = int(self.max_tokens)
+        self.timeout = int(self.timeout)
+        self.temperature = float(self.temperature)
+        self.enabled = bool(self.enabled) if not isinstance(self.enabled, bool) else self.enabled
+        if isinstance(self.tags, str):
+            self.tags = [t.strip() for t in self.tags.split(",") if t.strip()]
+
     def has_tag(self, tag: str) -> bool:
         return tag.lower() in [t.lower() for t in self.tags]
 
@@ -120,9 +130,25 @@ class LLMRegistry:
     def update(self, name: str, **kwargs) -> str:
         if name not in self._backends:
             return f"Backend '{name}' not found."
+        backend = self._backends[name]
+        _INT_FIELDS = {"priority", "max_tokens", "timeout"}
+        _FLOAT_FIELDS = {"temperature"}
+        _BOOL_FIELDS = {"enabled"}
         for k, v in kwargs.items():
-            if hasattr(self._backends[name], k):
-                setattr(self._backends[name], k, v)
+            if not hasattr(backend, k):
+                continue
+            if k in _INT_FIELDS:
+                v = int(v)
+            elif k in _FLOAT_FIELDS:
+                v = float(v)
+            elif k in _BOOL_FIELDS:
+                if isinstance(v, str):
+                    v = v.lower() not in ("false", "0", "no", "off")
+                else:
+                    v = bool(v)
+            elif k == "tags" and isinstance(v, str):
+                v = [t.strip() for t in v.split(",") if t.strip()]
+            setattr(backend, k, v)
         self._save()
         return f"Backend '{name}' updated."
 
@@ -138,7 +164,7 @@ class LLMRegistry:
 
     def list_all(self) -> list[BackendConfig]:
         self._reload_if_changed()
-        return sorted(self._backends.values(), key=lambda b: (-b.priority, b.name))
+        return sorted(self._backends.values(), key=lambda b: (-int(b.priority), b.name))
 
     def list_enabled(self) -> list[BackendConfig]:
         return [b for b in self.list_all() if b.enabled]
