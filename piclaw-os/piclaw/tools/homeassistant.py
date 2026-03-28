@@ -283,7 +283,7 @@ class HomeAssistantClient:
 
     async def turn_off(self, entity_id: str) -> bool:
         domain = entity_id.split(".")[0]
-        return await self.call_service(domain, "turn_of", entity_id)
+        return await self.call_service(domain, "turn_off", entity_id)
 
     async def toggle(self, entity_id: str) -> bool:
         domain = entity_id.split(".")[0]
@@ -770,6 +770,14 @@ async def handle_tool(name: str, params: dict, client: HomeAssistantClient) -> s
 
     elif name == "ha_turn_on":
         entity_id = params["entity_id"]
+        # Fuzzy-Auflösung: wenn kein Punkt → Suche nach friendly_name/entity_id
+        if "." not in entity_id:
+            matches = await client.get_states(area=entity_id)
+            # Nur schaltbare Domains
+            matches = [e for e in matches if e.domain in ("light","switch","cover","fan","media_player")]
+            if not matches:
+                return f"✗ Kein Gerät gefunden für '{entity_id}'. Nutze ha_list_entities um verfügbare Geräte zu sehen."
+            entity_id = matches[0].entity_id
         kwargs: dict[str, Any] = {}
         if "brightness_pct" in params:
             kwargs["brightness_pct"] = params["brightness_pct"]
@@ -786,6 +794,13 @@ async def handle_tool(name: str, params: dict, client: HomeAssistantClient) -> s
 
     elif name == "ha_turn_off":
         entity_id = params["entity_id"]
+        # Fuzzy-Auflösung
+        if "." not in entity_id:
+            matches = await client.get_states(area=entity_id)
+            matches = [e for e in matches if e.domain in ("light","switch","cover","fan","media_player")]
+            if not matches:
+                return f"✗ Kein Gerät gefunden für '{entity_id}'. Nutze ha_list_entities um verfügbare Geräte zu sehen."
+            entity_id = matches[0].entity_id
         ok = await client.turn_off(entity_id)
         return (
             f"✓ {entity_id} ausgeschaltet."
