@@ -722,12 +722,12 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
             async def on_token(token: str):
                 await _manager.send(websocket, {"type": "token", "text": token})
 
-            # Keepalive-Task: sendet alle 20s ein "thinking" damit der
+            # Keepalive-Task: sendet alle 10s ein "thinking" damit der
             # WebSocket bei langen Operationen (Marketplace, LLM) nicht abbricht
             async def _keepalive():
                 try:
                     while True:
-                        await asyncio.sleep(20)
+                        await asyncio.sleep(10)
                         await _manager.send(websocket, {"type": "thinking"})
                 except asyncio.CancelledError:
                     pass
@@ -760,7 +760,15 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
 def run(host: str = "0.0.0.0", port: int = 7842):
     import uvicorn
 
-    uvicorn.run("piclaw.api:app", host=host, port=port, log_level="info", reload=False)
+    uvicorn.run(
+        "piclaw.api:app",
+        host=host,
+        port=port,
+        log_level="info",
+        reload=False,
+        ws_ping_interval=None,
+        ws_ping_timeout=None,
+    )
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1246,4 +1254,6 @@ if __name__ == "__main__":
         port=_cfg.api.port or 7842,
         log_level="info",
         reload=False,
+        ws_ping_interval=None,  # App-eigener Keepalive aktiv (api.py _keepalive)
+        ws_ping_timeout=None,   # uvicorn-Ping deaktiviert → kein 1011-Timeout
     )
