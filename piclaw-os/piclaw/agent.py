@@ -498,7 +498,7 @@ class Agent:
 
     async def _create_cron_agent(self, intent: dict) -> str:
         """Erstellt einen zeitgesteuerten Sub-Agenten basierend auf erkanntem Intent."""
-        from piclaw.agents.sa_tools import agent_create as _agent_create
+        from piclaw.agents.sa_registry import SubAgentDef
 
         hour = intent["hour"]
         minute = intent["minute"]
@@ -533,13 +533,22 @@ class Agent:
                 f"Fasse das Ergebnis in 1-2 Saetzen zusammen."
             )
 
-        result = await _agent_create(
+        # Collision check
+        if self.sa_registry.get(name):
+            name = f"{name}_2"
+
+        agent = SubAgentDef(
             name=name,
             description=f"Taeglicher Job um {hour:02d}:{minute:02d} Uhr: {task}",
             mission=mission,
             tools=tools,
             schedule=f"cron:{cron_expr}",
+            created_by="mainagent",
         )
+        agent_id = self.sa_registry.add(agent)
+        if self.sa_runner:
+            await self.sa_runner.start_agent(agent_id)
+        result = f"created {name}"
 
         if "created" in result.lower() or name.lower() in result.lower():
             return (
