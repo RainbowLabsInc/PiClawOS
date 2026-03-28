@@ -28,7 +28,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 CAPTURE_DIR = Path("/var/lib/piclaw/camera")
-CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+
+def _ensure_capture_dir() -> Path:
+    """Erstellt das Camera-Verzeichnis bei Bedarf (lazy, mit Fehlerbehandlung)."""
+    try:
+        CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        import tempfile
+        return Path(tempfile.gettempdir()) / "piclaw_camera"
+    return CAPTURE_DIR
 
 
 # ── Kamera-Detektion ─────────────────────────────────────────────
