@@ -400,6 +400,8 @@ class MultiLLMRouter(LLMBackend):
                 primary.name,
                 int((time.time() - t_start) * 1000),
             )
+            # Erfolg an Health Monitor melden
+            self._report_to_monitor("success", primary.name)
             return resp
 
         except Exception as e:
@@ -408,10 +410,20 @@ class MultiLLMRouter(LLMBackend):
             ).record_failure()
             log.warning("Backend '%s' failed: %s", primary.name, e)
 
+            # Fehler in Echtzeit an Health Monitor melden
+            error_code = self._extract_error_code(e)
+            self._report_to_monitor("error", primary.name, error_code, str(e))
+
             # Try next best backend
             candidates = self.registry.find_by_tags(classification.tags)
             for next_cfg in candidates:
                 if next_cfg.name not in tried:
+                    # Skip rate-limited backends
+                    _monitor_health = self._get_monitor_health(next_cfg.name)
+                    if _monitor_health and _monitor_health.get("rate_limited"):
+                        log.debug("Skipping rate-limited backend '%s'", next_cfg.name)
+                        tried.add(next_cfg.name)
+                        continue
                     log.info("Falling back to '%s'", next_cfg.name)
                     return await self._call_with_fallback(
                         next_cfg, messages, tools, classification, tried
@@ -423,6 +435,45 @@ class MultiLLMRouter(LLMBackend):
                 return await self._local.chat(messages, tools=tools)
 
             raise e
+
+    def _extract_error_code(self, error: Exception) -> int:
+        """Extrahiert HTTP Status-Code aus Exception."""
+        err_str = str(error)
+        if "429" in err_str:
+            return 429
+        if "404" in err_str:
+            return 404
+        if "401" in err_str or "403" in err_str:
+            return 401
+        if "timeout" in err_str.lower():
+            return 408
+        return 500
+
+    def _report_to_monitor(self, event: str, backend_name: str,
+                           error_code: int = 0, error_msg: str = ""):
+        """Meldet Ereignisse an den Health Monitor (wenn vorhanden)."""
+        try:
+            from piclaw.llm.health_monitor import get_monitor
+            monitor = get_monitor()
+            if monitor:
+                if event == "success":
+                    monitor.report_success(backend_name)
+                elif event == "error":
+                    monitor.report_error(backend_name, error_code, error_msg)
+        except Exception as _e:
+            log.debug("Health monitor report: %s", _e)
+
+    def _get_monitor_health(self, backend_name: str) -> dict | None:
+        """Fragt den Health Monitor nach dem Status eines Backends."""
+        try:
+            from piclaw.llm.health_monitor import get_monitor
+            monitor = get_monitor()
+            if monitor:
+                status = monitor.status_dict()
+                return status.get(backend_name)
+        except Exception:
+            pass
+        return None
 
     async def stream_chat(
         self,
