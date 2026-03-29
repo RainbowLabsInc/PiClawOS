@@ -207,6 +207,16 @@ class Agent:
         except Exception as _e:
             log.debug("ClawHub tools not loaded: %s", _e)
 
+        # ── AgentMail-Tools ────────────────────────────────────────
+        if self.cfg.agentmail.api_key:
+            try:
+                from piclaw.tools import agentmail as agentmail_mod
+                _reg(agentmail_mod.TOOL_DEFS, agentmail_mod.build_handlers(self.cfg.agentmail))
+                log.info("AgentMail tools registered (inbox=%s)",
+                         self.cfg.agentmail.email_address or "not yet created")
+            except Exception as _e:
+                log.debug("AgentMail tools not loaded: %s", _e)
+
         # ── Kamera-Tools ───────────────────────────────────────────
         try:
             from piclaw.hardware import camera as camera_mod

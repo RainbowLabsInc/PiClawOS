@@ -307,6 +307,16 @@ def cmd_doctor():
         except Exception as _e:
             print(f"  Home Assist : ❌ Fehler: {_e}")
 
+        # ── Messaging ─────────────────────────────────────────────
+        _tg = "✅" if cfg.telegram.token and cfg.telegram.chat_id else "⬜"
+        _dc = "✅" if cfg.discord.token else "⬜"
+        _am = "⬜"
+        if cfg.agentmail.api_key:
+            _am = f"✅ {cfg.agentmail.email_address}" if cfg.agentmail.email_address else "✅ (keine Inbox)"
+        print(f"  Telegram    : {_tg}")
+        print(f"  Discord     : {_dc}")
+        print(f"  AgentMail   : {_am}")
+
         try:
             import aiohttp
 
@@ -546,7 +556,7 @@ def cmd_messaging(args):
 
     else:
         print(
-            "Usage: piclaw messaging [status|test|setup [telegram|discord|threema|whatsapp]]"
+            "Usage: piclaw messaging [status|test|setup [telegram|discord|threema|whatsapp|agentmail]]"
         )
 
 
@@ -557,6 +567,7 @@ def _messaging_setup_wizard(cfg, platform=None):
         "discord": _setup_discord,
         "threema": _setup_threema,
         "whatsapp": _setup_whatsapp,
+        "agentmail": _setup_agentmail,
     }
 
     if platform and platform in platforms:
@@ -571,14 +582,16 @@ def _messaging_setup_wizard(cfg, platform=None):
             "discord": bool(cfg.discord.token),
             "threema": bool(cfg.threema.gateway_id),
             "whatsapp": bool(cfg.whatsapp.access_token),
+            "agentmail": bool(cfg.agentmail.api_key),
         }[name]
         status = "✅" if current else "⬜"
-        print(f"  {i}. {status} {name.capitalize()}")
+        label = "AgentMail (E-Mail für Dameon)" if name == "agentmail" else name.capitalize()
+        print(f"  {i}. {status} {label}")
     print("  0. Abbrechen\n")
 
-    choice = input("Auswahl [0-4]: ").strip()
+    choice = input("Auswahl [0-5]: ").strip()
     names = list(platforms.keys())
-    if choice in ("1", "2", "3", "4"):
+    if choice.isdigit() and 1 <= int(choice) <= len(names):
         name = names[int(choice) - 1]
         platforms[name](cfg)
     else:
@@ -706,6 +719,71 @@ def _setup_whatsapp(cfg):
     print(f"  Verify Token: {verify_token}")
     print("   Neustart: sudo systemctl restart piclaw-api\n")
     print("   Then type in your Discord channel to chat with the agent.\n")
+
+
+def _setup_agentmail(cfg):
+    from piclaw.config import save
+
+    print("\n📧 AgentMail Setup – E-Mail-Adresse für Dameon\n")
+    print("AgentMail gibt deinem Agenten eine eigene E-Mail-Adresse.")
+    print("Damit kann er sich bei API-Providern registrieren,")
+    print("Bestätigungsmails empfangen und autonom handeln.\n")
+    print("1. Gehe zu https://agentmail.to")
+    print("2. Erstelle einen Account und generiere einen API-Key")
+    print("3. Kopiere den API-Key\n")
+    api_key = input("AgentMail API-Key (oder Enter zum Überspringen): ").strip()
+    if not api_key:
+        print("Übersprungen.")
+        return
+
+    cfg.agentmail.api_key = api_key
+    save(cfg)
+
+    # Inbox erstellen
+    print("\nMöchtest du direkt eine Inbox für Dameon erstellen?")
+    agent_name = cfg.agent_name or "Dameon"
+    username = input(f"Benutzername [{agent_name.lower()}]: ").strip()
+    if not username:
+        username = agent_name.lower()
+
+    print(f"\nErstelle Inbox {username}@agentmail.to ...")
+    try:
+        import asyncio
+
+        async def _create():
+            from piclaw.tools.agentmail import agentmail_create_inbox
+            result = await agentmail_create_inbox(cfg.agentmail, display_name=agent_name, username=username)
+            return result
+
+        result = asyncio.run(_create())
+        print(result)
+
+        # Inbox-ID aus Ergebnis extrahieren und speichern
+        if "ID:" in result:
+            import re
+            id_match = re.search(r"ID:\s*(\S+)", result)
+            email_match = re.search(r"Email:\s*(\S+)", result)
+            if id_match:
+                cfg.agentmail.inbox_id = id_match.group(1)
+            if email_match:
+                cfg.agentmail.email_address = email_match.group(1)
+            save(cfg)
+            print(f"\n✅ AgentMail konfiguriert.")
+            print(f"   E-Mail: {cfg.agentmail.email_address}")
+            print(f"   Inbox-ID: {cfg.agentmail.inbox_id}")
+        else:
+            print("\n⚠️ API-Key gespeichert, aber Inbox konnte nicht erstellt werden.")
+            print("   Dameon kann die Inbox beim nächsten Start selbst erstellen.")
+
+    except ImportError:
+        print("\n⚠️ 'agentmail' Python-Paket nicht installiert.")
+        print("   Installiere mit: pip install agentmail --break-system-packages")
+        print("   API-Key wurde gespeichert – Inbox kann danach erstellt werden.")
+    except Exception as e:
+        print(f"\n⚠️ Fehler beim Erstellen der Inbox: {e}")
+        print("   API-Key wurde gespeichert – Inbox kann später erstellt werden.")
+
+    print("   Neustart: sudo systemctl restart piclaw-agent piclaw-api\n")
 
 
 def cmd_soul(args):
