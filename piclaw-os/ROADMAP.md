@@ -38,7 +38,7 @@ Release Candidate in Vorbereitung.
 
 ## 🚧 Vor Release (Pflicht)
 
-- [ ] `/api/shell` Endpoint entfernen (DEV-ONLY!)
+- [x] `/api/shell` Endpoint entfernen (DEV-ONLY!)
 - [ ] Groq API Key aus Git-History tilgen
 - [ ] API-Token rotieren
 - [ ] Sub-Agent via API → Daemon-Neustart vermeiden (IPC-Reload)
@@ -79,7 +79,7 @@ Release Candidate in Vorbereitung.
 - [ ] piclaw doctor alles grün (inkl. HA)
 - [ ] Mind. 2 Cloud-LLM-Anbieter aktiv
 - [ ] LLM Health Monitor läuft
-- [ ] /api/shell entfernt
+- [x] /api/shell entfernt
 - [ ] Alle kritischen Tests grün
 
 ---
@@ -88,7 +88,7 @@ Release Candidate in Vorbereitung.
 
 | # | Problem | Priorität |
 |---|---------|-----------|
-| TD-01 | /api/shell vor Release entfernen | 🔴 Kritisch |
+| TD-01 | /api/shell vor Release entfernen | ✅ Erledigt |
 | TD-02 | Groq Key aus Git-History tilgen | 🔴 Kritisch |
 | TD-03 | API-Token rotieren | 🔴 Kritisch |
 | TD-04 | Daemon-Neustart bei neuem Sub-Agent | 🟡 Mittel |

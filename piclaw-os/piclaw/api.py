@@ -427,33 +427,8 @@ async def stats(_: str = Depends(require_auth)):
 
     loop = asyncio.get_running_loop()
 
-    temp = None
-    try:
-
-        def _read_temp() -> float:
-            return (
-                int(
-                    open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8")
-                    .read()
-                    .strip()
-                )
-                / 1000
-            )
-
-        temp = await loop.run_in_executor(None, _read_temp)
-    except Exception:
-        try:
-            # Note: psutil.sensors_temperatures() also does file I/O, so offload it as well
-            def _psutil_temp() -> float | None:
-                t = psutil.sensors_temperatures()
-                for entries in t.values():
-                    if entries:
-                        return entries[0].current
-                return None
-
-            temp = await loop.run_in_executor(None, _psutil_temp)
-        except Exception as _e:
-            log.debug("psutil temp fallback: %s", _e)
+    from piclaw.hardware.pi_info import current_temp
+    temp = await loop.run_in_executor(None, current_temp)
 
     try:
         hostname = socket.gethostname()
@@ -522,49 +497,6 @@ async def get_config(_: str = Depends(require_auth)):
         "llm_model": _cfg.llm.model,
         "api_port": _cfg.api.port,
     }
-
-
-# ── DEV: Shell endpoint (remote debugging) ──────────────────────
-# ⚠️  VOR RELEASE ENTFERNEN – nur für Entwicklung/Debugging!
-
-
-@app.post("/api/shell")
-async def shell_exec(request: Request, _: str = Depends(require_auth)):
-    """
-    Execute a shell command on the Pi for remote debugging.
-    Requires Bearer token authentication.
-    Body: {"cmd": "ls -la", "timeout": 30}
-    ⚠️  REMOVE BEFORE RELEASE!
-    """
-    body = await request.json()
-    cmd = body.get("cmd", "").strip()
-    timeout = min(body.get("timeout", 30), 120)  # Max 120s
-
-    if not cmd:
-        raise HTTPException(400, "No command provided.")
-
-    import asyncio as _aio
-
-    try:
-        proc = await _aio.create_subprocess_shell(
-            cmd,
-            stdout=_aio.subprocess.PIPE,
-            stderr=_aio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await _aio.wait_for(proc.communicate(), timeout=timeout)
-        except TimeoutError:
-            proc.kill()
-            return {"error": f"Timeout after {timeout}s", "cmd": cmd}
-
-        return {
-            "cmd": cmd,
-            "exit_code": proc.returncode,
-            "stdout": stdout.decode(errors="replace").strip(),
-            "stderr": stderr.decode(errors="replace").strip(),
-        }
-    except Exception as e:
-        return {"error": str(e), "cmd": cmd}
 
 
 # ── WebSocket Chat ────────────────────────────────────────────────
