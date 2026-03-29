@@ -195,13 +195,10 @@ class LLMHealthMonitor:
         # Default: 10 Minuten
         return 600
 
-    # ── Alle Backends down? ──────────────────────────────────────
+    # ── Alle Backends down? → Auto-Discovery ───────────────────
 
     def _check_all_backends_down(self):
-        """Prüft ob ALLE API-Backends ausgefallen sind und warnt."""
-        if self._all_api_down_notified:
-            return
-
+        """Prüft ob ALLE API-Backends ausgefallen sind → startet Auto-Discovery."""
         all_backends = self.registry.list_all() if hasattr(self.registry, "list_all") else []
         api_backends = [b for b in all_backends if b.provider not in ("local",)]
 
@@ -214,29 +211,215 @@ class LLMHealthMonitor:
             for b in api_backends
         )
 
-        if all_down and self.notify:
-            self._all_api_down_notified = True
-            status_lines = []
-            for b in api_backends:
-                h = self._health.get(b.name, BackendHealth(b.name))
-                if h.rate_limited_until > time.time():
-                    remaining = (h.rate_limited_until - time.time()) / 60
-                    reason = "TPD-Limit" if h.is_tpd_limited else "Rate-Limit"
-                    status_lines.append(f"  ⏳ `{b.name}`: {reason} (~{remaining:.0f}min)")
-                elif h.consecutive_failures > 0:
-                    status_lines.append(f"  ❌ `{b.name}`: {h.consecutive_failures}x Fehler")
-                else:
-                    status_lines.append(f"  ⬜ `{b.name}`: unbekannt")
+        if all_down:
+            # Auto-Discovery starten (async, im Hintergrund)
+            asyncio.ensure_future(self._auto_discover_backends(api_backends))
 
-            msg = (
-                "🚨 *LLM Health Monitor – ALLE API-Backends down!*\n\n"
-                + "\n".join(status_lines) + "\n\n"
-                "⚙️ Lokales Modell (gemma-2b) übernimmt.\n"
-                "Tool-Calling ist eingeschränkt.\n"
-                "Backends werden automatisch wiederhergestellt."
-            )
-            asyncio.ensure_future(self._safe_notify(msg))
-            log.warning("ALLE API-Backends ausgefallen – lokaler Fallback aktiv")
+            if not self._all_api_down_notified and self.notify:
+                self._all_api_down_notified = True
+                status_lines = []
+                for b in api_backends:
+                    h = self._health.get(b.name, BackendHealth(b.name))
+                    if h.rate_limited_until > time.time():
+                        remaining = (h.rate_limited_until - time.time()) / 60
+                        reason = "TPD-Limit" if h.is_tpd_limited else "Rate-Limit"
+                        status_lines.append(f"  ⏳ `{b.name}`: {reason} (~{remaining:.0f}min)")
+                    elif h.consecutive_failures > 0:
+                        status_lines.append(f"  ❌ `{b.name}`: {h.consecutive_failures}x Fehler")
+                    else:
+                        status_lines.append(f"  ⬜ `{b.name}`: unbekannt")
+
+                msg = (
+                    "🚨 *LLM Health Monitor – ALLE API-Backends down!*\n\n"
+                    + "\n".join(status_lines) + "\n\n"
+                    "⚙️ Lokales Modell (gemma-2b) übernimmt.\n"
+                    "🔍 Auto-Discovery läuft – suche alternative Backends..."
+                )
+                asyncio.ensure_future(self._safe_notify(msg))
+                log.warning("ALLE API-Backends ausgefallen – Auto-Discovery gestartet")
+
+    # ── Auto-Discovery: Neue Backends auf bekannten Providern finden ──
+
+    async def _auto_discover_backends(self, down_backends):
+        """
+        Wenn alle Backends down sind: Auf bekannten Providern nach
+        alternativen Modellen suchen und automatisch registrieren.
+        
+        Strategie:
+          1. Provider mit API-Key gruppieren
+          2. Für jeden Provider: verfügbare Modelle abrufen
+          3. Modelle testen die wir noch NICHT nutzen
+          4. Funktionierende als neue Backends registrieren
+          5. Telegram-Meldung
+        """
+        import aiohttp
+        from urllib.parse import urlparse
+
+        # API-Keys nach Provider-Host gruppieren
+        provider_keys: dict[str, tuple[str, str]] = {}  # host → (api_key, base_url)
+        for b in down_backends:
+            if not b.base_url or not b.api_key:
+                continue
+            host = urlparse(b.base_url).netloc
+            if host not in provider_keys:
+                provider_keys[host] = (b.api_key, b.base_url)
+
+        if not provider_keys:
+            log.info("Auto-Discovery: Keine Provider mit API-Keys gefunden")
+            return
+
+        # Aktuell genutzte Modelle sammeln (um Duplikate zu vermeiden)
+        used_models = {b.model for b in down_backends}
+
+        # Provider-spezifische Rate-Limits prüfen
+        # Wenn ALLE Backends eines Providers TPD-limitiert sind, überspringe den Provider
+        tpd_hosts = set()
+        for b in down_backends:
+            h = self._health.get(b.name, BackendHealth(b.name))
+            if h.is_tpd_limited:
+                host = urlparse(b.base_url).netloc
+                tpd_hosts.add(host)
+
+        discovered = []
+
+        for host, (api_key, base_url) in provider_keys.items():
+            # Provider komplett TPD-limitiert → überspringen
+            if host in tpd_hosts:
+                log.info("Auto-Discovery: %s übersprungen (TPD-Limit auf allen Modellen)", host)
+                continue
+
+            models_url = _PROVIDER_MODEL_ENDPOINTS.get(host)
+            if not models_url:
+                continue
+
+            log.info("Auto-Discovery: Prüfe %s...", host)
+
+            try:
+                available = await self._fetch_available_models(models_url, api_key)
+                if not available:
+                    continue
+
+                # Preferred models für diesen Provider die wir noch NICHT nutzen
+                preferred = _PROVIDER_PREFERRED_MODELS.get(host, [])
+                candidates = [m for m in preferred if m not in used_models]
+
+                # Falls keine Preferred-Candidates, Ähnlichkeitssuche
+                if not candidates:
+                    candidates = [
+                        m for m in available
+                        if m not in used_models
+                        and "instruct" in m.lower()
+                        and "embed" not in m.lower()
+                        and "vision" not in m.lower()
+                    ][:5]  # Max 5 Kandidaten testen
+
+                # Kandidaten testen
+                for model in candidates:
+                    if model not in available:
+                        continue
+
+                    ok = await self._test_model(base_url, api_key, model)
+                    if ok:
+                        # Neues Backend registrieren!
+                        new_name = self._generate_backend_name(host, model)
+                        from piclaw.llm.registry import BackendConfig
+                        new_backend = BackendConfig(
+                            name=new_name,
+                            provider="openai",  # Alle bekannten Provider sind OpenAI-kompatibel
+                            model=model,
+                            api_key=api_key,
+                            base_url=base_url,
+                            tags=["general", "auto-discovered"],
+                            priority=6,  # Mittlere Priorität
+                            temperature=0.7,
+                            notes=f"Auto-discovered by Health Monitor ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
+                        )
+                        self.registry.add(new_backend)
+                        discovered.append((new_name, model, host))
+                        log.info(
+                            "Auto-Discovery: ✅ Neues Backend '%s' registriert (%s auf %s)",
+                            new_name, model, host
+                        )
+                        # Ein funktionierendes Backend pro Provider reicht
+                        break
+
+            except Exception as e:
+                log.warning("Auto-Discovery %s Fehler: %s", host, e)
+
+        # Telegram-Meldung
+        if discovered:
+            lines = [f"🔍 *LLM Auto-Discovery* – {len(discovered)} Backend(s) gefunden!\n"]
+            for name, model, host in discovered:
+                lines.append(f"  ✅ `{name}`: `{model}`\n     Provider: {host}")
+            lines.append("\nDiese Backends übernehmen automatisch.")
+            await self._safe_notify("\n".join(lines))
+            self._all_api_down_notified = False  # Reset – wir haben jetzt Alternativen
+        else:
+            log.info("Auto-Discovery: Keine neuen Backends gefunden")
+
+    async def _fetch_available_models(self, models_url: str, api_key: str) -> list[str]:
+        """Ruft die Modell-Liste eines Providers ab."""
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(
+                    models_url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as r:
+                    if r.status != 200:
+                        return []
+                    data = await r.json()
+            return [m["id"] for m in data.get("data", [])]
+        except Exception as e:
+            log.debug("Model list fetch failed: %s", e)
+            return []
+
+    async def _test_model(self, base_url: str, api_key: str, model: str) -> bool:
+        """Testet ob ein spezifisches Modell auf einem Provider funktioniert."""
+        import aiohttp
+        try:
+            url = f"{base_url.rstrip('/')}/chat/completions"
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": "Reply with: OK"}],
+                "max_tokens": 5,
+            }
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
+                    url, json=payload, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as r:
+                    if r.status == 200:
+                        return True
+                    body = await r.text()
+                    log.debug("Model test %s: HTTP %d – %s", model, r.status, body[:100])
+                    return False
+        except Exception as e:
+            log.debug("Model test %s failed: %s", model, e)
+            return False
+
+    def _generate_backend_name(self, host: str, model: str) -> str:
+        """Generiert einen eindeutigen Backend-Namen."""
+        # "api.groq.com" + "kimi-k2-instruct" → "auto-groq-kimi-k2"
+        provider_short = {
+            "api.groq.com": "groq",
+            "integrate.api.nvidia.com": "nvidia",
+            "api.together.xyz": "together",
+            "api.cerebras.ai": "cerebras",
+            "api.mistral.ai": "mistral",
+        }.get(host, host.split(".")[0])
+
+        model_short = model.split("/")[-1][:20]  # Letzter Teil, max 20 Zeichen
+        name = f"auto-{provider_short}-{model_short}"
+        # Duplikate vermeiden
+        if self.registry.get(name):
+            name += f"-{int(time.time()) % 10000}"
+        return name
 
     # ── Background Loop ──────────────────────────────────────────
 
@@ -358,6 +541,31 @@ class LLMHealthMonitor:
             msg = "🔧 *LLM Health Monitor*\n\n" + "\n".join(changes)
             log.info("Health Monitor: %s", msg.replace("*", "").replace("`", ""))
             await self._safe_notify(msg)
+
+        # ── Auto-Discovery Cleanup ─────────────────────────────────
+        # Wenn Original-Backends wieder gesund sind, auto-discovered entfernen
+        if recovered:
+            auto_backends = [
+                b for b in backends
+                if b.name.startswith("auto-") and "auto-discovered" in b.tags
+            ]
+            original_healthy = any(
+                not b.name.startswith("auto-")
+                and b.enabled
+                and self._health.get(b.name, BackendHealth(b.name)).consecutive_failures == 0
+                and self._health.get(b.name, BackendHealth(b.name)).rate_limited_until <= time.time()
+                for b in backends
+                if b.provider != "local"
+            )
+            if original_healthy and auto_backends:
+                for ab in auto_backends:
+                    self.registry.remove(ab.name)
+                    self._health.pop(ab.name, None)
+                    log.info("Auto-Cleanup: '%s' entfernt (Original-Backend wieder gesund)", ab.name)
+                await self._safe_notify(
+                    f"🧹 *Auto-Cleanup*: {len(auto_backends)} temporäre Backend(s) entfernt – "
+                    f"Original-Backends wieder verfügbar."
+                )
 
     async def _test_backend(self, backend) -> tuple[int | None, str]:
         """Backend testen. Gibt (error_code, message) oder (None, "") wenn OK."""
