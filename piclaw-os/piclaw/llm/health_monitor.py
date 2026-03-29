@@ -27,32 +27,50 @@ from typing import Callable, Awaitable
 
 log = logging.getLogger(__name__)
 
+# ── KOSTENLOSE MODELLE – WHITELIST ────────────────────────────────────────────
+# ⚠️  NUR Modelle die auf dem jeweiligen Free-Tier OHNE KOSTEN nutzbar sind.
+#     Dameon darf NIEMALS kostenpflichtige Modelle/Abos nutzen.
+#     Bei Änderungen: Prüfen ob das Modell wirklich kostenlos ist!
+# ──────────────────────────────────────────────────────────────────────────────
+
 # Bekannte Provider-Endpunkte für Modell-Discovery
 _PROVIDER_MODEL_ENDPOINTS = {
     "api.groq.com":            "https://api.groq.com/openai/v1/models",
     "integrate.api.nvidia.com": "https://integrate.api.nvidia.com/v1/models",
-    "api.together.xyz":        "https://api.together.xyz/v1/models",
     "api.cerebras.ai":         "https://api.cerebras.ai/v1/models",
-    "api.mistral.ai":          "https://api.mistral.ai/v1/models",
+    # Together.ai: $5 Startguthaben, danach kostenpflichtig → NICHT enthalten
+    # Mistral: Free-Tier limitiert, paid by default → NICHT enthalten
 }
 
-# Modell-Präferenzen je Provider (Fallback-Kette)
-_PROVIDER_PREFERRED_MODELS = {
+# Nur Modelle die NACHWEISLICH KOSTENLOS sind (Free-Tier)
+# Wird von Auto-Discovery und Auto-Repair als Whitelist verwendet
+_FREE_TIER_MODELS = {
     "api.groq.com": [
+        # Groq Free Tier: Rate-Limits, aber keine Kosten
         "llama-3.3-70b-versatile",
         "llama-3.3-70b-specdec",
         "llama-3.1-70b-versatile",
+        "llama-3.1-8b-instant",
         "gemma2-9b-it",
         "kimi-k2-instruct",
     ],
     "integrate.api.nvidia.com": [
+        # NVIDIA NIM: Free-Tier mit 1000 Requests/Tag
         "meta/llama-4-maverick-17b-128e-instruct",
         "meta/llama-4-scout-17b-16e-instruct",
         "meta/llama-3.3-70b-instruct",
         "meta/llama-3.1-70b-instruct",
         "mistralai/mixtral-8x7b-instruct-v0.1",
     ],
+    "api.cerebras.ai": [
+        # Cerebras: Kostenloser Developer-Tier
+        "llama-3.3-70b",
+        "llama-3.1-8b",
+    ],
 }
+
+# Rückwärts-kompatibel: _PROVIDER_PREFERRED_MODELS = _FREE_TIER_MODELS
+_PROVIDER_PREFERRED_MODELS = _FREE_TIER_MODELS
 
 # Regex für Groq TPD-Limit Erkennung
 _RE_TPD = re.compile(r"tokens per day", re.IGNORECASE)
@@ -299,19 +317,17 @@ class LLMHealthMonitor:
                 if not available:
                     continue
 
-                # Preferred models für diesen Provider die wir noch NICHT nutzen
-                preferred = _PROVIDER_PREFERRED_MODELS.get(host, [])
-                candidates = [m for m in preferred if m not in used_models]
+                # ⚠️ NUR Modelle aus der FREE_TIER_MODELS Whitelist!
+                # Niemals unbekannte Modelle registrieren – die könnten kosten.
+                whitelist = _FREE_TIER_MODELS.get(host, [])
+                candidates = [
+                    m for m in whitelist
+                    if m not in used_models and m in available
+                ]
 
-                # Falls keine Preferred-Candidates, Ähnlichkeitssuche
                 if not candidates:
-                    candidates = [
-                        m for m in available
-                        if m not in used_models
-                        and "instruct" in m.lower()
-                        and "embed" not in m.lower()
-                        and "vision" not in m.lower()
-                    ][:5]  # Max 5 Kandidaten testen
+                    log.info("Auto-Discovery %s: keine freien ungenutzten Modelle", host)
+                    continue
 
                 # Kandidaten testen
                 for model in candidates:
@@ -320,7 +336,7 @@ class LLMHealthMonitor:
 
                     ok = await self._test_model(base_url, api_key, model)
                     if ok:
-                        # Neues Backend registrieren!
+                        # Neues Backend registrieren – NUR Free-Tier Modelle!
                         new_name = self._generate_backend_name(host, model)
                         from piclaw.llm.registry import BackendConfig
                         new_backend = BackendConfig(
@@ -329,10 +345,10 @@ class LLMHealthMonitor:
                             model=model,
                             api_key=api_key,
                             base_url=base_url,
-                            tags=["general", "auto-discovered"],
+                            tags=["general", "auto-discovered", "free-tier"],
                             priority=6,  # Mittlere Priorität
                             temperature=0.7,
-                            notes=f"Auto-discovered by Health Monitor ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
+                            notes=f"Auto-discovered (FREE TIER) by Health Monitor ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
                         )
                         self.registry.add(new_backend)
                         discovered.append((new_name, model, host))
@@ -425,37 +441,28 @@ class LLMHealthMonitor:
 
     # ── Provider-Vorschläge ──────────────────────────────────────
 
-    # Bekannte kostenlose Provider mit Sign-Up URLs
+    # ⚠️  NUR Provider die NACHWEISLICH KOSTENLOS sind (kein Startguthaben,
+    #     kein automatisches Upgrade, kein Abo).
+    #     Together.ai ($5 Credit → danach kostenpflichtig) → NICHT enthalten
+    #     Mistral (Free-Tier unklar, paid-by-default) → NICHT enthalten
     _FREE_PROVIDERS = {
         "groq": {
             "host": "api.groq.com",
             "name": "Groq",
             "signup": "https://console.groq.com",
-            "free_tier": "100k Tokens/Tag, 30 RPM",
+            "free_tier": "100k Tokens/Tag, 30 RPM – dauerhaft kostenlos",
         },
         "nvidia": {
             "host": "integrate.api.nvidia.com",
             "name": "NVIDIA NIM",
             "signup": "https://build.nvidia.com",
-            "free_tier": "1000 Requests/Tag",
-        },
-        "together": {
-            "host": "api.together.xyz",
-            "name": "Together.ai",
-            "signup": "https://api.together.xyz",
-            "free_tier": "$5 Credit, Llama 3.3 70B",
+            "free_tier": "1000 Requests/Tag – dauerhaft kostenlos",
         },
         "cerebras": {
             "host": "api.cerebras.ai",
             "name": "Cerebras",
             "signup": "https://cloud.cerebras.ai",
-            "free_tier": "Kostenlos, Llama 3.3 70B, extrem schnell",
-        },
-        "mistral": {
-            "host": "api.mistral.ai",
-            "name": "Mistral AI",
-            "signup": "https://console.mistral.ai",
-            "free_tier": "Experimentier-Tier kostenlos",
+            "free_tier": "Llama 3.3 70B, extrem schnell – dauerhaft kostenlos",
         },
     }
 
@@ -484,6 +491,7 @@ class LLMHealthMonitor:
 
         lines.append("\nDu kannst dich anmelden und den API-Key hinzufügen:")
         lines.append("`piclaw llm add` oder via Dashboard.")
+        lines.append("\n⚠️ *NUR kostenlose Free-Tier nutzen – KEIN Abo abschließen!*")
 
         # Wenn AgentMail konfiguriert, kann Dameon bei der Anmeldung helfen
         try:
@@ -700,32 +708,19 @@ class LLMHealthMonitor:
 
             preferred = _PROVIDER_PREFERRED_MODELS.get(host, [])
 
-            # 1. Preferred-Liste
+            # NUR Modelle aus der Whitelist (= _FREE_TIER_MODELS)
+            # ⚠️ Keine Ähnlichkeitssuche – unbekannte Modelle könnten kosten!
             for pref in preferred:
                 if pref in available:
                     self.registry.update(backend.name, model=pref)
-                    log.info("Auto-Repair '%s': %s → %s (preferred)",
+                    log.info("Auto-Repair '%s': %s → %s (free-tier whitelist)",
                              backend.name, backend.model, pref)
                     return pref
 
-            # 2. Ähnlichkeitssuche
-            current = backend.model.lower()
-            size_match = re.search(r"(\d+)b", current)
-            size_hint = size_match.group(1) if size_match else ""
-
-            candidates = [
-                m for m in available
-                if "instruct" in m.lower()
-                and (size_hint in m if size_hint else True)
-                and "embed" not in m.lower()
-                and "vision" not in m.lower()
-            ]
-            if candidates:
-                best = candidates[0]
-                self.registry.update(backend.name, model=best)
-                log.info("Auto-Repair '%s': %s → %s (similarity)",
-                         backend.name, backend.model, best)
-                return best
+            log.warning(
+                "Auto-Repair '%s': Kein kostenloses Ersatzmodell auf %s gefunden",
+                backend.name, host
+            )
 
         except Exception as e:
             log.warning("Auto-Repair '%s' Fehler: %s", backend.name, e)
