@@ -37,12 +37,19 @@ TOOL_DEFS = [
 ]
 
 
-async def _run(cmd: str, timeout: int = 15) -> str:
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+async def _run(cmd: str | list[str], timeout: int = 15) -> str:
+    if isinstance(cmd, str):
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    else:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
@@ -71,10 +78,9 @@ async def wifi_scan() -> str:
 
 
 async def wifi_connect(ssid: str, password: str = "") -> str:
+    cmd = ["nmcli", "dev", "wifi", "connect", ssid]
     if password:
-        cmd = f'nmcli dev wifi connect "{ssid}" password "{password}"'
-    else:
-        cmd = f'nmcli dev wifi connect "{ssid}"'
+        cmd.extend(["password", password])
     return await _run(cmd, timeout=30)
 
 
