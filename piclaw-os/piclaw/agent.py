@@ -7,6 +7,13 @@ import logging
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
+
+# --- Pre-compiled Regexes for Performance (Marketplace Intent Detection) ---
+import re  # noqa: E402
+_RE_MP_SEARCH_KW = re.compile(r"(durchsuche|was\ kostet|preis\ für|look\ for|gibt\ es|schaue|search|suche|finde|schau|liste|such|find|zeig)", re.IGNORECASE)
+_RE_MP_MARKET_KW = re.compile(r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)", re.IGNORECASE)
+# -------------------------------------------------------------------------
+
 from collections.abc import Callable
 
 from piclaw.config import PiClawConfig, CRASH_DIR
@@ -743,7 +750,7 @@ class Agent:
                 return f"{icon} {entity_id} ausgeschaltet." if ok else f"❌ Konnte {entity_id} nicht ausschalten."
             else:  # toggle
                 ok = await client.toggle(entity_id)
-                return f"🔄 {entity_id} umgeschaltet." if ok else f"❌ Toggle fehlgeschlagen."
+                return f"🔄 {entity_id} umgeschaltet." if ok else "❌ Toggle fehlgeschlagen."
         except Exception as e:
             log.warning("HA-Shortcut Fehler: %s", e)
             return None  # LLM übernimmt bei Fehler
@@ -825,7 +832,8 @@ class Agent:
 
     async def _create_monitor_agent(self, params: dict) -> str:
         """Erstellt einen Monitoring-Sub-Agenten für stündliche Marktplatz-Suche."""
-        import re, json
+        import re
+        import json
 
         query = params["query"]
         platforms = params.get("platforms", ["kleinanzeigen", "ebay"])
@@ -912,45 +920,10 @@ class Agent:
         text_clean = re.sub(r"\[.*?\]", " ", text)
         t = text_clean.lower()
 
-        search_kw = [
-            "suche",
-            "finde",
-            "such",
-            "find",
-            "schau",
-            "schaue",
-            "durchsuche",
-            "zeig",
-            "liste",
-            "search",
-            "look for",
-            "was kostet",
-            "preis für",
-            "gibt es",
-        ]
-        market_kw = [
-            "kleinanzeigen",
-            "ebay",
-            "willhaben",
-            "inserat",
-            "anzeige",
-            "kaufen",
-            "marktplatz",
-            "gebraucht",
-            "preis",
-            "euro",
-            "schnäppchen",
-            "angebot",
-            "nähe",
-            "umkreis",
-            "plz",
-            "ort",
-        ]
-        if not any(k in t for k in search_kw):
+        if not _RE_MP_SEARCH_KW.search(t):
             return None
-        if not any(k in t for k in market_kw):
+        if not _RE_MP_MARKET_KW.search(t):
             return None
-
         # Platform
         platforms = []
         if any(k in t for k in ["kleinanzeigen", "kleinanzeigen.de"]):
