@@ -279,7 +279,21 @@ class Agent:
                 max_results=int(kw.get("max_results", 10)),
                 notify_all=kw.get("notify_all", True),
             )
-            return format_results(result)
+            formatted = format_results(result)
+            # Interne Silent-Tokens NICHT an den User zurückgeben!
+            # __NO_NEW_RESULTS__ ist nur für Sub-Agent-Runner gedacht.
+            if formatted in ("__NO_NEW_RESULTS__", "__NO_NEW_DEVICES__", "__SILENT__"):
+                query = kw.get("query", "")
+                loc = kw.get("location", "")
+                loc_str = f" in {loc}" if loc else ""
+                total = result.get("total_found", 0)
+                if total > 0:
+                    return (
+                        f"Für '{query}'{loc_str} wurden {total} Inserate gefunden, "
+                        f"aber alle waren bereits bekannt (keine neuen seit der letzten Suche)."
+                    )
+                return f"Keine Inserate für '{query}'{loc_str} gefunden."
+            return formatted
 
         _reg([_marketplace_tool], {"marketplace_search": _marketplace_handler})
         log.info("Marketplace-Tool registriert (Kleinanzeigen, eBay, Web)")
@@ -762,27 +776,37 @@ class Agent:
 
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
+        # Regex-Muster getrennt prüfen (funktionieren nicht mit einfachem `in`)
+        _regex_patterns = [
+            r"wenn.*auftaucht", r"sobald.*verfügbar", r"falls.*angebot",
+            r"wenn.*inserat", r"wenn.*neu", r"jede.*stunde", r"alle.*stunde",
+            r"jede.*halbe", r"alle\s+\d+\s*min",
+        ]
         monitor_kw = [
             "überwach", "beobacht", "benachrichtig", "informier", "meld",
             "sag mir wenn", "sag bescheid", "schick mir", "check regelmäßig",
             "halte ausschau", "halte die augen offen",
-            "alert", "monitor", "watch", "notify", "wenn.*auftaucht",
-            "sobald.*verfügbar", "falls.*angebot", "wenn.*inserat",
-            "wenn.*neu", "stündlich", "regelmäßig", "automatisch",
+            "alert", "monitor", "watch", "notify",
+            "stündlich", "regelmäßig", "automatisch",
+            "jede stunde", "alle stunde", "jede halbe stunde",
         ]
         market_kw = [
             "kleinanzeigen", "ebay", "willhaben", "inserat", "anzeige", "kaufen",
             "marktplatz", "gebraucht", "preis", "euro", "angebot",
         ]
 
-        if not any(k in t for k in monitor_kw):
+        _has_monitor_kw = any(k in t for k in monitor_kw)
+        if not _has_monitor_kw:
+            # Regex-Patterns als Fallback prüfen
+            _has_monitor_kw = any(re.search(p, t) for p in _regex_patterns)
+        if not _has_monitor_kw:
             return None
         if not any(k in t for k in market_kw):
             return None
 
         # Intervall aus Text extrahieren (default 1h)
         interval_sec = 3600
-        if any(k in t for k in ["30 min", "30min", "halbstündlich"]):
+        if any(k in t for k in ["30 min", "30min", "halbstündlich", "halbe stunde", "jede halbe"]):
             interval_sec = 1800
         elif any(k in t for k in ["15 min", "15min"]):
             interval_sec = 900
@@ -790,6 +814,15 @@ class Agent:
             interval_sec = 7200
         elif any(k in t for k in ["täglich", "einmal am tag", "24h"]):
             interval_sec = 86400
+        # Explizite "alle N min/stunde" Extraktion
+        _interval_match = re.search(r"(?:alle|jede)\s+(\d+)\s*(min|stund)", t)
+        if _interval_match:
+            _val = int(_interval_match.group(1))
+            _unit = _interval_match.group(2)
+            if "stund" in _unit:
+                interval_sec = _val * 3600
+            else:
+                interval_sec = max(_val * 60, 300)  # min 5 min
 
         # Plattform
         platforms = []
@@ -814,8 +847,11 @@ class Agent:
             "stündlich", "regelmäßig", "neue gibt", "neue auftauchen",
             "neue inserate", "neue angebote", "neues gibt", "gibt es neue",
             "gibt es", "ob es", "ob neue", "neue für", "nach neuen",
+            "jede stunde", "jede halbe stunde", "alle stunde",
         ]:
             clean_text = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", clean_text)
+        # Regex-Patterns (z.B. "alle 30 Minuten", "jede 2 Stunden")
+        clean_text = re.sub(r"(?i)(?:alle|jede)\s+\d+\s*(?:min(?:uten)?|stund(?:en?)?)", " ", clean_text)
         clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
         mp = self._detect_marketplace_intent(clean_text)
