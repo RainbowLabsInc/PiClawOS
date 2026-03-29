@@ -22,7 +22,6 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger("piclaw.hardware.pi_info")
 
@@ -285,6 +284,17 @@ def _read_cpu_temp() -> float | None:
             return val / 1000 if val > 1000 else float(val)
         except Exception:
             continue
+
+    # Fallback to psutil for non-Pi hardware
+    try:
+        import psutil
+        temps = psutil.sensors_temperatures()
+        for entries in temps.values():
+            if entries:
+                return entries[0].current
+    except Exception:
+        pass
+
     return None
 
 

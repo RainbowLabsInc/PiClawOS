@@ -524,49 +524,6 @@ async def get_config(_: str = Depends(require_auth)):
     }
 
 
-# ── DEV: Shell endpoint (remote debugging) ──────────────────────
-# ⚠️  VOR RELEASE ENTFERNEN – nur für Entwicklung/Debugging!
-
-
-@app.post("/api/shell")
-async def shell_exec(request: Request, _: str = Depends(require_auth)):
-    """
-    Execute a shell command on the Pi for remote debugging.
-    Requires Bearer token authentication.
-    Body: {"cmd": "ls -la", "timeout": 30}
-    ⚠️  REMOVE BEFORE RELEASE!
-    """
-    body = await request.json()
-    cmd = body.get("cmd", "").strip()
-    timeout = min(body.get("timeout", 30), 120)  # Max 120s
-
-    if not cmd:
-        raise HTTPException(400, "No command provided.")
-
-    import asyncio as _aio
-
-    try:
-        proc = await _aio.create_subprocess_shell(
-            cmd,
-            stdout=_aio.subprocess.PIPE,
-            stderr=_aio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await _aio.wait_for(proc.communicate(), timeout=timeout)
-        except TimeoutError:
-            proc.kill()
-            return {"error": f"Timeout after {timeout}s", "cmd": cmd}
-
-        return {
-            "cmd": cmd,
-            "exit_code": proc.returncode,
-            "stdout": stdout.decode(errors="replace").strip(),
-            "stderr": stderr.decode(errors="replace").strip(),
-        }
-    except Exception as e:
-        return {"error": str(e), "cmd": cmd}
-
-
 # ── WebSocket Chat ────────────────────────────────────────────────
 
 

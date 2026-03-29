@@ -14,7 +14,6 @@ Known device database covers ~40 common hobby sensors and modules.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 log = logging.getLogger("piclaw.hardware.i2c_scan")
 
@@ -146,7 +145,6 @@ KNOWN_I2C_DEVICES: dict[int, dict] = {
     0x0D: {"name": "Pimoroni Pico", "desc": "RP2040 I2C bridge", "cat": "bridge"},
     0x55: {"name": "MAX17043", "desc": "LiPo battery fuel gauge", "cat": "power"},
     # ── Pi Hat EEPROM (always present on properly designed HATs) ──
-    0x50: {"name": "HAT EEPROM", "desc": "Pi HAT configuration EEPROM", "cat": "hat"},
 }
 
 

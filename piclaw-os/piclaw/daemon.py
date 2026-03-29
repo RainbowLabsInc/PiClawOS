@@ -18,7 +18,6 @@ import sys
 
 from piclaw.config import load as load_cfg, LOG_DIR
 from piclaw.agent import Agent
-from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.daemon")
 

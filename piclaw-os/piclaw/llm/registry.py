@@ -25,7 +25,6 @@ Tags are free-form strings. Built-in tag categories (used by the classifier):
 import json
 import logging
 from dataclasses import dataclass, field, asdict
-from typing import Optional
 
 from piclaw.config import CONFIG_DIR
 

@@ -28,7 +28,6 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 from collections.abc import Callable, Awaitable
 from piclaw.taskutils import create_background_task
 
