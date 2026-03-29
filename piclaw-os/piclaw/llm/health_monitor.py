@@ -355,7 +355,9 @@ class LLMHealthMonitor:
             await self._safe_notify("\n".join(lines))
             self._all_api_down_notified = False  # Reset – wir haben jetzt Alternativen
         else:
-            log.info("Auto-Discovery: Keine neuen Backends gefunden")
+            log.info("Auto-Discovery: Keine neuen Backends gefunden – prüfe neue Provider")
+            # Keine Alternativen auf bestehenden Providern → neue Provider vorschlagen
+            await self._suggest_new_providers(provider_keys)
 
     async def _fetch_available_models(self, models_url: str, api_key: str) -> list[str]:
         """Ruft die Modell-Liste eines Providers ab."""
@@ -420,6 +422,80 @@ class LLMHealthMonitor:
         if self.registry.get(name):
             name += f"-{int(time.time()) % 10000}"
         return name
+
+    # ── Provider-Vorschläge ──────────────────────────────────────
+
+    # Bekannte kostenlose Provider mit Sign-Up URLs
+    _FREE_PROVIDERS = {
+        "groq": {
+            "host": "api.groq.com",
+            "name": "Groq",
+            "signup": "https://console.groq.com",
+            "free_tier": "100k Tokens/Tag, 30 RPM",
+        },
+        "nvidia": {
+            "host": "integrate.api.nvidia.com",
+            "name": "NVIDIA NIM",
+            "signup": "https://build.nvidia.com",
+            "free_tier": "1000 Requests/Tag",
+        },
+        "together": {
+            "host": "api.together.xyz",
+            "name": "Together.ai",
+            "signup": "https://api.together.xyz",
+            "free_tier": "$5 Credit, Llama 3.3 70B",
+        },
+        "cerebras": {
+            "host": "api.cerebras.ai",
+            "name": "Cerebras",
+            "signup": "https://cloud.cerebras.ai",
+            "free_tier": "Kostenlos, Llama 3.3 70B, extrem schnell",
+        },
+        "mistral": {
+            "host": "api.mistral.ai",
+            "name": "Mistral AI",
+            "signup": "https://console.mistral.ai",
+            "free_tier": "Experimentier-Tier kostenlos",
+        },
+    }
+
+    async def _suggest_new_providers(self, existing_hosts: dict):
+        """Schlägt neue Provider vor wenn auf bestehenden nichts mehr geht."""
+        # Welche Provider sind NICHT konfiguriert?
+        existing_set = set(existing_hosts.keys())
+        missing = []
+        for key, info in self._FREE_PROVIDERS.items():
+            if info["host"] not in existing_set:
+                missing.append(info)
+
+        if not missing:
+            log.info("Alle bekannten Provider sind bereits konfiguriert")
+            return
+
+        # Vorschlag via Telegram + AgentMail
+        lines = [
+            "🔑 *LLM Health Monitor – Neue Provider verfügbar*\n",
+            "Alle bestehenden Backends sind erschöpft.",
+            f"Es gibt {len(missing)} Provider die du noch nicht nutzt:\n",
+        ]
+        for p in missing:
+            lines.append(f"  🆓 *{p['name']}* – {p['free_tier']}")
+            lines.append(f"     Anmeldung: {p['signup']}")
+
+        lines.append("\nDu kannst dich anmelden und den API-Key hinzufügen:")
+        lines.append("`piclaw llm add` oder via Dashboard.")
+
+        # Wenn AgentMail konfiguriert, kann Dameon bei der Anmeldung helfen
+        try:
+            from piclaw.config import load as _cfg_load
+            _cfg = _cfg_load()
+            if _cfg.agentmail.email_address:
+                lines.append(f"\n📧 Dameons E-Mail: `{_cfg.agentmail.email_address}`")
+                lines.append("Du kannst diese E-Mail bei der Registrierung verwenden.")
+        except Exception:
+            pass
+
+        await self._safe_notify("\n".join(lines))
 
     # ── Background Loop ──────────────────────────────────────────
 
@@ -657,12 +733,66 @@ class LLMHealthMonitor:
         return None
 
     async def _safe_notify(self, msg: str):
-        """Telegram-Benachrichtigung mit Error-Handling."""
+        """Benachrichtigung via Telegram + AgentMail-Backup."""
+        # Primär: Telegram/MessagingHub
         if self.notify:
             try:
                 await self.notify(msg)
             except Exception as e:
-                log.warning("Health-Monitor Notify: %s", e)
+                log.warning("Health-Monitor Notify (Telegram): %s", e)
+
+        # Backup: AgentMail (wenn konfiguriert)
+        try:
+            from piclaw.config import load as _load_cfg
+            _cfg = _load_cfg()
+            if _cfg.agentmail.api_key and _cfg.agentmail.inbox_id:
+                from piclaw.tools.agentmail import agentmail_send_email
+                # Markdown-Formatierung entfernen für E-Mail
+                clean_msg = msg.replace("*", "").replace("`", "").replace("_", "")
+                await agentmail_send_email(
+                    cfg=_cfg.agentmail,
+                    inbox_id=_cfg.agentmail.inbox_id,
+                    to=[_cfg.agentmail.email_address],  # An sich selbst (ins Archiv)
+                    subject="PiClaw Health Monitor",
+                    text=clean_msg,
+                )
+        except Exception as _e:
+            log.debug("AgentMail backup notify: %s", _e)
+
+    async def request_api_key_signup(self, provider_name: str, signup_url: str) -> str | None:
+        """
+        Versucht sich bei einem API-Provider anzumelden.
+        Nutzt AgentMail für die E-Mail-Verifizierung.
+        
+        Returns: API-Key wenn erfolgreich, None wenn nicht möglich.
+        
+        HINWEIS: Volle Web-Automatisierung ist komplex (CAPTCHA etc.).
+        Diese Methode bereitet den Prozess vor und informiert den Nutzer.
+        Dameon kann dies über seine Tools (http_get, agentmail) selbst orchestrieren.
+        """
+        try:
+            from piclaw.config import load as _load_cfg
+            _cfg = _load_cfg()
+            if not _cfg.agentmail.api_key or not _cfg.agentmail.email_address:
+                log.info("API-Key Signup: AgentMail nicht konfiguriert")
+                return None
+
+            # Dem Nutzer mitteilen dass ein neuer Provider benötigt wird
+            msg = (
+                f"🔑 *LLM Health Monitor – Neuer Provider benötigt*\n\n"
+                f"Alle bestehenden Backends sind erschöpft/ausgefallen.\n"
+                f"Vorschlag: `{provider_name}` registrieren.\n\n"
+                f"📋 Anmeldung: {signup_url}\n"
+                f"📧 Dameons E-Mail: `{_cfg.agentmail.email_address}`\n\n"
+                f"Du kannst dich manuell registrieren, oder Dameon per Chat beauftragen:\n"
+                f"_'Melde dich bei {provider_name} an und konfiguriere den API-Key'_"
+            )
+            await self._safe_notify(msg)
+            return None  # Nutzer muss manuell handeln (vorerst)
+
+        except Exception as e:
+            log.warning("API-Key Signup Fehler: %s", e)
+            return None
 
     # ── Status für API/Dashboard ─────────────────────────────────
 
