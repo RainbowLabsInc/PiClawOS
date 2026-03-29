@@ -3,6 +3,7 @@ PiClaw OS – Core Agent
 """
 
 import asyncio
+import json
 import logging
 import traceback
 from dataclasses import dataclass, field
@@ -16,7 +17,7 @@ _RE_MP_MARKET_KW = re.compile(r"(kleinanzeigen|schnäppchen|marktplatz|willhaben
 
 from collections.abc import Callable
 
-from piclaw.config import PiClawConfig, CRASH_DIR
+from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
 from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall
 from piclaw.taskutils import create_background_task
 
@@ -831,7 +832,14 @@ class Agent:
         }
 
     async def _create_monitor_agent(self, params: dict) -> str:
-        """Erstellt einen Monitoring-Sub-Agenten für stündliche Marktplatz-Suche."""
+        """Erstellt einen Monitoring-Sub-Agenten für stündliche Marktplatz-Suche.
+        
+        BUG-FIX v0.15.5:
+          - Nutzt jetzt direct_tool statt LLM agentic loop
+          - Verhindert "max steps reached" Fehler
+          - Parameter (location, radius_km) werden fest codiert statt vom LLM interpretiert
+          - Suchradius bleibt stabil statt auf ganz Deutschland zu streuen
+        """
         import re
         import json
 
@@ -867,26 +875,51 @@ class Agent:
                 f"Zum Ändern: 'Stopp den {agent_name}' oder 'Lösch den {agent_name}'."
             )
 
-        # Mission-Prompt – Agent ruft marketplace_search direkt auf
-        tool_call_params = {
-            "query": query,
-            "platforms": platforms,
-            "notify_all": False,  # NUR neue Inserate melden
-        }
-        if location:
-            tool_call_params["location"] = location
-        if radius_km:
-            tool_call_params["radius_km"] = radius_km
-        if max_price:
-            tool_call_params["max_price"] = max_price
+        # ── Direct-Tool Handler registrieren ──────────────────────
+        # Feste Parameter in Closure einschließen – das LLM wird
+        # NICHT mehr aufgerufen, daher kein Parameterverlust möglich.
+        from piclaw.tools.marketplace import marketplace_search, format_results_telegram
+
+        _fixed_query = query
+        _fixed_platforms = list(platforms)
+        _fixed_location = location or None
+        _fixed_radius = radius_km
+        _fixed_max_price = max_price
+        tool_name = f"_mp_monitor_{safe_name.lower()}"
+
+        async def _mp_direct_handler(**_kw):
+            result = await marketplace_search(
+                query=_fixed_query,
+                platforms=_fixed_platforms,
+                max_price=_fixed_max_price,
+                location=_fixed_location,
+                radius_km=_fixed_radius,
+                max_results=10,
+                notify_all=False,  # NUR neue Inserate
+            )
+            formatted = format_results_telegram(result)
+            # format_results_telegram gibt bei 0 Funden einen Text zurück,
+            # aber wir wollen dann __NO_NEW_RESULTS__ für die Silent-Logik
+            if not result.get("new"):
+                return "__NO_NEW_RESULTS__"
+            return formatted
+
+        self._handlers[tool_name] = _mp_direct_handler
+        log.info("Direct-Tool '%s' registriert für Monitor '%s' (query=%s, loc=%s, r=%s)",
+                 tool_name, agent_name, _fixed_query, _fixed_location, _fixed_radius)
+
+        # Parameter persistent speichern für Daemon-Neustart
+        self._save_mp_monitor_params(tool_name, {
+            "query": _fixed_query,
+            "platforms": _fixed_platforms,
+            "location": _fixed_location,
+            "radius_km": _fixed_radius,
+            "max_price": _fixed_max_price,
+        })
 
         mission = (
-            f"Du bist ein Marktplatz-Monitor. Suche {interval_str} nach neuen Inseraten.\n\n"
-            f"Ruf marketplace_search auf mit diesen Parametern:\n"
-            f"{json.dumps(tool_call_params, ensure_ascii=False, indent=2)}\n\n"
-            f"WICHTIG: notify_all=False – nur NEUE Inserate melden, keine Wiederholungen.\n"
-            f"Falls keine neuen Inserate gefunden wurden, sende KEINE Nachricht.\n"
-            f"Falls neue Inserate gefunden wurden, formatiere sie übersichtlich."
+            f"Marktplatz-Monitor: '{query}' auf {plat_str}{loc_str}{rad_str}{price_str}\n"
+            f"Wird direkt via direct_tool aufgerufen – kein LLM nötig."
         )
 
         agent_def = SubAgentDef(
@@ -895,7 +928,8 @@ class Agent:
             mission=mission,
             tools=["marketplace_search"],
             schedule=f"interval:{interval_sec}",
-            notify=True,   # Ergebnis → MessagingHub → Telegram
+            notify=True,
+            direct_tool=tool_name,  # ← NEU: direkte Ausführung ohne LLM
             created_by="mainagent",
         )
         agent_id = self.sa_registry.add(agent_def)
@@ -907,7 +941,8 @@ class Agent:
                 f"  🔍 Suche: '{query}' auf {plat_str}{loc_str}{rad_str}{price_str}\n"
                 f"  ⏱ Intervall: {interval_str}\n"
                 f"  📨 Neue Inserate → Telegram\n"
-                f"  🆔 Agent-ID: {agent_id}\n\n"
+                f"  🆔 Agent-ID: {agent_id}\n"
+                f"  ⚡ Modus: Direct-Tool (kein LLM – schnell & stabil)\n\n"
                 f"Ich melde mich sobald etwas Neues auftaucht!"
             )
         return "❌ Sub-agent runner nicht bereit."
@@ -1374,6 +1409,12 @@ class Agent:
         self._wire_sa_runner()
         create_background_task(self._boot_memory(), name="memory-boot")
         create_background_task(heartbeat_loop(), name="heartbeat")
+
+        # ── Marketplace-Monitor direct_tool Handler wiederherstellen ──
+        # Nach Daemon-Neustart gehen die Closure-basierten Handler verloren.
+        # Hier werden sie aus der persistierten Param-Datei rekonstruiert.
+        self._restore_marketplace_monitor_handlers()
+
         if start_sub_agents:
             # ── Sicherheits-Agenten sicherstellen ──────────────────
             # Monitor_Netzwerk ist geschützt und muss immer laufen.
@@ -1405,6 +1446,85 @@ class Agent:
             log.info("QMD setup done – embed deferred to hourly cron")
         except Exception as e:
             log.error("Memory boot failed: %s", e)
+
+    # ── Marketplace Monitor Persistence ──────────────────────────────
+    # Persistiert Suchparameter damit direct_tool Handler nach
+    # Daemon-Neustart rekonstruiert werden können.
+
+    _MP_PARAMS_FILE = CONFIG_DIR / "marketplace_monitors.json"
+
+    def _save_mp_monitor_params(self, tool_name: str, params: dict) -> None:
+        """Speichert die Suchparameter eines Marketplace-Monitors persistent."""
+        try:
+            existing = {}
+            if self._MP_PARAMS_FILE.exists():
+                existing = json.loads(self._MP_PARAMS_FILE.read_text(encoding="utf-8"))
+            existing[tool_name] = params
+            self._MP_PARAMS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self._MP_PARAMS_FILE.write_text(
+                json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception as e:
+            log.warning("MP-Monitor Params speichern fehlgeschlagen: %s", e)
+
+    def _remove_mp_monitor_params(self, tool_name: str) -> None:
+        """Entfernt gespeicherte Params wenn ein Monitor gelöscht wird."""
+        try:
+            if self._MP_PARAMS_FILE.exists():
+                existing = json.loads(self._MP_PARAMS_FILE.read_text(encoding="utf-8"))
+                if tool_name in existing:
+                    del existing[tool_name]
+                    self._MP_PARAMS_FILE.write_text(
+                        json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+        except Exception as e:
+            log.debug("MP-Monitor Params entfernen: %s", e)
+
+    def _restore_marketplace_monitor_handlers(self) -> None:
+        """Rekonstruiert direct_tool Handler für Marketplace-Monitore nach Neustart."""
+        if not self._MP_PARAMS_FILE.exists():
+            return
+        try:
+            all_params = json.loads(self._MP_PARAMS_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            log.warning("MP-Monitor Params lesen fehlgeschlagen: %s", e)
+            return
+
+        from piclaw.tools.marketplace import marketplace_search, format_results_telegram
+
+        restored = 0
+        for tool_name, params in all_params.items():
+            # Prüfen ob der zugehörige Agent noch existiert
+            agent_exists = any(
+                a.direct_tool == tool_name
+                for a in self.sa_registry.list_all()
+            )
+            if not agent_exists:
+                log.debug("MP-Monitor '%s' hat keinen Agent mehr – übersprungen", tool_name)
+                continue
+
+            # Handler-Closure rekonstruieren
+            _q = params.get("query", "")
+            _p = params.get("platforms", ["kleinanzeigen", "ebay"])
+            _l = params.get("location")
+            _r = params.get("radius_km")
+            _m = params.get("max_price")
+
+            async def _handler(_q=_q, _p=_p, _l=_l, _r=_r, _m=_m, **_kw):
+                result = await marketplace_search(
+                    query=_q, platforms=_p, max_price=_m,
+                    location=_l, radius_km=_r, max_results=10,
+                    notify_all=False,
+                )
+                if not result.get("new"):
+                    return "__NO_NEW_RESULTS__"
+                return format_results_telegram(result)
+
+            self._handlers[tool_name] = _handler
+            restored += 1
+
+        if restored:
+            log.info("MP-Monitor: %d direct_tool Handler wiederhergestellt", restored)
 
     def start_scheduler(self):
         self.scheduler.start_all()

@@ -64,7 +64,7 @@ class _TextExtractor(HTMLParser):
         if tag in ("script", "style", "noscript"):
             self._skip = True
         if tag == "a":
-            href = dict(attrs).get("hre", "")
+            href = dict(attrs).get("href", "")
             if href and not href.startswith("#"):
                 self._links.append(href)
 
