@@ -41,10 +41,10 @@ def test_markdown_escaping():
 
 def test_format_results_empty():
     results = {"query": "Raspberry Pi", "new": []}
-    assert format_results(results) == "Keine neuen Inserate gefunden für 'Raspberry Pi'."
+    assert format_results(results) == "__NO_NEW_RESULTS__"
 
     results_no_new = {"query": "Laptop"}
-    assert format_results(results_no_new) == "Keine neuen Inserate gefunden für 'Laptop'."
+    assert format_results(results_no_new) == "__NO_NEW_RESULTS__"
 
 
 def test_format_results_header():

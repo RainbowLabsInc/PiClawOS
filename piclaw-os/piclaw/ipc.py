@@ -14,7 +14,6 @@ Gewählt weil:
 
 import asyncio
 import logging
-from pathlib import Path
 
 from piclaw.config import CONFIG_DIR
 

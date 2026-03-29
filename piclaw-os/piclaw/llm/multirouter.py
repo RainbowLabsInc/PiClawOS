@@ -28,7 +28,6 @@ import re
 import time
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional
 from collections.abc import AsyncIterator
 
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, LLMResponse

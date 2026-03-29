@@ -179,24 +179,8 @@ class Watchdog:
     async def _check_temperature(self) -> list[WatchdogAlert]:
         alerts = []
         temp = None
-        try:
-
-            def _read_pi_temp():
-                with open(
-                    "/sys/class/thermal/thermal_zone0/temp", encoding="utf-8"
-                ) as f:
-                    return int(f.read()) / 1000
-
-            temp = await asyncio.to_thread(_read_pi_temp)
-        except OSError:
-            try:
-                temps = await asyncio.to_thread(psutil.sensors_temperatures)
-                for entries in temps.values():
-                    if entries:
-                        temp = entries[0].current
-                        break
-            except Exception as _e:
-                log.debug("Temperature read failed: %s", _e)
+        from piclaw.hardware.pi_info import current_temp
+        temp = await asyncio.to_thread(current_temp)
         if temp is None:
             return alerts
         if temp >= TEMP_CRIT_C:
@@ -453,17 +437,8 @@ class Watchdog:
             disk = await asyncio.to_thread(psutil.disk_usage, "/")
             load = await asyncio.to_thread(psutil.getloadavg)
             temp = None
-            try:
-
-                def _read_temp():
-                    with open(
-                        "/sys/class/thermal/thermal_zone0/temp", encoding="utf-8"
-                    ) as f:
-                        return int(f.read()) / 1000
-
-                temp = await asyncio.to_thread(_read_temp)
-            except OSError:
-                pass  # thermal_zone0 not present on non-Pi
+            from piclaw.hardware.pi_info import current_temp
+            temp = await asyncio.to_thread(current_temp)
 
             summary = (
                 f"📊 *PiClaw Daily Report* – {self._hostname}\n"
