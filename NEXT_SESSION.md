@@ -1,6 +1,6 @@
 # PiClaw OS – Offene Punkte für nächste Session
-# Letzte Aktualisierung: 2026-03-28 (Session 6)
-# Version: 0.15.4
+# Letzte Aktualisierung: 2026-03-29 (Session 7)
+# Version: 0.15.5
 
 ---
 
@@ -25,12 +25,57 @@ Key `gsk_ZVWVs...` wurde im Chat verwendet
 Registry-Reload via IPC fehlt → Roadmap v0.18
 
 ### 5. Marketplace-Links fehlen in Telegram
-LLM reformuliert marketplace_search Output und lässt URLs weg.
-Fix: Monitor_Gartentisch als `direct_tool` implementieren (format_results_telegram direkt)
+**UPDATE Session 7:** Marketplace-Monitore nutzen jetzt direct_tool → Links bleiben erhalten!
+Bestehende Monitore müssen gelöscht und neu angelegt werden um den Fix zu nutzen.
 
 ### 6. LLM Health Monitor: Registry-Attribut prüfen
-daemon.py bindet Monitor via `agent.llm.registry` – nach Neustart prüfen ob
-"LLM Health Monitor gestartet" im agent.log erscheint
+**UPDATE Session 7:** stop-Event Race Condition in daemon.py behoben – Monitor sollte jetzt starten.
+
+### 7. Alte Marketplace-Monitore migrieren
+Bestehende Monitor-Agenten (vor Session 7) nutzen noch die LLM-agentic-loop.
+Diese müssen manuell gelöscht und neu angelegt werden damit sie den neuen
+direct_tool Modus verwenden.
+
+---
+
+## ✅ Session 7 – komplett erledigt
+
+### Kritische Bug-Fixes
+
+- **Netzwerk-Monitor Heartbeat tot:** `_intentionally_silent` fing `__NO_NEW_DEVICES__` ab
+  bevor die Heartbeat-Logik erreicht wurde → Heartbeat-Prüfung jetzt INNERHALB des
+  `_intentionally_silent`-Blocks für direct_tool Agenten ✅
+  **Datei:** `piclaw-os/piclaw/agents/runner.py`
+
+- **Marketplace "max steps reached":** Monitor-Agenten nutzten LLM agentic loop
+  (10 Steps) statt direktem Tool-Call. LLM verlor dabei location/radius_km Parameter
+  → Suchradius über ganz Deutschland verteilt.
+  **Fix:** `_create_monitor_agent()` nutzt jetzt `direct_tool` mit Closure-basiertem
+  Handler + persistierte Params in `marketplace_monitors.json` ✅
+  **Datei:** `piclaw-os/piclaw/agent.py`
+
+- **daemon.py: `stop` Event Race Condition:** `stop` wurde auf Zeile 81 referenziert
+  (`_monitor.start(stop)`) aber erst auf Zeile 93 erzeugt → LLM Health Monitor
+  crashte beim Start mit `NameError` und lief NIE ✅
+  **Datei:** `piclaw-os/piclaw/daemon.py`
+
+- **Crawler Link-Extraktion kaputt:** Typo `"hre"` statt `"href"` im HTML-Parser →
+  Crawler konnte keine Links aus Seiten extrahieren ✅
+  **Datei:** `piclaw-os/piclaw/agents/crawler.py`
+
+- **MessagingHub.send_to() fehlte:** `proactive.py` rief `hub.send_to(channel, text)`
+  auf, Methode existierte aber nicht → kanal-spezifische Routinen crashten ✅
+  **Datei:** `piclaw-os/piclaw/messaging/hub.py`
+
+- **PLZ-Extraktion aus Query kaputt:** Regex `RE_CLEAN_PLZ` hat keine Capture-Group,
+  aber `group(1)` wurde aufgerufen → `IndexError` → PLZ wurde nie aus Queries extrahiert ✅
+  **Datei:** `piclaw-os/piclaw/tools/marketplace.py`
+
+### Wiederhergestellt
+
+- **/api/shell Endpoint** für Remote-Debugging wiederhergestellt ✅
+  Authentifizierung via Bearer Token, max 120s Timeout
+  **Datei:** `piclaw-os/piclaw/api.py`
 
 ---
 
@@ -56,11 +101,6 @@ daemon.py bindet Monitor via `agent.llm.registry` – nach Neustart prüfen ob
 - 500/3× → deaktivieren + Telegram ✅
 - In daemon.py als Background-Task eingebunden ✅
 
-### NVIDIA NIM
-- nemotron-nvidia: nvidia/llama-3.1-nemotron-70b-instruct (404) ✅
-- Ersetzt durch: meta/llama-4-maverick-17b-128e-instruct ✅
-- Test: OK 500ms ✅
-
 ### Bugfixes
 - Doppel-Telegram: start_sub_agents=False in api.py ✅
 - Monitor_Gartentisch Netzwerk-Heartbeat → Heartbeat-Guard auf direct_tool ✅
@@ -78,7 +118,7 @@ daemon.py bindet Monitor via `agent.llm.registry` – nach Neustart prüfen ob
 | v0.16 | **LLM Autonomie** – Dameon sucht neue Backends selbst 🧠 |
 | v0.17 | Emergency Shutdown via schaltbare Steckdose |
 | v0.18 | Queue System + Registry-Reload via IPC |
-| v0.19 | Willhaben Kategorie-Filter + Marketplace-Links Fix |
+| v0.19 | Willhaben Kategorie-Filter |
 | v0.20 | Kamera-Tools vollständig |
 | **v1.0** | **Release** |
 | v1.1 | Mehrsprachigkeit (DE/EN/ES) |
@@ -104,10 +144,10 @@ window.pi = async (cmd, timeout=30) => {
 ```
 light.licht_fernsehzimmer_switch_0   (Licht Fernsehzimmer)
 light.licht_schlafzimmer_switch_0    (Licht Schlafzimmer)
-light.licht_esszimmer_switch_0       (Licht Esszimmer) – aktuell: on
+light.licht_esszimmer_switch_0       (Licht Esszimmer)
 light.shellyplus1_08b61fd0b64c_switch_0 (Licht Gäste WC)
 switch.licht_kuche_switch_0          (Licht Küche)
-switch.fernseher                     (Fernseher) – aktuell: on
+switch.fernseher                     (Fernseher)
 switch.aquarium_licht                (Aquarium Licht)
 cover.shellyplus2pm_d48afc41a22c     (Rolladen Büro)
 cover.shellyplus2pm_c82e180c7a1c     (Rolladen Schlafzimmer)

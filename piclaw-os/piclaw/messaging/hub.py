@@ -113,6 +113,19 @@ class MessagingHub:
             except Exception as e:
                 log.error("Send error [%s]: %s", adapter.name, e)
 
+    async def send_to(self, channel: str, text: str):
+        """Send to a specific adapter by name (e.g. 'telegram', 'discord')."""
+        for adapter in self._adapters:
+            if adapter.name == channel:
+                try:
+                    await adapter.send(text)
+                except Exception as e:
+                    log.error("Send error [%s]: %s", adapter.name, e)
+                return
+        # Fallback: wenn Kanal nicht gefunden, an alle senden
+        log.warning("Channel '%s' nicht gefunden – sende an alle", channel)
+        await self.send_all(text)
+
     async def send_alert_all(self, text: str):
         """Broadcast alert to all active adapters."""
         for adapter in self._adapters:

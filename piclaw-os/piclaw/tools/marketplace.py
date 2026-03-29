@@ -885,7 +885,7 @@ async def marketplace_search(
     if not location:
         plz_match = RE_CLEAN_PLZ.search(query)
         if plz_match:
-            location = plz_match.group(1)
+            location = plz_match.group(0)  # group(0) = gesamter Match (kein Capture-Group)
             log.info("PLZ %s aus Query extrahiert", location)
 
     # Intern bereinigen um Rauschen in der eigentlichen Suche zu vermeiden

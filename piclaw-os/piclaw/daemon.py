@@ -68,6 +68,8 @@ async def _daemon_main():
 
     log.info("piclaw-agent daemon running.")
 
+    stop = asyncio.Event()
+
     # ── LLM Health Monitor ─────────────────────────────────────────
     try:
         from piclaw.llm.health_monitor import start_monitor
@@ -89,8 +91,6 @@ async def _daemon_main():
     from piclaw.ipc import poll_triggers
     from piclaw.taskutils import create_background_task
     create_background_task(poll_triggers(agent.sa_runner), name="ipc-poll")
-
-    stop = asyncio.Event()
 
     # ── Proaktiver Agent ───────────────────────────────────────────
     try:
