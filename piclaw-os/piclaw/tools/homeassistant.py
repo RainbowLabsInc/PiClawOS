@@ -964,7 +964,6 @@ async def start(
 
 
 async def stop():
-    global _listener, _client
     if _listener:
         _listener.stop()
     if _client:
