@@ -16,9 +16,8 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from enum import Enum, StrEnum
+from enum import StrEnum
 from pathlib import Path
-from typing import Optional
 
 from piclaw.config import CONFIG_DIR
 

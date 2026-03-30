@@ -25,7 +25,6 @@ import asyncio
 import logging
 import traceback
 from datetime import datetime
-from typing import Optional
 from collections.abc import Callable, Awaitable
 
 from piclaw.agents.sa_registry import SubAgentDef, SubAgentRegistry

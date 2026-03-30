@@ -21,7 +21,7 @@ import asyncio
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable, Awaitable
 
@@ -270,7 +270,6 @@ class LLMHealthMonitor:
           4. Funktionierende als neue Backends registrieren
           5. Telegram-Meldung
         """
-        import aiohttp
         from urllib.parse import urlparse
 
         # API-Keys nach Provider-Host gruppieren

@@ -19,8 +19,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from enum import Enum, StrEnum
-from typing import Optional
+from enum import StrEnum
 from collections.abc import AsyncIterator
 
 from piclaw.config import PiClawConfig

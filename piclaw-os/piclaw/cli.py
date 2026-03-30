@@ -361,7 +361,7 @@ def cmd_doctor():
                 import pwd as _pwd
                 _owner = _pwd.getpwuid(_logdir.stat().st_uid).pw_name
                 if _owner == "piclaw":
-                    print(f"  Log-Dir     : ✅  /var/log/piclaw (owner: piclaw)")
+                    print("  Log-Dir     : ✅  /var/log/piclaw (owner: piclaw)")
                 else:
                     print(f"  Log-Dir     : ❌  Owner: {_owner} (erwartet: piclaw)")
                     print("                    sudo chown -R piclaw:piclaw /var/log/piclaw")
@@ -467,7 +467,7 @@ def cmd_config(args):
             registry_file = CONFIG_DIR / "llm_registry.json"
             if registry_file.exists():
                 registry_file.write_text("{}")
-                print(f"  🔄 LLM-Registry zurückgesetzt (wird beim Neustart neu aufgebaut)")
+                print("  🔄 LLM-Registry zurückgesetzt (wird beim Neustart neu aufgebaut)")
     else:
         print("Usage: piclaw config get | piclaw config set <key> <value>")
 
@@ -768,7 +768,7 @@ def _setup_agentmail(cfg):
             if email_match:
                 cfg.agentmail.email_address = email_match.group(1)
             save(cfg)
-            print(f"\n✅ AgentMail konfiguriert.")
+            print("\n✅ AgentMail konfiguriert.")
             print(f"   E-Mail: {cfg.agentmail.email_address}")
             print(f"   Inbox-ID: {cfg.agentmail.inbox_id}")
         else:
@@ -1085,7 +1085,8 @@ def cmd_llm(args):
         if not cfg:
             print(f"  Backend '{name}' nicht gefunden.")
             return
-        import asyncio, time
+        import asyncio
+        import time
         from piclaw.llm.api import OpenAIBackend, AnthropicBackend
         from piclaw.llm.base import Message
         api_key = cfg.api_key or ""
@@ -1144,7 +1145,9 @@ def cmd_update(args: list):
 
 def cmd_debug(args: list):
     """piclaw debug – run debug/test scripts via pytest"""
-    import asyncio, os, sys
+    import asyncio
+    import os
+    import sys
     from pathlib import Path
 
     base_dir = Path(__file__).parent.parent

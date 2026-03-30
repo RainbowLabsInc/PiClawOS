@@ -494,16 +494,16 @@ class Agent:
         import re
         t = text.lower()
 
-        create_kw = ["erstell", "create", "mach", "baue", "neuen agenten",
-                     "einen job", "einen task", "einen agenten"]
-        time_kw = ["uhr", "taeglich", "taegl", "jeden tag", "jede woche",
-                   "morgens", "abends", "nachts", "cron", "um "]
+        create_kw = ("erstell", "create", "mach", "baue", "neuen agenten",
+                     "einen job", "einen task", "einen agenten")
+        time_kw = ("uhr", "taeglich", "taegl", "jeden tag", "jede woche",
+                   "morgens", "abends", "nachts", "cron", "um ")
 
         if not any(k in t for k in create_kw):
             return None
         if not any(k in t for k in time_kw):
             return None
-        market_kw = ["kleinanzeigen", "ebay", "willhaben", "inserat", "marktplatz"]
+        market_kw = ("kleinanzeigen", "ebay", "willhaben", "inserat", "marktplatz")
         if any(k in t for k in market_kw):
             return None
 
@@ -552,20 +552,20 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
-        market_kw = ["kleinanzeigen", "ebay", "willhaben", "inserat",
+        market_kw = ("kleinanzeigen", "ebay", "willhaben", "inserat",
                      "anzeige", "marktplatz", "kaufen", "verkaufen",
-                     "sonnenschirm", "fahrrad", "auto", "wohnung"]
+                     "sonnenschirm", "fahrrad", "auto", "wohnung")
         if any(k in t for k in market_kw):
             return False
 
         # Netzwerk-spezifische Keywords müssen vorhanden sein
-        network_specific = [
+        network_specific = (
             "netzwerk", "network", "gerät", "device", "router",
             "lan", "wlan", "wifi", "nmap", "ip adresse",
             "wer ist im netz", "welche geräte", "neue verbindung",
             "fremdes gerät", "unbekanntes gerät",
-        ]
-        monitor_kw = ["überwach", "beobacht", "monitor", "scan"]
+        )
+        monitor_kw = ("überwach", "beobacht", "monitor", "scan")
 
         has_network = any(k in t for k in network_specific)
         has_monitor = any(k in t for k in monitor_kw)
@@ -583,7 +583,7 @@ class Agent:
         name = f"CronJob_{hour:02d}{minute:02d}"
         # Tool-Auswahl basierend auf Aufgabe
         t = task.lower()
-        if any(k in t for k in ["temperatur", "temp", "cpu", "hardware", "pi info", "wärme"]):
+        if any(k in t for k in ("temperatur", "temp", "cpu", "hardware", "pi info", "wärme")):
             tools = ["thermal_status", "pi_info", "memory_log"]
             mission = (
                 f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
@@ -595,7 +595,7 @@ class Agent:
                 f"4. Protokolliere das Ergebnis mit memory_log.\n\n"
                 f"WICHTIG: Antworte ausschliesslich auf Deutsch."
             )
-        elif any(k in t for k in ["service", "dienst", "status"]):
+        elif any(k in t for k in ("service", "dienst", "status")):
             tools = ["service_status", "service_list", "memory_log"]
             mission = (
                 f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
@@ -716,11 +716,11 @@ class Agent:
             return None
 
         # Intent erkennen
-        on_kw  = ["ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen"]
-        off_kw = ["aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen"]
-        toggle_kw = ["toggle", "umschalten", "wechseln"]
-        cmd_kw = ["schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter"]
+        on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
+        off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
+        toggle_kw = ("toggle", "umschalten", "wechseln")
+        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
+                  "licht", "lampe", "leuchte", "steckdose", "schalter")
 
         # Muss mindestens ein Befehlswort enthalten
         if not any(k in t for k in cmd_kw):
@@ -792,18 +792,18 @@ class Agent:
             r"wenn.*inserat", r"wenn.*neu", r"jede.*stunde", r"alle.*stunde",
             r"jede.*halbe", r"alle\s+\d+\s*min",
         ]
-        monitor_kw = [
+        monitor_kw = (
             "überwach", "beobacht", "benachrichtig", "informier", "meld",
             "sag mir wenn", "sag bescheid", "schick mir", "check regelmäßig",
             "halte ausschau", "halte die augen offen",
             "alert", "monitor", "watch", "notify",
             "stündlich", "regelmäßig", "automatisch",
             "jede stunde", "alle stunde", "jede halbe stunde",
-        ]
-        market_kw = [
+        )
+        market_kw = (
             "kleinanzeigen", "ebay", "willhaben", "inserat", "anzeige", "kaufen",
             "marktplatz", "gebraucht", "preis", "euro", "angebot",
-        ]
+        )
 
         _has_monitor_kw = any(k in t for k in monitor_kw)
         if not _has_monitor_kw:
@@ -816,13 +816,13 @@ class Agent:
 
         # Intervall aus Text extrahieren (default 1h)
         interval_sec = 3600
-        if any(k in t for k in ["30 min", "30min", "halbstündlich", "halbe stunde", "jede halbe"]):
+        if any(k in t for k in ("30 min", "30min", "halbstündlich", "halbe stunde", "jede halbe")):
             interval_sec = 1800
-        elif any(k in t for k in ["15 min", "15min"]):
+        elif any(k in t for k in ("15 min", "15min")):
             interval_sec = 900
-        elif any(k in t for k in ["2 stund", "2h", "alle zwei"]):
+        elif any(k in t for k in ("2 stund", "2h", "alle zwei")):
             interval_sec = 7200
-        elif any(k in t for k in ["täglich", "einmal am tag", "24h"]):
+        elif any(k in t for k in ("täglich", "einmal am tag", "24h")):
             interval_sec = 86400
         # Explizite "alle N min/stunde" Extraktion
         _interval_match = re.search(r"(?:alle|jede)\s+(\d+)\s*(min|stund)", t)
@@ -836,7 +836,7 @@ class Agent:
 
         # Plattform
         platforms = []
-        if any(k in t for k in ["kleinanzeigen", "kleinanzeigen.de"]):
+        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
@@ -887,7 +887,6 @@ class Agent:
           - Suchradius bleibt stabil statt auf ganz Deutschland zu streuen
         """
         import re
-        import json
 
         query = params["query"]
         platforms = params.get("platforms", ["kleinanzeigen", "ebay"])
@@ -1007,7 +1006,7 @@ class Agent:
             return None
         # Platform
         platforms = []
-        if any(k in t for k in ["kleinanzeigen", "kleinanzeigen.de"]):
+        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
@@ -1228,13 +1227,13 @@ class Agent:
 
         # Agent-Status-Shortcut: "zeig Agenten", "welche Jobs laufen" etc.
         _t = user_input.lower()
-        _agent_status_kw = [
+        _agent_status_kw = (
             "zeig", "liste", "welche", "was", "status", "laufende", "aktive",
             "alle", "show", "list", "running",
-        ]
-        _agent_noun_kw = [
+        )
+        _agent_noun_kw = (
             "agent", "job", "monitor", "subagent", "sub-agent", "task", "aufgabe",
-        ]
+        )
         if any(k in _t for k in _agent_status_kw) and any(k in _t for k in _agent_noun_kw):
             handler = self._handlers.get("agent_list")
             if handler:
@@ -1244,9 +1243,9 @@ class Agent:
         # Agent-Stop/Start/Remove-Shortcut: "Stopp den Monitor_X", "Lösch den X" etc.
         # Geschützte Agenten (Sicherheitsarchitektur) sind via sa_tools._PROTECTED_AGENTS gesichert
         import re as _re
-        _stop_kw   = ["stopp", "stop", "beend", "pause", "halte an", "deaktiviere"]
-        _start_kw  = ["start", "starte", "aktiviere", "reaktiviere"]
-        _remove_kw = ["lösch", "entfern", "delete", "remove"]
+        _stop_kw   = ("stopp", "stop", "beend", "pause", "halte an", "deaktiviere")
+        _start_kw  = ("start", "starte", "aktiviere", "reaktiviere")
+        _remove_kw = ("lösch", "entfern", "delete", "remove")
         _agent_name_match = _re.search(
             r"\b(Monitor_\w+|SearchAssistant|[A-Z][a-zA-Z0-9_]{4,}|[0-9a-f]{6,12})\b", user_input
         )
@@ -1286,11 +1285,11 @@ class Agent:
             _t2 = user_input.lower()
             # Intervall aus Text
             _interval = 300  # default 5 Min
-            if any(k in _t2 for k in ["stündlich", "1 stunde", "60 min"]):
+            if any(k in _t2 for k in ("stündlich", "1 stunde", "60 min")):
                 _interval = 3600
-            elif any(k in _t2 for k in ["10 min", "10min"]):
+            elif any(k in _t2 for k in ("10 min", "10min")):
                 _interval = 600
-            elif any(k in _t2 for k in ["30 min", "30min"]):
+            elif any(k in _t2 for k in ("30 min", "30min")):
                 _interval = 1800
             _m = _re2.search(r"(\d+)\s*min", _t2)
             if _m:
@@ -1338,7 +1337,7 @@ class Agent:
 
         # Follow-up detection: "erhöhe", "vergrößer", "erweitere", "nochmal", "zeig mehr"
         if not mp_kwargs and _prev_mp_context:
-            followup_kw = [
+            followup_kw = (
                 "erhöh",
                 "vergrößer",
                 "erweiter",
@@ -1350,7 +1349,7 @@ class Agent:
                 "weiter",
                 "nochmal",
                 "wiederhol",
-            ]
+            )
             if any(k in user_input.lower() for k in followup_kw):
                 mp_kwargs = dict(_prev_mp_context)
                 # Update radius if mentioned

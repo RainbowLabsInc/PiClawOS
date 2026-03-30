@@ -2,7 +2,6 @@
 
 import json
 import aiohttp
-import asyncio
 from collections.abc import AsyncIterator
 from .base import LLMBackend, ToolCall, LLMResponse
 
@@ -190,7 +189,6 @@ def _extract_text_tool_calls(text: str, tools) -> list:
       {"type": "function", "name": "tool_name", "parameters": {...}}
       {"function": {"name": "tool_name", "arguments": {...}}}
     """
-    import re
     if not text or not tools:
         return []
 
