@@ -174,6 +174,8 @@ class WhatsAppConfig:
 @dataclass
 class AgentMailConfig:
     api_key: str = ""
+    inbox_id: str = ""      # Primäre Inbox-ID (wird beim Setup oder Create gespeichert)
+    email_address: str = ""  # dameon@agentmail.to
 
 
 @dataclass
