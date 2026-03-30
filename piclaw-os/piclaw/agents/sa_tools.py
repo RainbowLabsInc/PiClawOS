@@ -30,7 +30,7 @@ TOOL_DEFS = [
             "  interval:3600    – run every 3600 seconds\n"
             "  cron:0 7 * * *   – run daily at 7:00 (cron syntax)\n"
             "  continuous        – run in a continuous loop\n\n"
-            "Tool names: shell_exec, wifi_scan, wifi_connect, gpio_read, gpio_write, "
+            "Tool names: shell_exec, wifi_scan, wifi_connect, ha_turn_on, ha_turn_off, "
             "service_status, service_start, service_stop, memory_search, memory_write, "
             "memory_log, http_get, http_post, schedule_task, llm_list"
         ),
@@ -158,7 +158,6 @@ TOOL_DEFS = [
         },
     ),
 ]
-
 
 
 # ── Geschützte System-Agenten ─────────────────────────────────────────────────

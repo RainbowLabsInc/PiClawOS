@@ -268,12 +268,11 @@ class LLMRegistry:
 
     def _add_nemotron_backend(self, api_key: str) -> bool:
         """Internes Hinzufügen des Nemotron-Backends."""
-        # nvidia/nemotron-super-49b-v1 = Nemotron 3 Super (API Endpoint, nicht Downloadable)
         # Falls das Modell auf NIM nicht verfügbar ist, kann es über piclaw llm update geändert werden
         nemotron = BackendConfig(
             name="nemotron-nvidia",
             provider="openai",
-            model="nvidia/llama-3.1-nemotron-70b-instruct",
+            model="meta/llama-4-maverick-17b-128e-instruct",  # aktuelles Modell (Stand 2026-03)
             api_key=api_key,
             base_url="https://integrate.api.nvidia.com/v1",
             tags=["general", "reasoning", "fast", "summarization"],
@@ -281,14 +280,14 @@ class LLMRegistry:
             temperature=0.7,
             timeout=90,
             notes=(
-                "Nemotron 70B via NVIDIA NIM – "
-                "zweites Backend für allgemeine Anfragen. "
-                "Modell-ID anpassen falls nicht verfügbar: piclaw llm update nemotron-nvidia"
+                "Llama 4 Maverick via NVIDIA NIM – "
+                "Redundanz-Backend wenn Groq nicht verfügbar. "
+                "Modell-ID anpassen: piclaw llm update nemotron-nvidia --model <model>"
             ),
         )
         self.add(nemotron)
         log.info(
-            "Registry: Nemotron-Backend hinzugefügt (nvidia/nemotron-super-49b-v1)"
+            "Registry: NVIDIA NIM Backend hinzugefügt (meta/llama-4-maverick-17b-128e-instruct)"
         )
         return True
 

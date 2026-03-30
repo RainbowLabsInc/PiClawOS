@@ -262,7 +262,7 @@ class LLMHealthMonitor:
         """
         Wenn alle Backends down sind: Auf bekannten Providern nach
         alternativen Modellen suchen und automatisch registrieren.
-        
+
         Strategie:
           1. Provider mit API-Key gruppieren
           2. Für jeden Provider: verfügbare Modelle abrufen
@@ -757,9 +757,9 @@ class LLMHealthMonitor:
         """
         Versucht sich bei einem API-Provider anzumelden.
         Nutzt AgentMail für die E-Mail-Verifizierung.
-        
+
         Returns: API-Key wenn erfolgreich, None wenn nicht möglich.
-        
+
         HINWEIS: Volle Web-Automatisierung ist komplex (CAPTCHA etc.).
         Diese Methode bereitet den Prozess vor und informiert den Nutzer.
         Dameon kann dies über seine Tools (http_get, agentmail) selbst orchestrieren.

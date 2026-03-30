@@ -122,7 +122,7 @@ class SubAgentRunner:
 
     async def start_all_scheduled(self):
         """Start all enabled sub-agents that have a recurring schedule.
-        
+
         Bereinigt beim Start verwaiste once-Agenten die nie ausgeführt wurden
         (entstehen wenn der Daemon während einer once-Ausführung neugestartet wird).
         """

@@ -43,7 +43,7 @@ _NIM_PREFERRED_MODELS = [
     "meta/llama-3.3-70b-instruct",          # bestes Tool Calling auf NIM
     "mistralai/mistral-large-2-instruct",    # sehr gut, Tool Calling
     "mistralai/mistral-large-3-675b-instruct-2512",
-    "nvidia/llama-3.1-nemotron-70b-instruct",
+    "meta/llama-4-maverick-17b-128e-instruct",  # Llama 4 Maverick (Stand 2026-03)
     "meta/llama-3.1-70b-instruct",
     "qwen/qwen2.5-7b-instruct",
     "meta/llama-3.1-8b-instruct",           # kleinstes Fallback
@@ -176,7 +176,6 @@ async def detect_provider_and_model(api_key: str) -> tuple[str, str, str]:
 
     # 4. Fallback
     return "openai", "https://api.openai.com/v1", "gpt-4o"
-
 
 
 def _extract_text_tool_calls(text: str, tools) -> list:
