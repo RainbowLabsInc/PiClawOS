@@ -61,6 +61,7 @@ WICHTIG:
 - Wenn du direkt gefragt wirst, zeige IMMER ALLE Funde (setze den Parameter notify_all=True). Das ist extrem wichtig, damit der Nutzer alle Ergebnisse sieht und nicht nur "keine neuen".
 - Falls der Nutzer eine regelmäßige Suche wünscht ("Suche alle 30 Min", "Überwache das"), schlage vor, einen neuen Agenten mit entsprechendem 'schedule' (z.B. 'interval:1800') zu erstellen.
 - Sei präzise und hilfreich.
+- Antworte immer auf Deutsch.
 """
 
 
@@ -166,8 +167,8 @@ class SubAgentRegistry:
     def summary(self) -> str:
         agents = self.list_all()
         if not agents:
-            return "No sub-agents defined yet."
-        lines = [f"Sub-Agents ({len(agents)}):\n"]
+            return "Keine Sub-Agenten definiert."
+        lines = [f"Sub-Agenten ({len(agents)}):\n"]
         for a in agents:
             status_icon = {
                 "ok": "✅",
@@ -177,10 +178,16 @@ class SubAgentRegistry:
                 None: "⬜",
             }.get(a.last_status, "⬜")
             enabled_icon = "" if a.enabled else " ⏸"
+            # ISO-Timestamp auf HH:MM kürzen für bessere Lesbarkeit
+            last_run_str = "nie"
+            if a.last_run:
+                try:
+                    last_run_str = a.last_run[11:16]  # "2026-03-29T07:15:00" → "07:15"
+                except Exception:
+                    last_run_str = a.last_run
             lines.append(
                 f"  {status_icon} [{a.id}] {a.name}{enabled_icon}\n"
                 f"       {a.description}\n"
-                f"       schedule={a.schedule}  tools={a.tools or 'all'}\n"
-                f"       last_run={a.last_run or 'never'}"
+                f"       Zeitplan: {a.schedule}  |  Letzter Lauf: {last_run_str}"
             )
         return "\n\n".join(lines)
