@@ -81,10 +81,10 @@ BASE_CAPABILITIES = """\
 ## Tool-Anweisungen (KRITISCH WICHTIG)
 
 Du hast fertig implementierte Tools die du SOFORT aufrufen MUSST:
-- marketplace_search: Durchsucht Kleinanzeigen.de, eBay.de, Web nach Inseraten.
-- network_scan, port_scan, check_new_devices: Netzwerk-Analyse.
+- marketplace_search: Durchsucht Kleinanzeigen.de, eBay.de nach Inseraten.
+- ha_turn_on, ha_turn_off, ha_toggle, ha_get_state: Home Assistant Steuerung.
+- network_scan, check_new_devices, wake_device: Netzwerk-Analyse und Wake-on-LAN.
 - shell_exec: Shell-Befehle ausfuehren.
-- http_get: Webseiten abrufen.
 - memory_search, memory_write: Erinnerungen verwalten.
 
 REGELN - IMMER BEFOLGEN:
@@ -120,7 +120,7 @@ class Agent:
         self._telegram_send = lambda text: None  # replaced by messaging hub
         self._build_tools()
 
-        # Parallel processing queue (v0.14)
+        # Request queue (parallele CLI + Telegram)
         self._queue: asyncio.Queue[AgentTask] = asyncio.Queue()
         self._workers: list[asyncio.Task] = []
 
@@ -473,7 +473,7 @@ class Agent:
         history: list[Message] | None = None,
         on_token=None,
     ) -> str:
-        """Enqueue a request and wait for the result (Parallel Queue v0.14)."""
+        """Enqueue a request and wait for the result."""
         self._register_late_tools()
         self._start_workers()  # Ensure workers are running
 
@@ -879,7 +879,7 @@ class Agent:
 
     async def _create_monitor_agent(self, params: dict) -> str:
         """Erstellt einen Monitoring-Sub-Agenten für stündliche Marktplatz-Suche.
-        
+
         BUG-FIX v0.15.5:
           - Nutzt jetzt direct_tool statt LLM agentic loop
           - Verhindert "max steps reached" Fehler
@@ -1440,14 +1440,14 @@ class Agent:
 
     async def boot(self, start_sub_agents: bool = True):
         """Boot LLM router, memory, heartbeat, and sub-agents.
-        
+
         Args:
             start_sub_agents: Sub-Agenten (Scheduler) starten.
                               False in api.py – der Daemon übernimmt das.
                               True in daemon.py (default).
         """
         log.info(
-            "PiClaw Agent v0.14.x booting (Marketplace Search Assistant active)..."
+            "PiClaw Agent v0.15.4 booting..."
         )
         await self.llm.boot()
         self._start_workers()

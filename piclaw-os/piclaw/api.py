@@ -392,7 +392,6 @@ async def memory_search(
 # ── System endpoints ──────────────────────────────────────────────
 
 
-
 @app.get("/api/mode")
 async def llm_mode(_: str = Depends(require_auth)):
     if not _agent:

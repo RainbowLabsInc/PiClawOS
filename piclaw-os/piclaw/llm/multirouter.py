@@ -130,7 +130,7 @@ class MultiLLMRouter(LLMBackend):
 
         # Bootstrap registry from global config if empty
         self.registry.bootstrap_from_config(self.global_cfg)
-        # Note: ensure_nemotron_backend() is NOT called automatically here.
+        # Note: ensure_nvidia_backend() wird nicht automatisch aufgerufen.
         # Users add additional backends via 'piclaw setup' or 'piclaw llm add'.
 
         # Build health trackers
