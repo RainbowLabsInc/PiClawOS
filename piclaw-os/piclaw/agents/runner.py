@@ -37,6 +37,16 @@ log = logging.getLogger("piclaw.agents.runner")
 CONTINUOUS_SLEEP = 10
 
 
+
+import re  # noqa: E402
+
+# Pre-compiled Regex for faster intent detection
+_RE_DEVICE_INDICATORS = re.compile(
+    r"(?:new\ device\ detected|unbekanntes\ gerät|hersteller:|neues\ gerät|new\ device|hostname:|vendor:|🔍\ neues|mac:|ip:\ |🚨)",
+    re.IGNORECASE,
+)
+
+
 class SubAgentRunner:
     """
     Manages the lifecycle of all dynamic sub-agents.
@@ -381,13 +391,7 @@ class SubAgentRunner:
         if r == "__NO_NEW_DEVICES__":
             return True
         # Enthält echte Gerätedaten → SOFORT senden (nicht quiet)
-        device_indicators = [
-            "mac:", "ip: ", "hersteller:", "vendor:", "hostname:",
-            "🚨", "neues gerät", "new device", "unbekanntes gerät",
-            "new device detected", "🔍 neues",
-        ]
-        r_lower = r.lower()
-        if any(kw in r_lower for kw in device_indicators):
+        if _RE_DEVICE_INDICATORS.search(r):
             return False
         # Alles andere (Freitext, "alles ruhig", "normal", etc.) → quiet
         return True
