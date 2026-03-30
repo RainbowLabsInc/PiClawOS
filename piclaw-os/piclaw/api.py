@@ -400,6 +400,19 @@ async def llm_mode(_: str = Depends(require_auth)):
     return _agent.llm.get_status_dict()
 
 
+@app.get("/api/llm/health")
+async def llm_health(_: str = Depends(require_auth)):
+    """LLM Health Monitor Status – zeigt Rate-Limits, Fehler, Recovery-Zeiten."""
+    try:
+        from piclaw.llm.health_monitor import get_monitor
+        monitor = get_monitor()
+        if not monitor:
+            return {"available": False, "message": "Health Monitor nicht aktiv"}
+        return {"available": True, "backends": monitor.status_dict()}
+    except Exception as e:
+        return {"available": False, "error": str(e)}
+
+
 @app.get("/api/stats")
 async def stats(_: str = Depends(require_auth)):
     cpu_pct = psutil.cpu_percent(interval=0.2)

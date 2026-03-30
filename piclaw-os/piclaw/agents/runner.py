@@ -295,7 +295,29 @@ class SubAgentRunner:
         log.info("Sub-agent '%s': result=%s notify=%s",
                  agent.name, "ok" if result and result.strip() else "empty", agent.notify)
         if _intentionally_silent:
-            log.debug("Sub-agent '%s': bewusst still – kein Telegram", agent.name)
+            # BUG-FIX: Heartbeat muss auch bei stillen Tokens geprüft werden!
+            # Vorher wurde die Heartbeat-Logik (Zeile elif agent.direct_tool...)
+            # nie erreicht weil _intentionally_silent immer zuerst griff.
+            if agent.direct_tool and agent.notify and self.notify:
+                import time as _time
+                _HB_KEY = f"_hb_{agent.id}"
+                _last_hb = getattr(self, _HB_KEY, 0)
+                _now = _time.time()
+                _hb_interval = 3600  # 1 Stunde
+                if _now - _last_hb >= _hb_interval:
+                    setattr(self, _HB_KEY, _now)
+                    header = f"🤖 *{agent.name}* [heartbeat]\n"
+                    heartbeat_msg = header + "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde."
+                    try:
+                        await self.notify(heartbeat_msg)
+                        log.info("Sub-agent '%s': Heartbeat gesendet", agent.name)
+                    except Exception as e:
+                        log.warning("Sub-agent '%s': Heartbeat-Fehler: %s", agent.name, e)
+                else:
+                    _remaining = int((_hb_interval - (_now - _last_hb)) / 60)
+                    log.debug("Sub-agent '%s': alles ruhig, nächster Heartbeat in %dmin", agent.name, _remaining)
+            else:
+                log.debug("Sub-agent '%s': bewusst still – kein Telegram", agent.name)
         elif not result or not result.strip() or result.strip() == "(no output)":
             # Fallback: Kein Output vom Sub-Agenten → Main Agent fragt nach Status
             log.warning("Sub-agent '%s': leeres/kein Ergebnis", agent.name)
