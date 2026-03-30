@@ -9,11 +9,17 @@ import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 
-# --- Pre-compiled Regexes for Performance (Marketplace Intent Detection) ---
-import re  # noqa: E402
-_RE_MP_SEARCH_KW = re.compile(r"(durchsuche|was\ kostet|preis\ für|look\ for|gibt\ es|schaue|search|suche|finde|schau|liste|such|find|zeig)", re.IGNORECASE)
-_RE_MP_MARKET_KW = re.compile(r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)", re.IGNORECASE)
-# -------------------------------------------------------------------------
+import re
+
+# Vorcompilierte Regex für Marketplace-Intent-Erkennung
+_RE_MP_SEARCH_KW = re.compile(
+    r"(durchsuche|was kostet|preis für|look for|gibt es|schaue|search|suche|finde|schau|liste|such|find|zeig)",
+    re.IGNORECASE,
+)
+_RE_MP_MARKET_KW = re.compile(
+    r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)",
+    re.IGNORECASE,
+)
 
 from collections.abc import Callable
 
