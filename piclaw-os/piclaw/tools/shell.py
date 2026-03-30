@@ -91,23 +91,10 @@ async def system_info() -> str:
         lines.append(f"CPU Freq  : {cpu_freq.current:.0f} MHz")
 
     # Temperature (Pi-specific)
-    try:
-
-        def _read_temp():
-            with open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8") as _f:
-                return _f.read().strip()
-
-        temp_raw = await asyncio.to_thread(_read_temp)
-        lines.append(f"CPU Temp  : {int(temp_raw) / 1000:.1f}°C")
-    except Exception:
-        try:
-            temps = await asyncio.to_thread(psutil.sensors_temperatures)
-            for name, entries in temps.items():
-                if entries:
-                    lines.append(f"Temp ({name}): {entries[0].current:.1f}°C")
-                    break
-        except Exception as _e:
-            log.debug("temperature read fallback: %s", _e)
+    from piclaw.hardware.pi_info import current_temp
+    temp_raw = current_temp()
+    if temp_raw is not None:
+        lines.append(f"CPU Temp  : {temp_raw:.1f}°C")
 
     # Memory
     mem = await asyncio.to_thread(psutil.virtual_memory)

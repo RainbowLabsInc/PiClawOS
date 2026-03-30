@@ -427,33 +427,8 @@ async def stats(_: str = Depends(require_auth)):
 
     loop = asyncio.get_running_loop()
 
-    temp = None
-    try:
-
-        def _read_temp() -> float:
-            return (
-                int(
-                    open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8")
-                    .read()
-                    .strip()
-                )
-                / 1000
-            )
-
-        temp = await loop.run_in_executor(None, _read_temp)
-    except Exception:
-        try:
-            # Note: psutil.sensors_temperatures() also does file I/O, so offload it as well
-            def _psutil_temp() -> float | None:
-                t = psutil.sensors_temperatures()
-                for entries in t.values():
-                    if entries:
-                        return entries[0].current
-                return None
-
-            temp = await loop.run_in_executor(None, _psutil_temp)
-        except Exception as _e:
-            log.debug("psutil temp fallback: %s", _e)
+    from piclaw.hardware.pi_info import current_temp
+    temp = await loop.run_in_executor(None, current_temp)
 
     try:
         hostname = socket.gethostname()
