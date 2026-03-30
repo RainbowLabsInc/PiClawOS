@@ -149,11 +149,11 @@ class Agent:
         # Hardware tools (pi_info, sensors, i2c_scan, thermal_status)
         _reg(HW_TOOL_DEFS, HW_HANDLERS)
 
-        # Network Monitor tools (v0.15)
+        # Network Monitor tools
         from piclaw.tools import network_monitor as net_mon
         _reg(net_mon.TOOL_DEFS, net_mon.build_handlers())
 
-        # Tandem Browser tools (v0.18)
+        # Tandem Browser tools (geplant v0.18)
         from piclaw.tools import tandem as tandem_mod
 
         _reg(tandem_mod.TOOL_DEFS, tandem_mod.build_handlers())
@@ -525,7 +525,6 @@ class Agent:
         # Aufgabe extrahieren: alles nach "der" bis zur Zeitangabe/täglich
         # Strategie: Suche nach dem Nomen das NACH "Uhr" kommt, oder dem ganzen Satz
         # Beispiel: "...um 07:15 Uhr die CPU Temperatur meldet" → "die CPU Temperatur meldet"
-        time_str = f"um {hour:02d}" if minute == 0 else f"um {hour}"
         after_time = re.search(
             r"um\s+\d{1,2}[:.]\d{0,2}\s*uhr?\s+(.+?)(?:\s*[.,]?\s*$)",
             text.lower()
@@ -880,11 +879,8 @@ class Agent:
     async def _create_monitor_agent(self, params: dict) -> str:
         """Erstellt einen Monitoring-Sub-Agenten für stündliche Marktplatz-Suche.
 
-        BUG-FIX v0.15.5:
-          - Nutzt jetzt direct_tool statt LLM agentic loop
-          - Verhindert "max steps reached" Fehler
-          - Parameter (location, radius_km) werden fest codiert statt vom LLM interpretiert
-          - Suchradius bleibt stabil statt auf ganz Deutschland zu streuen
+        Nutzt direct_tool statt LLM agentic loop um "max steps reached" zu verhindern.
+        Parameter (location, radius_km) werden fest codiert für stabilen Suchradius.
         """
         import re
 
@@ -1447,7 +1443,7 @@ class Agent:
                               True in daemon.py (default).
         """
         log.info(
-            "PiClaw Agent v0.15.4 booting..."
+            "PiClaw Agent v0.15.4 booting (HA + Smart Routing + Health Monitor)..."
         )
         await self.llm.boot()
         self._start_workers()

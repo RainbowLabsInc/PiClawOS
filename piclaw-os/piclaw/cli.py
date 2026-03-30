@@ -1367,9 +1367,8 @@ def cmd_metrics(args: list):
 
         unit = rows[0].get("unit", "")
         print(f"\n  {metric} (letzte {len(rows)} Werte, {since // 60}min):\n")
+        import datetime
         for r in reversed(rows):
-            import datetime
-
             dt = datetime.datetime.fromtimestamp(r["ts"]).strftime("%H:%M:%S")
             bar_len = int(r["value"] / 2) if unit in ("%", "°C") else 10
             bar = "█" * min(bar_len, 50)
@@ -1380,8 +1379,6 @@ def cmd_metrics(args: list):
         stats = db.stats()
 
         print("\n  📊 Aktuelle Systemmetriken:\n")
-        import psutil
-
         cpu = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
