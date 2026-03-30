@@ -79,9 +79,9 @@ class SubAgentRunner:
         """Start a sub-agent by ID or name."""
         agent = self.registry.get(id_or_name)
         if not agent:
-            return f"Sub-agent '{id_or_name}' not found."
+            return f"Sub-Agent '{id_or_name}' nicht gefunden."
         if agent.id in self._tasks and not self._tasks[agent.id].done():
-            return f"Sub-agent '{agent.name}' is already running."
+            return f"Sub-Agent '{agent.name}' läuft bereits."
 
         stop_event = asyncio.Event()
         self._stop_events[agent.id] = stop_event
@@ -104,21 +104,21 @@ class SubAgentRunner:
 
         task.add_done_callback(_cleanup)
         log.info("Sub-agent '%s' started (schedule=%s)", agent.name, agent.schedule)
-        return f"Sub-agent '{agent.name}' started."
+        return f"Sub-Agent '{agent.name}' gestartet."
 
     async def stop_agent(self, id_or_name: str) -> str:
         """Stop a running sub-agent gracefully."""
         agent = self.registry.get(id_or_name)
         if not agent:
-            return f"Sub-agent '{id_or_name}' not found."
+            return f"Sub-Agent '{id_or_name}' nicht gefunden."
         ev = self._stop_events.get(agent.id)
         if ev:
             ev.set()
         task = self._tasks.get(agent.id)
         if task and not task.done():
             task.cancel()
-            return f"Sub-agent '{agent.name}' stopped."
-        return f"Sub-agent '{agent.name}' was not running."
+            return f"Sub-Agent '{agent.name}' gestoppt."
+        return f"Sub-Agent '{agent.name}' lief nicht."
 
     async def start_all_scheduled(self):
         """Start all enabled sub-agents that have a recurring schedule.
@@ -287,26 +287,31 @@ class SubAgentRunner:
             log.debug("Sub-agent '%s': stilles Token – kein Output", agent.name)
 
         # ── Notify via messaging hub ────────────────────────────────
+        _has_output = bool(result and result.strip() and not _intentionally_silent
+                           and result.strip() != "(no output)")
         log.info("Sub-agent '%s': result=%s notify=%s",
-                 agent.name, "ok" if result and result.strip() and not _intentionally_silent else "empty", agent.notify)
-        if not result or not result.strip() or _intentionally_silent or result.strip() == "(no output)":
-            # Fallback: Kein Output vom Sub-Agenten → Main Agent fragt nach Status
-            log.warning("Sub-agent '%s': leeres/kein Ergebnis", agent.name)
+                 agent.name, "ok" if _has_output else "empty", agent.notify)
+
+        if _intentionally_silent:
+            # Bewusst kein Output → stillschweigend beenden (kein Fallback, kein Spam)
+            pass
+        elif not _has_output:
+            # Echter leerer Output → Fallback: Main Agent formuliert Status
+            log.warning("Sub-agent '%s': kein Ergebnis – Fallback wird ausgelöst", agent.name)
             if agent.notify and self.notify and self.report_to_main:
-                # An Main Agent weiterleiten damit dieser eine sinnvolle Antwort formuliert
                 fallback_prompt = (
                     f"Der Sub-Agent '{agent.name}' hat soeben seine Aufgabe ausgeführt "
-                    f"(schedule: {agent.schedule}). Aufgabe: {agent.description}. "
-                    f"Bitte fasse den aktuellen Status kurz zusammen und sende es als Bericht."
+                    f"(schedule: {agent.schedule}, Beschreibung: {agent.description}). "
+                    "Fasse den aktuellen Systemstatus kurz auf Deutsch zusammen."
                 )
                 try:
                     summary = await self.report_to_main(fallback_prompt)
                     if summary and summary.strip():
-                        header = f"🤖 **{agent.name}** [bericht]\n"
+                        header = f"🤖 *{agent.name}* [status]\n"
                         await self.notify(header + summary[:1500])
-                        log.info("Sub-agent '%s': Fallback-Bericht via Main Agent gesendet", agent.name)
+                        log.info("Sub-agent '%s': Fallback-Status via Main Agent gesendet", agent.name)
                 except Exception as e:
-                    log.warning("Sub-agent '%s': Fallback-Bericht Fehler: %s", agent.name, e)
+                    log.warning("Sub-agent '%s': Fallback Fehler: %s", agent.name, e)
         elif not agent.notify:
             log.debug("Sub-agent '%s': notify=False", agent.name)
         elif not self.notify:
@@ -396,29 +401,21 @@ class SubAgentRunner:
         allowed_tools = self._filter_tools(agent)
 
         system = (
-            f"You are a sub-agent named '{agent.name}' running on a Raspberry Pi 5.\n"
-            f"Your mission:\n{agent.mission}\n\n"
-            "Execute your mission autonomously using the available tools.\n"
-            "Be concise. When done, summarize what you did in 2-3 sentences.\n"
-            f"Current time: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            f"Du bist Sub-Agent '{agent.name}' auf einem Raspberry Pi 5.\n"
+            f"Deine Aufgabe:\n{agent.mission}\n\n"
+            "Führe deine Aufgabe eigenständig mit den verfügbaren Tools aus.\n"
+            "Antworte immer auf Deutsch. Fasse das Ergebnis am Ende in 2-3 Sätzen zusammen.\n"
+            f"Aktuelle Zeit: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
 
         messages: list[Message] = [
             Message(role="system", content=system),
-            Message(role="user", content=f"Execute your mission: {agent.description}"),
+            Message(role="user", content=f"Führe deine Aufgabe aus: {agent.description}"),
         ]
 
         final_reply = "(no output)"
 
         for step in range(agent.max_steps):
-            # Route to preferred LLM backend if tags given
-            if agent.llm_tags:
-                # Temporarily inject routing hint into first user message
-                messages[-1] = Message(
-                    role="user",
-                    content=messages[-1].content,
-                )
-
             try:
                 response = await self.llm.chat(messages, tools=allowed_tools)
             except Exception as e:
@@ -442,7 +439,7 @@ class SubAgentRunner:
                     )
                 )
         else:
-            final_reply = "⚠️ Sub-agent reached max steps."
+            final_reply = f"⚠️ Sub-Agent hat maximale Schritte ({agent.max_steps}) erreicht."
 
         return final_reply
 
@@ -463,7 +460,7 @@ class SubAgentRunner:
     async def _dispatch(self, call: ToolCall) -> str:
         handler = self.handlers.get(call.name)
         if not handler:
-            return f"[ERROR] Tool not available: {call.name}"
+            return f"[FEHLER] Tool nicht verfügbar: {call.name}"
         try:
             result = handler(**call.arguments)
             if asyncio.iscoroutine(result):

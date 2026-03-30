@@ -171,7 +171,7 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         status = runner.status_dict()
         agents = status.get("sub_agents", [])
         if not agents:
-            return "No sub-agents defined. Use agent_create to create one."
+            return "Keine Sub-Agenten definiert. Mit agent_create einen neuen erstellen."
         lines = [f"Sub-Agents ({len(agents)}):\n"]
         for a in agents:
             running_icon = "⚙️ RUNNING" if a["running"] else ""
@@ -196,9 +196,9 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         name: str,
         description: str,
         mission: str,
-        tools: list = None,
+        tools: list | None = None,
         schedule: str = "once",
-        llm_tags: list = None,
+        llm_tags: list | None = None,
         notify: bool = True,
         max_steps: int = 10,
         timeout: int = 300,
@@ -207,7 +207,7 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
     ) -> str:
         # Check for name collision
         if registry.get(name):
-            return f"A sub-agent named '{name}' already exists. Use agent_update to modify it."
+            return f"Ein Sub-Agent namens '{name}' existiert bereits. Mit agent_update ändern."
 
         agent = SubAgentDef(
             name=name,
@@ -223,10 +223,10 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         )
         agent_id = registry.add(agent)
         result = (
-            f"Sub-agent '{name}' created (ID: {agent_id})\n"
-            f"  Schedule: {schedule}\n"
-            f"  Tools: {', '.join(tools) if tools else 'all'}\n"
-            f"  Notify: {notify}"
+            f"Sub-Agent '{name}' erstellt (ID: {agent_id})\n"
+            f"  Zeitplan: {schedule}\n"
+            f"  Tools: {', '.join(tools) if tools else 'alle'}\n"
+            f"  Benachrichtigung: {'ja' if notify else 'nein'}"
         )
         if start_now:
             start_result = await runner.start_agent(agent_id)
@@ -234,7 +234,7 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         return result
 
     async def agent_start(name: str, **_) -> str:
-        return await runner.start_agent(name)
+        return await runner.start_agent(name)  # Rückmeldung kommt aus runner.start_agent()
 
     async def agent_stop(name: str, **_) -> str:
         if name in _PROTECTED_AGENTS:
@@ -253,34 +253,33 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         # Stop first if running
         agent = registry.get(name)
         if not agent:
-            return f"Sub-agent '{name}' not found."
+            return f"Sub-Agent '{name}' nicht gefunden."
         if agent.id in runner._tasks and not runner._tasks[agent.id].done():
             await runner.stop_agent(name)
         success = registry.remove(name)
-        return f"Sub-agent '{name}' removed." if success else f"'{name}' not found."
+        return f"Sub-Agent '{name}' gelöscht." if success else f"'{name}' nicht gefunden."
 
     async def agent_update(name: str, **kwargs) -> str:
         # Remove None values
         updates = {k: v for k, v in kwargs.items() if v is not None}
         if not updates:
-            return "Nothing to update."
+            return "Keine Änderungen angegeben."
         success = registry.update(name, **updates)
         if not success:
-            return f"Sub-agent '{name}' not found."
-        return f"Sub-agent '{name}' updated: {list(updates.keys())}"
+            return f"Sub-Agent '{name}' nicht gefunden."
+        return f"Sub-Agent '{name}' aktualisiert: {list(updates.keys())}"
 
     async def agent_run_now(name: str, **_) -> str:
         agent = registry.get(name)
         if not agent:
-            return f"Sub-agent '{name}' not found."
-        # Run as a one-off task without touching the schedule
-        import asyncio
-
-        asyncio.create_task(
+            return f"Sub-Agent '{name}' nicht gefunden."
+        # Sofortige Ausführung als Background-Task, ohne den regulären Schedule zu berühren
+        from piclaw.taskutils import create_background_task
+        create_background_task(
             runner._execute(agent),
             name=f"subagent-oneoff-{agent.id}",
         )
-        return f"Sub-agent '{name}' triggered for immediate execution."
+        return f"Sub-agent '{name}' wird sofort ausgeführt."
 
     return {
         "agent_list": lambda **kw: agent_list(**kw),
