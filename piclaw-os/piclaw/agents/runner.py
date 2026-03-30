@@ -280,44 +280,16 @@ class SubAgentRunner:
             create_background_task(self.memory_log(mem_entry))
 
         # ── Stille Tokens herausfiltern ────────────────────────────
-        # Manche Tools signalisieren "kein Output nötig" mit speziellen Tokens.
-        # Wichtig: nicht auf "" setzen (das triggert den Fallback-Bericht!)
-        # Stattdessen notify=False simulieren via Flag.
+        # Tools signalisieren "kein neues Ergebnis" mit diesen Tokens.
         _SILENT_TOKENS = ("__NO_NEW_RESULTS__", "__NO_NEW_DEVICES__", "__SILENT__")
-        _intentionally_silent = False
-        if result and result.strip() in _SILENT_TOKENS:
-            log.debug("Sub-agent '%s': stilles Token (%s) – keine Telegram-Nachricht", agent.name, result.strip())
-            _intentionally_silent = True
-            result = ""
+        _intentionally_silent = result and result.strip() in _SILENT_TOKENS
+        if _intentionally_silent:
+            log.debug("Sub-agent '%s': stilles Token – kein Output", agent.name)
 
         # ── Notify via messaging hub ────────────────────────────────
         log.info("Sub-agent '%s': result=%s notify=%s",
-                 agent.name, "ok" if result and result.strip() else "empty", agent.notify)
-        if _intentionally_silent:
-            # BUG-FIX: Heartbeat muss auch bei stillen Tokens geprüft werden!
-            # Vorher wurde die Heartbeat-Logik (Zeile elif agent.direct_tool...)
-            # nie erreicht weil _intentionally_silent immer zuerst griff.
-            if agent.direct_tool and agent.notify and self.notify:
-                import time as _time
-                _HB_KEY = f"_hb_{agent.id}"
-                _last_hb = getattr(self, _HB_KEY, 0)
-                _now = _time.time()
-                _hb_interval = 3600  # 1 Stunde
-                if _now - _last_hb >= _hb_interval:
-                    setattr(self, _HB_KEY, _now)
-                    header = f"🤖 *{agent.name}* [heartbeat]\n"
-                    heartbeat_msg = header + "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde."
-                    try:
-                        await self.notify(heartbeat_msg)
-                        log.info("Sub-agent '%s': Heartbeat gesendet", agent.name)
-                    except Exception as e:
-                        log.warning("Sub-agent '%s': Heartbeat-Fehler: %s", agent.name, e)
-                else:
-                    _remaining = int((_hb_interval - (_now - _last_hb)) / 60)
-                    log.debug("Sub-agent '%s': alles ruhig, nächster Heartbeat in %dmin", agent.name, _remaining)
-            else:
-                log.debug("Sub-agent '%s': bewusst still – kein Telegram", agent.name)
-        elif not result or not result.strip() or result.strip() == "(no output)":
+                 agent.name, "ok" if result and result.strip() and not _intentionally_silent else "empty", agent.notify)
+        if not result or not result.strip() or _intentionally_silent or result.strip() == "(no output)":
             # Fallback: Kein Output vom Sub-Agenten → Main Agent fragt nach Status
             log.warning("Sub-agent '%s': leeres/kein Ergebnis", agent.name)
             if agent.notify and self.notify and self.report_to_main:
@@ -340,10 +312,8 @@ class SubAgentRunner:
         elif not self.notify:
             log.error("Sub-agent '%s': KEIN Notify-Callback! Telegram nicht konfiguriert?", agent.name)
         elif agent.direct_tool and self._is_quiet_network_result(result):
-            # Heartbeat-Logik: nur für Direct-Tool-Agenten (z.B. Netzwerk-Monitor).
-            # Marktplatz-Agenten sollen kein Netzwerk-Heartbeat senden.
-            # Greift sowohl bei __NO_NEW_DEVICES__ als auch wenn der LLM
-            # trotzdem Freitext schreibt (z.B. "Alles ruhig, keine neuen Geräte").
+            # Heartbeat für Direct-Tool-Agenten (z.B. Monitor_Netzwerk).
+            # Gedrosselt auf max. 1x/Stunde um Spam zu vermeiden.
             import time as _time
             _HB_KEY = f"_hb_{agent.id}"
             _last_hb = getattr(self, _HB_KEY, 0)

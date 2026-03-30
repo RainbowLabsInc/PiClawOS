@@ -409,10 +409,6 @@ async def _fetch_html(url: str, label: str = "web") -> str | None:
     return None
 
 
-# Rückwärts-Kompatibilität: eBay nutzte _fetch_ebay_html
-async def _fetch_ebay_html(url: str) -> str | None:
-    return await _fetch_html(url, label="eBay")
-
 
 async def _search_ebay(
     session: aiohttp.ClientSession,
@@ -437,7 +433,7 @@ async def _search_ebay(
             url += f"&_sadis={int(radius_km)}"
 
     log.info("eBay URL: %s", url)
-    html = await _fetch_ebay_html(url)
+    html = await _fetch_html(url, label="eBay")
     if not html:
         log.warning(
             "eBay: Keine Antwort für '%s' (alle Methoden fehlgeschlagen)", query
