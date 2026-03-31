@@ -22,6 +22,7 @@ Isolation:
 """
 
 import asyncio
+import contextlib
 import logging
 import traceback
 from datetime import datetime
@@ -183,10 +184,8 @@ class SubAgentRunner:
         elif schedule == "continuous":
             while not stop.is_set():
                 await self._execute(agent)
-                try:
+                with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(stop.wait(), timeout=CONTINUOUS_SLEEP)
-                except TimeoutError:
-                    pass
 
         elif schedule.startswith("interval:"):
             try:
@@ -196,10 +195,8 @@ class SubAgentRunner:
                 return
             while not stop.is_set():
                 await self._execute(agent)
-                try:
+                with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(stop.wait(), timeout=interval)
-                except TimeoutError:
-                    pass
 
         elif schedule.startswith("cron:"):
             expr = schedule[5:]
@@ -221,11 +218,9 @@ class SubAgentRunner:
             next_run = cron.get_next(datetime)
             delay = (next_run - datetime.now()).total_seconds()
             if delay > 0:
-                try:
+                with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(stop.wait(), timeout=delay)
                     break  # stop event fired
-                except TimeoutError:
-                    pass
             await self._execute(agent)
 
     # ── Execution ─────────────────────────────────────────────────

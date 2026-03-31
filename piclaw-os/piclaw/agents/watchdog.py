@@ -24,6 +24,7 @@ Alert thresholds:
 """
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import os
@@ -547,10 +548,8 @@ class Watchdog:
                     await self.send_daily_report()
                     last_daily = today_key
 
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stop_event.wait(), timeout=check_interval)
-            except TimeoutError:
-                pass
 
         log.info("Watchdog stopped.")
 
