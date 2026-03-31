@@ -24,6 +24,7 @@ Isolation:
 import asyncio
 import contextlib
 import logging
+import re
 import traceback
 from datetime import datetime
 from collections.abc import Callable, Awaitable
@@ -36,6 +37,11 @@ log = logging.getLogger("piclaw.agents.runner")
 
 # Short sleep between continuous agent cycles (seconds)
 CONTINUOUS_SLEEP = 10
+
+_DEVICE_INDICATORS_RE = re.compile(
+    r"(?:new device detected|unbekanntes gerät|hersteller:|neues gerät|"
+    r"new device|hostname:|vendor:|🔍 neues|mac:|ip: |🚨)"
+)
 
 
 class SubAgentRunner:
@@ -376,13 +382,7 @@ class SubAgentRunner:
         if r == "__NO_NEW_DEVICES__":
             return True
         # Enthält echte Gerätedaten → SOFORT senden (nicht quiet)
-        device_indicators = [
-            "mac:", "ip: ", "hersteller:", "vendor:", "hostname:",
-            "🚨", "neues gerät", "new device", "unbekanntes gerät",
-            "new device detected", "🔍 neues",
-        ]
-        r_lower = r.lower()
-        if any(kw in r_lower for kw in device_indicators):
+        if _DEVICE_INDICATORS_RE.search(r.lower()):
             return False
         # Alles andere (Freitext, "alles ruhig", "normal", etc.) → quiet
         return True
