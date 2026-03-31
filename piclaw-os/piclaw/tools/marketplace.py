@@ -168,26 +168,16 @@ RE_EBAY_LINK = re.compile(
 
 # Web Parsing
 # ── eGun.de ────────────────────────────────────────────────────────────────────
-# eGun nutzt klassisches tabellenbasiertes HTML
-# Inserat-Zeilen: <tr class="... list_item ..."> oder <a href="item_show.php?id=12345">
-RE_EGUN_ITEMS = re.compile(
-    r'href="[^"]*item_show\.php\?id=(\d+)[^"]*"[^>]*>(.*?)(?=href="[^"]*item_show\.php\?id=\d+|</table>)',
-    re.DOTALL | re.IGNORECASE,
-)
-RE_EGUN_TITLE = re.compile(
-    r'class="[^"]*item_title[^"]*"[^>]*>(.*?)</(?:td|a|span|div)>',
-    re.DOTALL | re.IGNORECASE,
-)
+# eGun nutzt klassisches tabellenbasiertes HTML, ISO-8859-1 Encoding.
+# Links: <a href="item.php?id=XXXXX">Titel</a>
+# Thumbnail-Links haben leeren Text, Titel-Links haben den Inseratstitel.
 RE_EGUN_PRICE = re.compile(
-    r'(\d[\d.,]+)\s*(?:€|EUR|Euro)',
+    r"\d[\d.,]+\s*(?:€|EUR|Euro)",
     re.IGNORECASE,
 )
 RE_EGUN_DATE = re.compile(
-    r'(\d{2}\.\d{2}\.\d{4})',
-)
-RE_EGUN_ROW = re.compile(
-    r'<tr[^>]*>[^<]*<td[^>]*>.*?<a\s+href="([^"]*item_show\.php\?id=(\d+)[^"]*)"[^>]*>(.*?)</a>(.*?)</tr>',
-    re.DOTALL | re.IGNORECASE,
+    r"(\d{1,2}\s+(?:Tag|Stunde|Minute|Sekunde)e?n?|\d{2}:\d{2})",
+    re.IGNORECASE,
 )
 
 RE_WEB_HITS = re.compile(
@@ -532,115 +522,90 @@ async def _search_egun(
     """
     Sucht auf eGun.de – Marktplatz für Jäger, Schützen und Angler.
 
-    URL-Struktur: /market/list_items.php?mode=qry&query=TERM&quick=1
-    Optionen:     order=date&asdes=desc  → nach Datum sortiert (neueste zuerst)
-                  maxpr=PREIS            → Preisfilter
+    HTML-Struktur (tabellenbasiert, ISO-8859-1):
+      - Jedes Inserat hat ZWEI Links auf item.php?id=XXXXX:
+        1. Thumbnail-Link (leerer Link-Text)
+        2. Titel-Link (enthält den Anzeigentitel)
+      - TDs in der TR: [Titel, Preis, Stück/Gebote, Restzeit]
     """
     results: list[dict] = []
     q = quote_plus(query)
 
     url = (
-        f"https://www.egun.de/market/list_items.php"
+        "https://www.egun.de/market/list_items.php"
         f"?mode=qry&plusdescr=off&wheremode=and&query={q}&quick=1"
-        f"&order=date&asdes=desc"
+        "&order=date&asdes=desc"
     )
     if max_price:
         url += f"&maxpr={int(max_price)}"
 
-    html = await _fetch_html(url, label="eGun")
+    # eGun liefert ISO-8859-1 – explizit decodieren statt _fetch_html zu nutzen
+    html = None
+    try:
+        egun_headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "de-DE,de;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+            "Referer": "https://www.egun.de/",
+        }
+        async with session.get(
+            url, headers=egun_headers, timeout=aiohttp.ClientTimeout(total=20)
+        ) as resp:
+            if resp.status == 200:
+                raw = await resp.read()
+                html = raw.decode("latin-1", errors="replace")
+                log.debug("eGun: HTTP 200, %d Bytes", len(html))
+            else:
+                log.warning("eGun: HTTP %s für '%s'", resp.status, query)
+    except Exception as e:
+        log.warning("eGun: Fetch-Fehler: %s", e)
+
     if not html:
-        log.warning("eGun: Keine Antwort für '%s'", query)
         return []
 
-    # eGun HTML: tabellen-basiert, ältere PHP-Site
-    # Anzeigenzeilen erkennen wir über Links zu item_show.php?id=
-    # Typisches Muster:
-    #   <a href="item_show.php?id=12345678">Titel</a>
-    #   Preis irgendwo in der Zeile: "250 €" oder "250,00 EUR"
-    # Wir parsen zeilenweise über table rows
+    # ── Parsen ────────────────────────────────────────────────────────────
+    # Thumbnail-Links haben leeren Text, Titel-Links haben Text.
+    # Muster: <a href="item.php?id=ID">Titel</a>
+    item_link_re = re.compile(
+        r'<a\s[^>]*href="[^"]*item\.php\?id=(\d+)[^"]*"[^>]*>(.*?)</a>',
+        re.DOTALL | re.IGNORECASE,
+    )
 
     seen_ids: set[str] = set()
 
-    # Alle Links zu Inseraten finden
-    item_links = re.findall(
-        r'href="([^"]*item_show\.php\?id=(\d+)[^"]*)"',
-        html,
-        re.IGNORECASE,
-    )
+    for m in item_link_re.finditer(html):
+        item_id = m.group(1)
+        link_text = RE_HTML_TAGS.sub("", m.group(2)).strip()
 
-    if not item_links:
-        # Fallback: absolute URLs
-        item_links = re.findall(
-            r'href="(https?://(?:www\.)?egun\.de/[^"]*item_show\.php\?id=(\d+)[^"]*)"',
-            html,
-            re.IGNORECASE,
-        )
-
-    # Jetzt den umgebenden Kontext pro Inserat auslesen
-    # Wir splitten am Auftreten jedes item_show Links
-    segments = re.split(r'(?=href="[^"]*item_show\.php\?id=\d+)', html, flags=re.IGNORECASE)
-
-    for seg in segments[1:]:  # erstes Segment ist Kopf
-        # ID extrahieren
-        id_match = re.search(r'item_show\.php\?id=(\d+)', seg, re.IGNORECASE)
-        if not id_match:
+        # Thumbnail-Links überspringen (leerer Text)
+        if not link_text or len(link_text) < 4:
             continue
-        item_id = id_match.group(1)
-
         if item_id in seen_ids:
             continue
         seen_ids.add(item_id)
 
-        # Titel: der Link-Text selbst, bereinigt
-        title_match = re.search(
-            r'item_show\.php\?id=\d+[^"]*"[^>]*>(.*?)</a>',
-            seg,
-            re.DOTALL | re.IGNORECASE,
-        )
-        if not title_match:
-            continue
-        title = " ".join(RE_HTML_TAGS.sub(" ", title_match.group(1)).split()).strip()
+        # Preis aus den nächsten ~400 Zeichen nach diesem Link
+        segment = html[m.end() : m.end() + 400]
+        price_match = RE_EGUN_PRICE.search(segment)
+        price_text = price_match.group(0).strip() if price_match else ""
+        price = _parse_price(price_text) if price_text else None
 
-        # Überschriften und Navigation überspringen
-        if len(title) < 5 or title.lower() in ("mehr", "details", "weiter", "hier", "kaufen"):
-            continue
-
-        # Preis in den nächsten ~300 Zeichen nach dem Titel
-        seg_short = seg[:500]
-        price_match = RE_EGUN_PRICE.search(seg_short)
-        price_text = ""
-        price = None
-        if price_match:
-            price_text = price_match.group(0).strip()
-            price = _parse_price(price_text)
-
-        # Datum
-        date_match = RE_EGUN_DATE.search(seg_short)
+        # Restzeit / Datum
+        date_match = RE_EGUN_DATE.search(segment)
         date_str = date_match.group(1) if date_match else ""
-
-        # URL – relativ zu absolut
-        link_match = re.search(
-            r'href="([^"]*item_show\.php\?id=' + re.escape(item_id) + r'[^"]*)"',
-            seg,
-            re.IGNORECASE,
-        )
-        if link_match:
-            href = link_match.group(1)
-            if href.startswith("http"):
-                item_url = href
-            else:
-                item_url = "https://www.egun.de/market/" + href.lstrip("/")
-        else:
-            item_url = f"https://www.egun.de/market/item_show.php?id={item_id}"
 
         results.append({
             "id": item_id,
             "platform": "egun",
-            "title": title,
+            "title": link_text,
             "price": price,
             "price_text": price_text,
-            "location": date_str,   # eGun hat keine PLZ-Felder, wir nehmen das Datum
-            "url": item_url,
+            "location": date_str,
+            "url": f"https://www.egun.de/market/item.php?id={item_id}",
         })
 
         if len(results) >= max_results:
