@@ -44,8 +44,8 @@ RE_CLEAN_RADIUS = re.compile(r"\d+\s*km", flags=re.IGNORECASE)
 RE_CLEAN_PLATFORMS = {
     term: re.compile(re.escape(term), flags=re.IGNORECASE)
     for term in [
-        "kleinanzeigen.de", "ebay.de", "willhaben.at",
-        "kleinanzeigen", "ebay", "willhaben", ".de", ".at",
+        "kleinanzeigen.de", "ebay.de", "willhaben.at", "egun.de",
+        "kleinanzeigen", "ebay", "willhaben", "egun", ".de", ".at",
     ]
 }
 RE_CLEAN_NOISE = []
@@ -167,6 +167,29 @@ RE_EBAY_LINK = re.compile(
 )
 
 # Web Parsing
+# ── eGun.de ────────────────────────────────────────────────────────────────────
+# eGun nutzt klassisches tabellenbasiertes HTML
+# Inserat-Zeilen: <tr class="... list_item ..."> oder <a href="item_show.php?id=12345">
+RE_EGUN_ITEMS = re.compile(
+    r'href="[^"]*item_show\.php\?id=(\d+)[^"]*"[^>]*>(.*?)(?=href="[^"]*item_show\.php\?id=\d+|</table>)',
+    re.DOTALL | re.IGNORECASE,
+)
+RE_EGUN_TITLE = re.compile(
+    r'class="[^"]*item_title[^"]*"[^>]*>(.*?)</(?:td|a|span|div)>',
+    re.DOTALL | re.IGNORECASE,
+)
+RE_EGUN_PRICE = re.compile(
+    r'(\d[\d.,]+)\s*(?:€|EUR|Euro)',
+    re.IGNORECASE,
+)
+RE_EGUN_DATE = re.compile(
+    r'(\d{2}\.\d{2}\.\d{4})',
+)
+RE_EGUN_ROW = re.compile(
+    r'<tr[^>]*>[^<]*<td[^>]*>.*?<a\s+href="([^"]*item_show\.php\?id=(\d+)[^"]*)"[^>]*>(.*?)</a>(.*?)</tr>',
+    re.DOTALL | re.IGNORECASE,
+)
+
 RE_WEB_HITS = re.compile(
     r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL
 )
@@ -494,6 +517,136 @@ async def _search_ebay(
         )
 
     log.info("eBay: %d Artikel gefunden für '%s'", len(results), query)
+    return results
+
+
+# ── eGun.de ────────────────────────────────────────────────────────────────────
+
+
+async def _search_egun(
+    session: aiohttp.ClientSession,
+    query: str,
+    max_price: float | None = None,
+    max_results: int = 10,
+) -> list[dict]:
+    """
+    Sucht auf eGun.de – Marktplatz für Jäger, Schützen und Angler.
+
+    URL-Struktur: /market/list_items.php?mode=qry&query=TERM&quick=1
+    Optionen:     order=date&asdes=desc  → nach Datum sortiert (neueste zuerst)
+                  maxpr=PREIS            → Preisfilter
+    """
+    results: list[dict] = []
+    q = quote_plus(query)
+
+    url = (
+        f"https://www.egun.de/market/list_items.php"
+        f"?mode=qry&plusdescr=off&wheremode=and&query={q}&quick=1"
+        f"&order=date&asdes=desc"
+    )
+    if max_price:
+        url += f"&maxpr={int(max_price)}"
+
+    html = await _fetch_html(url, label="eGun")
+    if not html:
+        log.warning("eGun: Keine Antwort für '%s'", query)
+        return []
+
+    # eGun HTML: tabellen-basiert, ältere PHP-Site
+    # Anzeigenzeilen erkennen wir über Links zu item_show.php?id=
+    # Typisches Muster:
+    #   <a href="item_show.php?id=12345678">Titel</a>
+    #   Preis irgendwo in der Zeile: "250 €" oder "250,00 EUR"
+    # Wir parsen zeilenweise über table rows
+
+    seen_ids: set[str] = set()
+
+    # Alle Links zu Inseraten finden
+    item_links = re.findall(
+        r'href="([^"]*item_show\.php\?id=(\d+)[^"]*)"',
+        html,
+        re.IGNORECASE,
+    )
+
+    if not item_links:
+        # Fallback: absolute URLs
+        item_links = re.findall(
+            r'href="(https?://(?:www\.)?egun\.de/[^"]*item_show\.php\?id=(\d+)[^"]*)"',
+            html,
+            re.IGNORECASE,
+        )
+
+    # Jetzt den umgebenden Kontext pro Inserat auslesen
+    # Wir splitten am Auftreten jedes item_show Links
+    segments = re.split(r'(?=href="[^"]*item_show\.php\?id=\d+)', html, flags=re.IGNORECASE)
+
+    for seg in segments[1:]:  # erstes Segment ist Kopf
+        # ID extrahieren
+        id_match = re.search(r'item_show\.php\?id=(\d+)', seg, re.IGNORECASE)
+        if not id_match:
+            continue
+        item_id = id_match.group(1)
+
+        if item_id in seen_ids:
+            continue
+        seen_ids.add(item_id)
+
+        # Titel: der Link-Text selbst, bereinigt
+        title_match = re.search(
+            r'item_show\.php\?id=\d+[^"]*"[^>]*>(.*?)</a>',
+            seg,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if not title_match:
+            continue
+        title = " ".join(RE_HTML_TAGS.sub(" ", title_match.group(1)).split()).strip()
+
+        # Überschriften und Navigation überspringen
+        if len(title) < 5 or title.lower() in ("mehr", "details", "weiter", "hier", "kaufen"):
+            continue
+
+        # Preis in den nächsten ~300 Zeichen nach dem Titel
+        seg_short = seg[:500]
+        price_match = RE_EGUN_PRICE.search(seg_short)
+        price_text = ""
+        price = None
+        if price_match:
+            price_text = price_match.group(0).strip()
+            price = _parse_price(price_text)
+
+        # Datum
+        date_match = RE_EGUN_DATE.search(seg_short)
+        date_str = date_match.group(1) if date_match else ""
+
+        # URL – relativ zu absolut
+        link_match = re.search(
+            r'href="([^"]*item_show\.php\?id=' + re.escape(item_id) + r'[^"]*)"',
+            seg,
+            re.IGNORECASE,
+        )
+        if link_match:
+            href = link_match.group(1)
+            if href.startswith("http"):
+                item_url = href
+            else:
+                item_url = "https://www.egun.de/market/" + href.lstrip("/")
+        else:
+            item_url = f"https://www.egun.de/market/item_show.php?id={item_id}"
+
+        results.append({
+            "id": item_id,
+            "platform": "egun",
+            "title": title,
+            "price": price,
+            "price_text": price_text,
+            "location": date_str,   # eGun hat keine PLZ-Felder, wir nehmen das Datum
+            "url": item_url,
+        })
+
+        if len(results) >= max_results:
+            break
+
+    log.info("eGun: %d Inserate gefunden für '%s'", len(results), query)
     return results
 
 
@@ -874,7 +1027,7 @@ async def marketplace_search(
         {"new": [...], "total": int, "platforms_searched": [...]}
     """
     if platforms is None:
-        platforms = ["kleinanzeigen", "ebay", "willhaben", "web"]
+        platforms = ["kleinanzeigen", "ebay", "egun", "willhaben", "web"]
 
     # Falls PLZ im Query ist aber nicht als Parameter, extrahieren wir sie
     if not location:
@@ -907,6 +1060,8 @@ async def marketplace_search(
             )
         if "ebay" in platforms:
             tasks.append(_search_ebay(session, query, max_price, max_results, location, radius_km))
+        if "egun" in platforms:
+            tasks.append(_search_egun(session, query, max_price, max_results))
         if "willhaben" in platforms:
             tasks.append(_search_willhaben(session, query, max_price, max_results, location, radius_km))
         if "web" in platforms:
@@ -959,8 +1114,8 @@ def format_results(results: dict, mode: str = "text") -> str:
     header += "─" * 50 + "\n"
 
     lines = [header]
-    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben"}
-    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹"}
+    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben", "egun": "eGun"}
+    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯"}
 
     for i, item in enumerate(new[:10], 1):
         emoji = platform_emoji.get(item["platform"], "🔗")
@@ -997,7 +1152,7 @@ def format_results_telegram(results: dict) -> str:
         lines[0] += f"(max. {results['max_price']:.0f} €)"
 
     for item in new[:10]:  # Max 10 pro Nachricht
-        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹"}.get(
+        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯"}.get(
             item["platform"], "🔗"
         )
         # Markdown-Titel bereinigen (Klammern eskapen)

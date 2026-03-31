@@ -17,7 +17,7 @@ _RE_MP_SEARCH_KW = re.compile(
     re.IGNORECASE,
 )
 _RE_MP_MARKET_KW = re.compile(
-    r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)",
+    r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|egun|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)",
     re.IGNORECASE,
 )
 
@@ -257,7 +257,7 @@ class Agent:
                     "platforms": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Plattformen: kleinanzeigen, ebay, web",
+                        "description": "Plattformen: kleinanzeigen, ebay, egun, web",
                     },
                     "max_price": {
                         "type": "number",
@@ -509,7 +509,7 @@ class Agent:
             return None
         if not any(k in t for k in time_kw):
             return None
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "inserat", "marktplatz")
+        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "inserat", "marktplatz")
         if any(k in t for k in market_kw):
             return None
 
@@ -557,7 +557,7 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "inserat",
+        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "inserat",
                      "anzeige", "marktplatz", "kaufen", "verkaufen",
                      "sonnenschirm", "fahrrad", "auto", "wohnung")
         if any(k in t for k in market_kw):
@@ -806,7 +806,7 @@ class Agent:
             "jede stunde", "alle stunde", "jede halbe stunde",
         )
         market_kw = (
-            "kleinanzeigen", "ebay", "willhaben", "inserat", "anzeige", "kaufen",
+            "kleinanzeigen", "ebay", "willhaben", "egun", "inserat", "anzeige", "kaufen",
             "marktplatz", "gebraucht", "preis", "euro", "angebot",
         )
 
@@ -845,6 +845,8 @@ class Agent:
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
+        if any(k in t for k in ("egun", "egun.de")):
+            platforms.append("egun")
         if "willhaben" in t:
             platforms.append("willhaben")
         if "web" in t or "internet" in t:
