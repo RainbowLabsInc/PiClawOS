@@ -62,7 +62,7 @@ async def _daemon_main():
     # Messaging Hub in Agent einhängen – damit Sub-Agenten (auch per Bash/CLI
     # erstellt) Ergebnisse via Telegram/Discord senden können.
     # Gleiche Late-Binding-Logik wie in api.py.
-    agent._telegram_send = lambda text: asyncio.ensure_future(_notify_all(text))
+    agent._telegram_send = lambda text: create_background_task(_notify_all(text), name="telegram-notify")
     await agent.boot()
 
     log.info("piclaw-agent daemon running.")

@@ -515,9 +515,7 @@ class Watchdog:
 
     async def run_daemon(self):
         log.info("PiClaw Watchdog started on %s", self._hostname)
-        init_watchdog_db()
-        self._read_db_trigger()
-
+        # init_watchdog_db() + _read_db_trigger() bereits in __init__() aufgerufen
         check_interval = int(self._cfg.get("check_interval_s", 60))
         integrity_interval = int(self._cfg.get("integrity_interval_s", 300))
         daily_time = self._cfg.get("daily_report_time", "07:00")

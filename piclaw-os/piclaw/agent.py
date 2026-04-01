@@ -503,7 +503,7 @@ class Agent:
 
     def _detect_cron_agent_intent(self, text: str) -> dict | None:
         """Erkennt Anfragen einen zeitgesteuerten Sub-Agenten zu erstellen."""
-        import re
+
         t = text.lower()
 
         create_kw = ("erstell", "create", "mach", "baue", "neuen agenten",
@@ -559,7 +559,7 @@ class Agent:
 
     def _detect_network_monitor_intent(self, text: str) -> bool:
         """Erkennt natürliche Netzwerk-Monitoring-Anfragen."""
-        import re
+
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
@@ -717,7 +717,7 @@ class Agent:
         Erkennt: "Licht an/aus", "schalte X ein/aus", "mach X an/aus"
         Spart den gesamten LLM-Call + System-Prompt.
         """
-        import re
+
         t = text.lower().strip()
 
         # Nur wenn HA konfiguriert
@@ -793,7 +793,6 @@ class Agent:
 
     def _detect_monitor_intent(self, text: str) -> dict | None:
         """Erkennt natürliche Monitoring-Anfragen wie 'Sag mir wenn ein Pi 5 auftaucht'."""
-        import re
 
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
@@ -896,7 +895,6 @@ class Agent:
         Nutzt direct_tool statt LLM agentic loop um "max steps reached" zu verhindern.
         Parameter (location, radius_km) werden fest codiert für stabilen Suchradius.
         """
-        import re
 
         query = params["query"]
         # Standard: nur Kleinanzeigen – weitere Plattformen nur wenn explizit angegeben
@@ -1005,7 +1003,6 @@ class Agent:
 
     def _detect_marketplace_intent(self, text: str) -> dict | None:
         """Detect marketplace search intent and extract parameters directly."""
-        import re
 
         # Vorab-Bereinigung von Chat-Präfixen wie "[you]"
         text_clean = re.sub(r"\[.*?\]", " ", text)
@@ -1333,7 +1330,7 @@ class Agent:
             # Direkt ausführen wenn: query + (location/radius ODER spezifische Plattform genannt)
             _specific_platform = any(
                 p in user_input.lower()
-                for p in ["willhaben", "kleinanzeigen", "ebay"]
+                for p in ["willhaben", "kleinanzeigen", "ebay", "egun"]
             )
             if mp_kwargs.get("query") and (
                 mp_kwargs.get("location") or mp_kwargs.get("radius_km") or _specific_platform
@@ -1364,8 +1361,6 @@ class Agent:
             if any(k in user_input.lower() for k in followup_kw):
                 mp_kwargs = dict(_prev_mp_context)
                 # Update radius if mentioned
-                import re
-
                 new_radius = re.search(r"(\d+)\s*km", user_input)
                 if new_radius:
                     mp_kwargs["radius_km"] = int(new_radius.group(1))
@@ -1418,7 +1413,21 @@ class Agent:
                         final_reply = response.content or collected
                         break
                 else:
-                    response = await self.llm.chat(messages, tools=self._tool_defs)
+                    # Letzte Runde (keine weiteren Tools erwartet) → streamen wenn möglich
+                    _last_step = step > 0 and on_token
+                    if _last_step:
+                        try:
+                            collected = ""
+                            async for token in self.llm.stream_chat(messages, tools=self._tool_defs):
+                                collected += token
+                                await on_token(token)
+                            from piclaw.llm.base import LLMResponse as _LLMResponse
+                            response = _LLMResponse(content=collected, tool_calls=[], finish_reason="stop")
+                        except Exception:
+                            # Fallback auf normalen Chat wenn Streaming fehlschlägt
+                            response = await self.llm.chat(messages, tools=self._tool_defs)
+                    else:
+                        response = await self.llm.chat(messages, tools=self._tool_defs)
             except Exception as e:
                 self._save_crash("llm_chat", traceback.format_exc())
                 return f"❌ LLM error: {e}"
@@ -1431,6 +1440,27 @@ class Agent:
 
             for call in response.tool_calls:
                 log.info("Tool: %s(%s)", call.name, list(call.arguments.keys()))
+                # Fortschritt an WebSocket senden – User sieht welches Tool läuft
+                if on_token:
+                    _tool_label = {
+                        "marketplace_search": "🔍 Suche auf Marktplätzen…",
+                        "ha_turn_on":         "💡 Schalte ein…",
+                        "ha_turn_off":        "💡 Schalte aus…",
+                        "ha_set_temperature": "🌡 Setze Temperatur…",
+                        "ha_get_state":       "📡 Lese Gerätestatus…",
+                        "memory_search":      "🧠 Durchsuche Erinnerungen…",
+                        "memory_write":       "💾 Speichere in Gedächtnis…",
+                        "shell_exec":         "⚙️ Führe Befehl aus…",
+                        "service_status":     "🔧 Prüfe Dienst…",
+                        "service_start":      "🔧 Starte Dienst…",
+                        "wifi_scan":          "📡 Scanne WLAN…",
+                        "check_new_devices":  "🌐 Scanne Netzwerk…",
+                        "wake_device":        "⚡ Sende Wake-on-LAN…",
+                        "http_get":           "🌐 Lade URL…",
+                        "agent_list":         "🤖 Lade Agenten…",
+                        "agent_create":       "🤖 Erstelle Agenten…",
+                    }.get(call.name, f"⚙️ {call.name}…")
+                    await on_token(f"\n`{_tool_label}`\n")
                 result = await self._dispatch(call)
                 log.debug("  → %.120s", result)
                 messages.append(
