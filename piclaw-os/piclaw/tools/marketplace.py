@@ -1106,6 +1106,16 @@ def format_results(results: dict, mode: str = "text") -> str:
     return "\n".join(lines)
 
 
+def _telegram_url(url: str) -> str:
+    """Bereinigt eine URL für Telegram-Markdown-Links.
+
+    Telegram MarkdownV1 bricht bei Sonderzeichen in URLs (?, =, &).
+    Lösung: Fragezeichen und Ampersand URL-encoden damit Telegram
+    den kompletten Link erkennt.
+    """
+    return url.replace("?", "%3F").replace("&", "%26").replace("=", "%3D")
+
+
 def format_results_telegram(results: dict) -> str:
     """Formatiert Ergebnisse als Telegram-Markdown-Nachricht."""
     new = results.get("new", [])
@@ -1122,11 +1132,12 @@ def format_results_telegram(results: dict) -> str:
         )
         # Markdown-Titel bereinigen (Klammern eskapen)
         safe_title = item["title"].replace("[", "\\[").replace("]", "\\]")[:60]
+        safe_url = _telegram_url(item["url"])
 
         price_str = f" · {item['price_text']}" if item.get("price_text") else ""
         loc_str = f" · {item['location']}" if item.get("location") else ""
         lines.append(
-            f"{platform_emoji} [{safe_title}]({item['url']}){price_str}{loc_str}"
+            f"{platform_emoji} [{safe_title}]({safe_url}){price_str}{loc_str}"
         )
 
     if len(new) > 10:
