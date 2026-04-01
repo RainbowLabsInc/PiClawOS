@@ -137,9 +137,12 @@ class MultiLLMRouter(LLMBackend):
         for b in self.registry.list_enabled():
             self._health[b.name] = BackendHealth(name=b.name)
 
-        # Build classifier (uses fastest backend for LLM stage)
-        fast_llm = self._get_fastest_instance()
-        self._classifier = TaskClassifier(llm_for_classification=fast_llm)
+        # Classifier mit Pattern-only initialisieren.
+        # LLM-Stage (Stage 2) würde das primäre Backend für Klassifikation nutzen,
+        # was eine zirkuläre Abhängigkeit erzeugt: das Backend, das wir auswählen wollen,
+        # wird zur Auswahl dieses Backends genutzt. Bei hoher Last verstärkt sich das.
+        # Pattern-Matching reicht für >95% aller Anfragen aus (HA, Marketplace, allgemein).
+        self._classifier = TaskClassifier(llm_for_classification=None)
 
         # Pre-warm local model im Hintergrund für schnellen Fallback
         # (RAM ist auf Pi 5 ausreichend; Modell ist dann sofort bereit)
@@ -381,9 +384,11 @@ class MultiLLMRouter(LLMBackend):
         messages: list[Message],
         tools,
         classification: ClassificationResult,
-        tried: set = None,
+        tried: set | None = None,
     ) -> LLMResponse:
-        tried = tried or set()
+        # tried=None statt set() als Default – mutable default args sind ein Anti-Pattern
+        if tried is None:
+            tried = set()
         tried.add(primary.name)
 
         instance = self._get_instance(primary)
@@ -591,19 +596,20 @@ class MultiLLMRouter(LLMBackend):
         cfg: BackendConfig,
         classification: ClassificationResult,
     ) -> list[Message]:
-        """Optionally inject a brief routing note into the system prompt."""
-        # Only inject if there's more than one backend (otherwise it's noise)
+        """Routing-Notiz in den System-Prompt injizieren (nur bei mehreren Backends)."""
         if len(self.registry.list_enabled()) <= 1:
-            return messages
+            return messages  # kein Copy wenn nichts zu tun
+        if not messages or messages[0].role != "system":
+            return messages  # kein System-Prompt – nichts zu modifizieren
         note = (
             f"[Routing: backend={cfg.name}, "
             f"task={','.join(classification.tags)}, "
             f"method={classification.method}]"
         )
-        new = list(messages)
-        if new and new[0].role == "system":
-            new[0] = Message(role="system", content=new[0].content + f"\n{note}")
-        return new
+        # Nur ersten Message ersetzen – minimale Kopie statt list(messages)
+        return [
+            Message(role="system", content=messages[0].content + f"\n{note}")
+        ] + messages[1:]
 
     # ── Status ────────────────────────────────────────────────────
 
