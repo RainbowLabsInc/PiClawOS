@@ -1,3 +1,7 @@
 ## 2025-03-05 - Precompiled Regex for Multiple Substring Checks
 **Learning:** For optimal performance on resource-constrained devices like the Raspberry Pi, pre-compiled regex searches (`re.compile`) are approximately 2x faster than generator expressions using `any()` with list or tuple iteration when checking if any of a set of keywords exists in a string. This is especially true when there's no match (which is the most common path) or when the target text is long.
 **Action:** When performing substring matching against a set of multiple keywords (e.g. `any(kw in text for kw in keywords)`), replace it with a module-level pre-compiled regex. Combine the array of keywords into a single optimized regex (e.g. `(?:word1|word2)`), making sure to sort the keywords by length descending so the engine doesn't eagerly consume partial matches.
+
+## 2025-03-05 - Replacing ad-hoc hardware reads with centralized helpers
+**Learning:** In resource-constrained environments like the Raspberry Pi, directly performing slow file/subprocess reads (like `vcgencmd` or searching via `psutil.sensors_temperatures()`) scattered across the codebase blocks threads and degrades performance.
+**Action:** Always prefer importing and using centralized, highly-efficient helper methods (e.g. `current_temp()` from `piclaw.hardware.pi_info`) which may also be cached or optimized better, instead of writing new file reads or using expensive fallback techniques.

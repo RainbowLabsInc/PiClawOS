@@ -33,36 +33,15 @@ async def _gather_pi_status() -> dict[str, Any]:
     """Pi-Hardware-Status."""
     try:
         import psutil
-        import subprocess
 
         cpu_temp = None
         global _BOOT_TIME
         try:
             loop = asyncio.get_running_loop()
-
-            def _vcgencmd():
-                r = subprocess.run(
-                    ["vcgencmd", "measure_temp"],
-                    capture_output=True,
-                    text=True,
-                    timeout=3,
-                )
-                if r.returncode == 0:
-                    return float(
-                        r.stdout.strip().replace("temp=", "").replace("'C", "")
-                    )
-                return None
-
-            cpu_temp = await loop.run_in_executor(None, _vcgencmd)
+            from piclaw.hardware.pi_info import current_temp
+            cpu_temp = await loop.run_in_executor(None, current_temp)
         except Exception:
-            try:
-                temps = await loop.run_in_executor(None, psutil.sensors_temperatures)
-                for key in ("cpu_thermal", "coretemp", "k10temp"):
-                    if key in temps and temps[key]:
-                        cpu_temp = temps[key][0].current
-                        break
-            except Exception:
-                pass
+            pass
 
         mem = await asyncio.to_thread(psutil.virtual_memory)
         disk = await asyncio.to_thread(psutil.disk_usage, "/")
