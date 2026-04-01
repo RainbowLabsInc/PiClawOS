@@ -893,7 +893,8 @@ class Agent:
         import re
 
         query = params["query"]
-        platforms = params.get("platforms", ["kleinanzeigen", "ebay"])
+        # Standard: nur Kleinanzeigen – weitere Plattformen nur wenn explizit angegeben
+        platforms = params.get("platforms", ["kleinanzeigen"])
         location = params.get("location", "")
         radius_km = params.get("radius_km")
         max_price = params.get("max_price")
@@ -1554,7 +1555,7 @@ class Agent:
 
             # Handler-Closure rekonstruieren
             _q = params.get("query", "")
-            _p = params.get("platforms", ["kleinanzeigen", "ebay"])
+            _p = params.get("platforms", ["kleinanzeigen"])
             _l = params.get("location")
             _r = params.get("radius_km")
             _m = params.get("max_price")
