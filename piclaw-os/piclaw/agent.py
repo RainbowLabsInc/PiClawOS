@@ -64,9 +64,14 @@ class AgentTask:
     user_input: str
     history: list[Message] | None = None
     on_token: Callable | None = None
-    future: asyncio.Future = field(
-        default_factory=lambda: asyncio.get_running_loop().create_future()
-    )
+    # future wird NICHT im dataclass-field erstellt – asyncio.get_running_loop()
+    # darf nicht beim Import aufgerufen werden (kein Event Loop beim Modulload).
+    # Stattdessen: None als Default, wird in __post_init__ gesetzt.
+    future: asyncio.Future = field(default=None)
+
+    def __post_init__(self):
+        if self.future is None:
+            self.future = asyncio.get_running_loop().create_future()
 
 
 # Base capabilities block (appended after the soul)
@@ -481,7 +486,8 @@ class Agent:
     ) -> str:
         """Enqueue a request and wait for the result."""
         self._register_late_tools()
-        self._start_workers()  # Ensure workers are running
+        # _start_workers() absichtlich hier entfernt – wird in boot() gestartet.
+        # run() vor boot() aufzurufen ist ein Fehler, kein Graceful-Fallback.
 
         # Detect @installer prefix
         if user_input.strip().startswith("@installer"):
@@ -1543,6 +1549,7 @@ class Agent:
         from piclaw.tools.marketplace import marketplace_search, format_results_telegram
 
         restored = 0
+        stale_keys = []
         for tool_name, params in all_params.items():
             # Prüfen ob der zugehörige Agent noch existiert
             agent_exists = any(
@@ -1550,7 +1557,8 @@ class Agent:
                 for a in self.sa_registry.list_all()
             )
             if not agent_exists:
-                log.debug("MP-Monitor '%s' hat keinen Agent mehr – übersprungen", tool_name)
+                log.info("MP-Monitor '%s' hat keinen Agent mehr – wird aus Params entfernt", tool_name)
+                stale_keys.append(tool_name)
                 continue
 
             # Handler-Closure rekonstruieren
@@ -1572,6 +1580,17 @@ class Agent:
 
             self._handlers[tool_name] = _handler
             restored += 1
+
+        # Verwaiste Param-Einträge bereinigen (Agent gelöscht aber Params noch vorhanden)
+        if stale_keys:
+            try:
+                cleaned = {k: v for k, v in all_params.items() if k not in stale_keys}
+                self._MP_PARAMS_FILE.write_text(
+                    json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                log.info("MP-Monitor: %d verwaiste Einträge aus Params entfernt", len(stale_keys))
+            except Exception as e:
+                log.warning("MP-Monitor Params bereinigen fehlgeschlagen: %s", e)
 
         if restored:
             log.info("MP-Monitor: %d direct_tool Handler wiederhergestellt", restored)

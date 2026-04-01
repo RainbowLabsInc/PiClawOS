@@ -151,6 +151,23 @@ PATTERN_RULES: list[tuple[str, list[str], float]] = [
 # Tags that indicate "general" if nothing else matches
 DEFAULT_TAGS = ["general"]
 
+# HA-Regex vorcompiliert auf Modul-Ebene (wird tausende Male aufgerufen)
+_RE_HA_ACTION = re.compile(
+    r"(schalte?|mach[e]?|knips|dreh[e]?|stell[e]?|setz[e]?)"
+    r".{0,30}(licht|lampe|leuchte|steckdose|schalter|rolladen|rollo|jalousie|fernseher)",
+    re.IGNORECASE,
+)
+_RE_HA_ACTION2 = re.compile(
+    r"(licht|lampe|leuchte|steckdose|rolladen|rollo|jalousie|fernseher)"
+    r".{0,20}(an|aus|ein|off|on|auf|zu|hoch|runter)",
+    re.IGNORECASE,
+)
+_RE_HA_QUERY = re.compile(
+    r"(wie (warm|kalt|hell|dunkel)|temperatur|luftfeuchtigkeit|"
+    r"ist (das|die|der).*(an|aus|offen|geschlossen))",
+    re.IGNORECASE,
+)
+
 
 class TaskClassifier:
     """
@@ -203,29 +220,16 @@ class TaskClassifier:
 
     def _regex_classify(self, text: str) -> ClassificationResult | None:
         """Schnelle Regex-Klassifizierung für HA-Befehle (kein LLM-Aufruf)."""
-        import re
         t = text.lower()
 
-        _ha_action = (
-            r"(schalte?|mach[e]?|knips|dreh[e]?|stell[e]?|setz[e]?)"
-            r".{0,30}(licht|lampe|leuchte|steckdose|schalter|rolladen|rollo|jalousie|fernseher)"
-        )
-        _ha_action2 = (
-            r"(licht|lampe|leuchte|steckdose|rolladen|rollo|jalousie|fernseher)"
-            r".{0,20}(an|aus|ein|off|on|auf|zu|hoch|runter)"
-        )
-        if re.search(_ha_action, t) or re.search(_ha_action2, t):
+        if _RE_HA_ACTION.search(t) or _RE_HA_ACTION2.search(t):
             return ClassificationResult(
                 tags=["action", "home_automation", "german"],
                 confidence=0.95,
                 method="regex",
             )
 
-        _ha_query = (
-            r"(wie (warm|kalt|hell|dunkel)|temperatur|luftfeuchtigkeit|"
-            r"ist (das|die|der).*(an|aus|offen|geschlossen))"
-        )
-        if re.search(_ha_query, t):
+        if _RE_HA_QUERY.search(t):
             return ClassificationResult(
                 tags=["query", "home_automation", "german"],
                 confidence=0.90,

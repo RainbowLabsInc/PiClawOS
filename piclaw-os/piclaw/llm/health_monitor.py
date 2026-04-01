@@ -35,11 +35,37 @@ log = logging.getLogger(__name__)
 
 # Bekannte Provider-Endpunkte für Modell-Discovery
 _PROVIDER_MODEL_ENDPOINTS = {
-    "api.groq.com":            "https://api.groq.com/openai/v1/models",
+    "api.groq.com":             "https://api.groq.com/openai/v1/models",
     "integrate.api.nvidia.com": "https://integrate.api.nvidia.com/v1/models",
-    "api.cerebras.ai":         "https://api.cerebras.ai/v1/models",
+    "api.cerebras.ai":          "https://api.cerebras.ai/v1/models",
+    "openrouter.ai":            "https://openrouter.ai/api/v1/models",
     # Together.ai: $5 Startguthaben, danach kostenpflichtig → NICHT enthalten
     # Mistral: Free-Tier limitiert, paid by default → NICHT enthalten
+}
+
+# ── Provider-Signup-URLs für autonome Schlüssel-Suche (v0.16) ──────────────
+# Format: {host: (signup_url, key_env_name, free_tier_info)}
+_PROVIDER_SIGNUP_URLS = {
+    "api.groq.com": (
+        "https://console.groq.com/keys",
+        "GROQ_API_KEY",
+        "Kostenlos: 30 req/min, 6000 req/Tag für llama-3.3-70b-versatile",
+    ),
+    "integrate.api.nvidia.com": (
+        "https://build.nvidia.com",
+        "NVIDIA_API_KEY",
+        "Kostenlos: 1000 req/Tag für llama-4-maverick und llama-3.3-70b",
+    ),
+    "api.cerebras.ai": (
+        "https://cloud.cerebras.ai",
+        "CEREBRAS_API_KEY",
+        "Kostenlos: Developer-Tier, 8k req/Tag",
+    ),
+    "openrouter.ai": (
+        "https://openrouter.ai/keys",
+        "OPENROUTER_API_KEY",
+        "Kostenlos: Rate-Limit je Modell, einige Modelle permanent kostenlos",
+    ),
 }
 
 # Nur Modelle die NACHWEISLICH KOSTENLOS sind (Free-Tier)
@@ -66,6 +92,13 @@ _FREE_TIER_MODELS = {
         # Cerebras: Kostenloser Developer-Tier
         "llama-3.3-70b",
         "llama-3.1-8b",
+    ],
+    "openrouter.ai": [
+        # OpenRouter: Einige Modelle permanent kostenlos (kein :free Suffix nötig wenn bereits kostenlos)
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "microsoft/phi-3-medium-128k-instruct:free",
+        "google/gemma-2-9b-it:free",
+        "mistralai/mistral-7b-instruct:free",
     ],
 }
 
