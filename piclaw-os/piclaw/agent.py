@@ -12,14 +12,7 @@ from datetime import datetime
 import re
 
 # Vorcompilierte Regex für Marketplace-Intent-Erkennung
-_RE_MP_SEARCH_KW = re.compile(
-    r"(durchsuche|was kostet|preis für|look for|gibt es|schaue|search|suche|finde|schau|liste|such|find|zeig)",
-    re.IGNORECASE,
-)
-_RE_MP_MARKET_KW = re.compile(
-    r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|egun|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)",
-    re.IGNORECASE,
-)
+
 
 from collections.abc import Callable
 
@@ -54,7 +47,54 @@ from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
 from piclaw import soul as soul_mod
 from piclaw.tools import homeassistant as ha_mod
 
+
+
 log = logging.getLogger("piclaw.agent")
+
+_RE_MP_SEARCH_KW = re.compile(
+    r"(durchsuche|was kostet|preis für|look for|gibt es|schaue|search|suche|finde|schau|liste|such|find|zeig)",
+    re.IGNORECASE,
+)
+_RE_MP_MARKET_KW = re.compile(
+    r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|egun|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)",
+    re.IGNORECASE,
+)
+
+_RE_CRON_CREATE = re.compile(r"(?:neuen agenten|einen agenten|einen task|einen job|erstell|create|mach|baue)", re.IGNORECASE)
+_RE_CRON_TIME = re.compile(r"(?:jede woche|jeden tag|taeglich|morgens|abends|nachts|taegl|cron|uhr|um )", re.IGNORECASE)
+_RE_CRON_MARKET = re.compile(r"(?:kleinanzeigen|marktplatz|willhaben|inserat|ebay|egun)", re.IGNORECASE)
+_RE_CRON_TEMP = re.compile(r"(?:temperatur|hardware|pi info|wärme|temp|cpu)", re.IGNORECASE)
+_RE_CRON_SERVICE = re.compile(r"(?:service|dienst|status)", re.IGNORECASE)
+
+_RE_NET_MARKET = re.compile(r"(?:kleinanzeigen|sonnenschirm|marktplatz|willhaben|verkaufen|inserat|anzeige|fahrrad|wohnung|kaufen|ebay|egun|auto)", re.IGNORECASE)
+_RE_NET_SPECIFIC = re.compile(r"(?:unbekanntes gerät|wer ist im netz|neue verbindung|welche geräte|fremdes gerät|ip adresse|netzwerk|network|device|router|gerät|wlan|wifi|nmap|lan)", re.IGNORECASE)
+_RE_NET_MONITOR = re.compile(r"(?:überwach|beobacht|monitor|scan)", re.IGNORECASE)
+
+_RE_HA_ON = re.compile(r"(?:einschalten|anschalten|einmachen|anmachen|ein|an|on)", re.IGNORECASE)
+_RE_HA_OFF = re.compile(r"(?:ausschalten|ausknipsen|ausmachen|löschen|aus|off)", re.IGNORECASE)
+_RE_HA_TOGGLE = re.compile(r"(?:umschalten|wechseln|toggle)", re.IGNORECASE)
+_RE_HA_CMD = re.compile(r"(?:steckdose|schalter|schalte|leuchte|stelle|mache|stell|knips|licht|lampe|mach|dreh)", re.IGNORECASE)
+
+_RE_MONITOR_KW = re.compile(r"(?:halte die augen offen|jede halbe stunde|check regelmäßig|halte ausschau|benachrichtig|sag mir wenn|sag bescheid|automatisch|jede stunde|alle stunde|schick mir|regelmäßig|informier|stündlich|überwach|beobacht|monitor|notify|alert|watch|meld)", re.IGNORECASE)
+_RE_MONITOR_MARKET = re.compile(r"(?:kleinanzeigen|marktplatz|willhaben|gebraucht|inserat|anzeige|angebot|kaufen|preis|ebay|egun|euro)", re.IGNORECASE)
+
+_RE_AGENT_STATUS = re.compile(r"(?:laufende|running|welche|status|aktive|liste|zeig|alle|show|list|was)", re.IGNORECASE)
+_RE_AGENT_NOUN = re.compile(r"(?:sub-agent|subagent|monitor|aufgabe|agent|task|job)", re.IGNORECASE)
+_RE_AGENT_STOP = re.compile(r"(?:deaktiviere|halte an|stopp|beend|pause|stop)", re.IGNORECASE)
+_RE_AGENT_START = re.compile(r"(?:reaktiviere|aktiviere|starte|start)", re.IGNORECASE)
+_RE_AGENT_REMOVE = re.compile(r"(?:entfern|delete|remove|lösch)", re.IGNORECASE)
+_RE_MP_FOLLOWUP = re.compile(r"(?:vergrößer|wiederhol|erweiter|nochmal|breiter|nochmal|radius|größer|weiter|erhöh|mehr)", re.IGNORECASE)
+
+
+
+
+
+
+
+
+
+
+
 
 
 @dataclass
@@ -506,17 +546,11 @@ class Agent:
 
         t = text.lower()
 
-        create_kw = ("erstell", "create", "mach", "baue", "neuen agenten",
-                     "einen job", "einen task", "einen agenten")
-        time_kw = ("uhr", "taeglich", "taegl", "jeden tag", "jede woche",
-                   "morgens", "abends", "nachts", "cron", "um ")
-
-        if not any(k in t for k in create_kw):
+        if not _RE_CRON_CREATE.search(t):
             return None
-        if not any(k in t for k in time_kw):
+        if not _RE_CRON_TIME.search(t):
             return None
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "inserat", "marktplatz")
-        if any(k in t for k in market_kw):
+        if _RE_CRON_MARKET.search(t):
             return None
 
         # Zeit extrahieren
@@ -563,23 +597,11 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "inserat",
-                     "anzeige", "marktplatz", "kaufen", "verkaufen",
-                     "sonnenschirm", "fahrrad", "auto", "wohnung")
-        if any(k in t for k in market_kw):
+        if _RE_NET_MARKET.search(t):
             return False
 
-        # Netzwerk-spezifische Keywords müssen vorhanden sein
-        network_specific = (
-            "netzwerk", "network", "gerät", "device", "router",
-            "lan", "wlan", "wifi", "nmap", "ip adresse",
-            "wer ist im netz", "welche geräte", "neue verbindung",
-            "fremdes gerät", "unbekanntes gerät",
-        )
-        monitor_kw = ("überwach", "beobacht", "monitor", "scan")
-
-        has_network = any(k in t for k in network_specific)
-        has_monitor = any(k in t for k in monitor_kw)
+        has_network = bool(_RE_NET_SPECIFIC.search(t))
+        has_monitor = bool(_RE_NET_MONITOR.search(t))
         return has_network and has_monitor
 
     async def _create_cron_agent(self, intent: dict) -> str:
@@ -594,7 +616,7 @@ class Agent:
         name = f"CronJob_{hour:02d}{minute:02d}"
         # Tool-Auswahl basierend auf Aufgabe
         t = task.lower()
-        if any(k in t for k in ("temperatur", "temp", "cpu", "hardware", "pi info", "wärme")):
+        if _RE_CRON_TEMP.search(t):
             tools = ["thermal_status", "pi_info", "memory_log"]
             mission = (
                 f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
@@ -606,7 +628,7 @@ class Agent:
                 f"4. Protokolliere das Ergebnis mit memory_log.\n\n"
                 f"WICHTIG: Antworte ausschliesslich auf Deutsch."
             )
-        elif any(k in t for k in ("service", "dienst", "status")):
+        elif _RE_CRON_SERVICE.search(t):
             tools = ["service_status", "service_list", "memory_log"]
             mission = (
                 f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
@@ -727,23 +749,17 @@ class Agent:
             return None
 
         # Intent erkennen
-        on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
-        off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
-        toggle_kw = ("toggle", "umschalten", "wechseln")
-        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter")
-
         # Muss mindestens ein Befehlswort enthalten
-        if not any(k in t for k in cmd_kw):
+        if not _RE_HA_CMD.search(t):
             return None
 
         # Richtung bestimmen
         action = None
-        if any(k in t for k in on_kw):
+        if _RE_HA_ON.search(t):
             action = "on"
-        elif any(k in t for k in off_kw):
+        elif _RE_HA_OFF.search(t):
             action = "off"
-        elif any(k in t for k in toggle_kw):
+        elif _RE_HA_TOGGLE.search(t):
             action = "toggle"
         else:
             return None  # Kein klarer On/Off Intent
@@ -754,11 +770,7 @@ class Agent:
                 "bitte", "mal", "doch", "jetzt", "sofort", "kurz", "einmal"}
         words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
         # Raum-Keywords suchen
-        area_words = [w for w in words if w not in
-                      on_kw + off_kw + toggle_kw +
-                      ["schalte", "mach", "mache", "stell", "stelle",
-                       "knips", "dreh", "licht", "lampe", "leuchte",
-                       "steckdose", "schalter", "bitte"]]
+        area_words = [w for w in words if not (_RE_HA_ON.fullmatch(w) or _RE_HA_OFF.fullmatch(w) or _RE_HA_TOGGLE.fullmatch(w) or _RE_HA_CMD.fullmatch(w) or w == "bitte")]
         area = " ".join(area_words).strip() if area_words else ""
 
         # Entität suchen
@@ -802,37 +814,24 @@ class Agent:
             r"wenn.*inserat", r"wenn.*neu", r"jede.*stunde", r"alle.*stunde",
             r"jede.*halbe", r"alle\s+\d+\s*min",
         ]
-        monitor_kw = (
-            "überwach", "beobacht", "benachrichtig", "informier", "meld",
-            "sag mir wenn", "sag bescheid", "schick mir", "check regelmäßig",
-            "halte ausschau", "halte die augen offen",
-            "alert", "monitor", "watch", "notify",
-            "stündlich", "regelmäßig", "automatisch",
-            "jede stunde", "alle stunde", "jede halbe stunde",
-        )
-        market_kw = (
-            "kleinanzeigen", "ebay", "willhaben", "egun", "inserat", "anzeige", "kaufen",
-            "marktplatz", "gebraucht", "preis", "euro", "angebot",
-        )
-
-        _has_monitor_kw = any(k in t for k in monitor_kw)
+        _has_monitor_kw = bool(_RE_MONITOR_KW.search(t))
         if not _has_monitor_kw:
             # Regex-Patterns als Fallback prüfen
             _has_monitor_kw = any(re.search(p, t) for p in _regex_patterns)
         if not _has_monitor_kw:
             return None
-        if not any(k in t for k in market_kw):
+        if not _RE_MONITOR_MARKET.search(t):
             return None
 
         # Intervall aus Text extrahieren (default 1h)
         interval_sec = 3600
-        if any(k in t for k in ("30 min", "30min", "halbstündlich", "halbe stunde", "jede halbe")):
+        if re.search(r"(?:30 min|30min|halbstündlich|halbe stunde|jede halbe)", t, re.IGNORECASE):
             interval_sec = 1800
-        elif any(k in t for k in ("15 min", "15min")):
+        elif re.search(r"(?:15 min|15min)", t, re.IGNORECASE):
             interval_sec = 900
-        elif any(k in t for k in ("2 stund", "2h", "alle zwei")):
+        elif re.search(r"(?:2 stund|2h|alle zwei)", t, re.IGNORECASE):
             interval_sec = 7200
-        elif any(k in t for k in ("täglich", "einmal am tag", "24h")):
+        elif re.search(r"(?:täglich|einmal am tag|24h)", t, re.IGNORECASE):
             interval_sec = 86400
         # Explizite "alle N min/stunde" Extraktion
         _interval_match = re.search(r"(?:alle|jede)\s+(\d+)\s*(min|stund)", t)
@@ -846,11 +845,11 @@ class Agent:
 
         # Plattform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if re.search(r"(?:kleinanzeigen\.de|kleinanzeigen)", t, re.IGNORECASE):
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
-        if any(k in t for k in ("egun", "egun.de")):
+        if re.search(r"(?:egun\.de|egun)", t, re.IGNORECASE):
             platforms.append("egun")
         if "willhaben" in t:
             platforms.append("willhaben")
@@ -1014,7 +1013,7 @@ class Agent:
             return None
         # Platform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if re.search(r"(?:kleinanzeigen\.de|kleinanzeigen)", t, re.IGNORECASE):
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
@@ -1235,14 +1234,7 @@ class Agent:
 
         # Agent-Status-Shortcut: "zeig Agenten", "welche Jobs laufen" etc.
         _t = user_input.lower()
-        _agent_status_kw = (
-            "zeig", "liste", "welche", "was", "status", "laufende", "aktive",
-            "alle", "show", "list", "running",
-        )
-        _agent_noun_kw = (
-            "agent", "job", "monitor", "subagent", "sub-agent", "task", "aufgabe",
-        )
-        if any(k in _t for k in _agent_status_kw) and any(k in _t for k in _agent_noun_kw):
+        if _RE_AGENT_STATUS.search(_t) and _RE_AGENT_NOUN.search(_t):
             handler = self._handlers.get("agent_list")
             if handler:
                 log.info("Agent-Status-Shortcut ausgelöst")
@@ -1251,25 +1243,22 @@ class Agent:
         # Agent-Stop/Start/Remove-Shortcut: "Stopp den Monitor_X", "Lösch den X" etc.
         # Geschützte Agenten (Sicherheitsarchitektur) sind via sa_tools._PROTECTED_AGENTS gesichert
         import re as _re
-        _stop_kw   = ("stopp", "stop", "beend", "pause", "halte an", "deaktiviere")
-        _start_kw  = ("start", "starte", "aktiviere", "reaktiviere")
-        _remove_kw = ("lösch", "entfern", "delete", "remove")
         _agent_name_match = _re.search(
             r"\b(Monitor_\w+|SearchAssistant|[A-Z][a-zA-Z0-9_]{4,}|[0-9a-f]{6,12})\b", user_input
         )
         if _agent_name_match:
             _agent_name = _agent_name_match.group(1)
-            if any(k in _t for k in _stop_kw):
+            if _RE_AGENT_STOP.search(_t):
                 handler = self._handlers.get("agent_stop")
                 if handler:
                     log.info("Agent-Stop-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
-            elif any(k in _t for k in _remove_kw):
+            elif _RE_AGENT_REMOVE.search(_t):
                 handler = self._handlers.get("agent_remove")
                 if handler:
                     log.info("Agent-Remove-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
-            elif any(k in _t for k in _start_kw):
+            elif _RE_AGENT_START.search(_t):
                 handler = self._handlers.get("agent_start")
                 if handler:
                     log.info("Agent-Start-Shortcut: %s", _agent_name)
@@ -1293,11 +1282,11 @@ class Agent:
             _t2 = user_input.lower()
             # Intervall aus Text
             _interval = 300  # default 5 Min
-            if any(k in _t2 for k in ("stündlich", "1 stunde", "60 min")):
+            if re.search(r"(?:stündlich|1 stunde|60 min)", _t2, re.IGNORECASE):
                 _interval = 3600
-            elif any(k in _t2 for k in ("10 min", "10min")):
+            elif re.search(r"(?:10 min|10min)", _t2, re.IGNORECASE):
                 _interval = 600
-            elif any(k in _t2 for k in ("30 min", "30min")):
+            elif re.search(r"(?:30 min|30min)", _t2, re.IGNORECASE):
                 _interval = 1800
             _m = _re2.search(r"(\d+)\s*min", _t2)
             if _m:
@@ -1328,10 +1317,7 @@ class Agent:
             log.info("Marketplace intent detected: %s", mp_kwargs)
 
             # Direkt ausführen wenn: query + (location/radius ODER spezifische Plattform genannt)
-            _specific_platform = any(
-                p in user_input.lower()
-                for p in ["willhaben", "kleinanzeigen", "ebay", "egun"]
-            )
+            _specific_platform = bool(re.search(r"(?:willhaben|kleinanzeigen|ebay|egun)", user_input, re.IGNORECASE))
             if mp_kwargs.get("query") and (
                 mp_kwargs.get("location") or mp_kwargs.get("radius_km") or _specific_platform
             ):
@@ -1345,20 +1331,7 @@ class Agent:
 
         # Follow-up detection: "erhöhe", "vergrößer", "erweitere", "nochmal", "zeig mehr"
         if not mp_kwargs and _prev_mp_context:
-            followup_kw = (
-                "erhöh",
-                "vergrößer",
-                "erweiter",
-                "nochmal",
-                "mehr",
-                "radius",
-                "breiter",
-                "größer",
-                "weiter",
-                "nochmal",
-                "wiederhol",
-            )
-            if any(k in user_input.lower() for k in followup_kw):
+            if _RE_MP_FOLLOWUP.search(user_input):
                 mp_kwargs = dict(_prev_mp_context)
                 # Update radius if mentioned
                 new_radius = re.search(r"(\d+)\s*km", user_input)
