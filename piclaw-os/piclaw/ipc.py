@@ -16,6 +16,7 @@ import asyncio
 import logging
 
 from piclaw.config import CONFIG_DIR
+from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.ipc")
 
@@ -53,7 +54,7 @@ async def poll_triggers(sa_runner) -> None:
                         agent = sa_runner.registry.get(agent_id)
                         if agent:
                             log.info("IPC: run_now für '%s' empfangen", agent.name)
-                            asyncio.create_task(
+                            create_background_task(
                                 sa_runner._execute(agent),
                                 name=f"subagent-ipc-{agent_id}",
                             )

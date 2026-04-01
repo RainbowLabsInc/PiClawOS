@@ -18,6 +18,8 @@ Heilungs-Logik:
 """
 
 import asyncio
+
+from piclaw.taskutils import create_background_task
 import logging
 import re
 import time
@@ -227,7 +229,7 @@ class LLMHealthMonitor:
                 f"Sperre: ~{hours_left:.1f}h (bis Mitternacht UTC)\n"
                 f"Andere Backends übernehmen automatisch."
             )
-            asyncio.ensure_future(self._safe_notify(msg))
+            create_background_task(self._safe_notify(msg), name="llm-notify")
 
     def _parse_retry_after(self, error_msg: str) -> float:
         """Extrahiert Retry-After Sekunden aus Fehlermeldung."""
@@ -264,7 +266,7 @@ class LLMHealthMonitor:
 
         if all_down:
             # Auto-Discovery starten (async, im Hintergrund)
-            asyncio.ensure_future(self._auto_discover_backends(api_backends))
+            create_background_task(self._auto_discover_backends(api_backends), name="llm-auto-discover")
 
             if not self._all_api_down_notified and self.notify:
                 self._all_api_down_notified = True
@@ -286,7 +288,7 @@ class LLMHealthMonitor:
                     "⚙️ Lokales Modell (gemma-2b) übernimmt.\n"
                     "🔍 Auto-Discovery läuft – suche alternative Backends..."
                 )
-                asyncio.ensure_future(self._safe_notify(msg))
+                create_background_task(self._safe_notify(msg), name="llm-notify")
                 log.warning("ALLE API-Backends ausgefallen – Auto-Discovery gestartet")
 
     # ── Auto-Discovery: Neue Backends auf bekannten Providern finden ──
