@@ -788,38 +788,47 @@ class LLMHealthMonitor:
 
     async def request_api_key_signup(self, provider_name: str, signup_url: str) -> str | None:
         """
-        Versucht sich bei einem API-Provider anzumelden.
-        Nutzt AgentMail für die E-Mail-Verifizierung.
+        Informiert den Nutzer über einen neuen Provider mit konkreten Schritten.
 
-        Returns: API-Key wenn erfolgreich, None wenn nicht möglich.
-
-        HINWEIS: Volle Web-Automatisierung ist komplex (CAPTCHA etc.).
-        Diese Methode bereitet den Prozess vor und informiert den Nutzer.
-        Dameon kann dies über seine Tools (http_get, agentmail) selbst orchestrieren.
+        Vollautomatische Web-Registrierung ist wegen CAPTCHA nicht zuverlässig.
+        Stattdessen: klare Anleitung + piclaw-Befehl zum Aktivieren nach manuellem Signup.
         """
+        # Provider-Info aus _PROVIDER_SIGNUP_URLS holen
+        provider_info = None
+        for host, info in _PROVIDER_SIGNUP_URLS.items():
+            if provider_name.lower() in host or host in signup_url:
+                provider_info = info
+                break
+
+        signup_url_final = provider_info[0] if provider_info else signup_url
+        free_info = provider_info[2] if provider_info else ""
+        base_url_hint = signup_url_final.rsplit("/keys", 1)[0] + "/v1" if "/keys" in signup_url_final else signup_url_final
+
         try:
-            from piclaw.config import load as _load_cfg
-            _cfg = _load_cfg()
-            if not _cfg.agentmail.api_key or not _cfg.agentmail.email_address:
-                log.info("API-Key Signup: AgentMail nicht konfiguriert")
-                return None
-
-            # Dem Nutzer mitteilen dass ein neuer Provider benötigt wird
-            msg = (
-                f"🔑 *LLM Health Monitor – Neuer Provider benötigt*\n\n"
-                f"Alle bestehenden Backends sind erschöpft/ausgefallen.\n"
-                f"Vorschlag: `{provider_name}` registrieren.\n\n"
-                f"📋 Anmeldung: {signup_url}\n"
-                f"📧 Dameons E-Mail: `{_cfg.agentmail.email_address}`\n\n"
-                f"Du kannst dich manuell registrieren, oder Dameon per Chat beauftragen:\n"
-                f"_'Melde dich bei {provider_name} an und konfiguriere den API-Key'_"
+            from piclaw.config import load as _cfg_load
+            _cfg = _cfg_load()
+            email_hint = (
+                f"📧 Nutze Dameons E-Mail: `{_cfg.agentmail.email_address}`\n"
+                if getattr(_cfg.agentmail, "email_address", None) else ""
             )
-            await self._safe_notify(msg)
-            return None  # Nutzer muss manuell handeln (vorerst)
+        except Exception:
+            email_hint = ""
 
-        except Exception as e:
-            log.warning("API-Key Signup Fehler: %s", e)
-            return None
+        msg = (
+            f"🔑 *LLM Health Monitor – Neuer Provider vorgeschlagen*\n\n"
+            f"**{provider_name}** – {free_info}\n\n"
+            f"📋 Anmeldung: {signup_url_final}\n"
+            f"{email_hint}\n"
+            f"Nach der Registrierung per Chat aktivieren:\n"
+            f"_'Füge {provider_name} API-Key hinzu: DEIN_KEY'_\n\n"
+            f"Oder CLI: `piclaw llm add --name {provider_name.lower()} "
+            f"--provider openai --api-key KEY --base-url {base_url_hint}`"
+        )
+        await self._safe_notify(msg)
+        log.info("Signup-Vorschlag gesendet für Provider '%s'", provider_name)
+        return None
+
+    # ── Status für API/Dashboard ─────────────────────────────────
 
     # ── Status für API/Dashboard ─────────────────────────────────
 
