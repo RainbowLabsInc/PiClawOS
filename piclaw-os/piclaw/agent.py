@@ -54,6 +54,13 @@ from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
 from piclaw import soul as soul_mod
 from piclaw.tools import homeassistant as ha_mod
 
+# Vorcompilierte Regex für Agent-Shortcuts (Performance-Optimierung)
+_RE_AGENT_STATUS_KW = re.compile(r"(?:laufende|aktive|status|welche|liste|running|zeige|zeig|show|alle|list|was)", re.IGNORECASE)
+_RE_AGENT_NOUN_KW = re.compile(r"(?:sub-agent|subagent|aufgabe|monitor|agent|task|job)", re.IGNORECASE)
+_RE_STOP_KW = re.compile(r"(?:deaktiviere|halte an|beende|pause|stoppe|beend|stopp|stop)", re.IGNORECASE)
+_RE_START_KW = re.compile(r"(?:reaktiviere|aktiviere|starte|start)", re.IGNORECASE)
+_RE_REMOVE_KW = re.compile(r"(?:entferne|entfern|delete|remove|lösch)", re.IGNORECASE)
+
 log = logging.getLogger("piclaw.agent")
 
 
@@ -1235,14 +1242,7 @@ class Agent:
 
         # Agent-Status-Shortcut: "zeig Agenten", "welche Jobs laufen" etc.
         _t = user_input.lower()
-        _agent_status_kw = (
-            "zeig", "liste", "welche", "was", "status", "laufende", "aktive",
-            "alle", "show", "list", "running",
-        )
-        _agent_noun_kw = (
-            "agent", "job", "monitor", "subagent", "sub-agent", "task", "aufgabe",
-        )
-        if any(k in _t for k in _agent_status_kw) and any(k in _t for k in _agent_noun_kw):
+        if _RE_AGENT_STATUS_KW.search(_t) and _RE_AGENT_NOUN_KW.search(_t):
             handler = self._handlers.get("agent_list")
             if handler:
                 log.info("Agent-Status-Shortcut ausgelöst")
@@ -1250,26 +1250,22 @@ class Agent:
 
         # Agent-Stop/Start/Remove-Shortcut: "Stopp den Monitor_X", "Lösch den X" etc.
         # Geschützte Agenten (Sicherheitsarchitektur) sind via sa_tools._PROTECTED_AGENTS gesichert
-        import re as _re
-        _stop_kw   = ("stopp", "stop", "beend", "pause", "halte an", "deaktiviere")
-        _start_kw  = ("start", "starte", "aktiviere", "reaktiviere")
-        _remove_kw = ("lösch", "entfern", "delete", "remove")
         _agent_name_match = _re.search(
             r"\b(Monitor_\w+|SearchAssistant|[A-Z][a-zA-Z0-9_]{4,}|[0-9a-f]{6,12})\b", user_input
         )
         if _agent_name_match:
             _agent_name = _agent_name_match.group(1)
-            if any(k in _t for k in _stop_kw):
+            if _RE_STOP_KW.search(_t):
                 handler = self._handlers.get("agent_stop")
                 if handler:
                     log.info("Agent-Stop-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
-            elif any(k in _t for k in _remove_kw):
+            elif _RE_REMOVE_KW.search(_t):
                 handler = self._handlers.get("agent_remove")
                 if handler:
                     log.info("Agent-Remove-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
-            elif any(k in _t for k in _start_kw):
+            elif _RE_START_KW.search(_t):
                 handler = self._handlers.get("agent_start")
                 if handler:
                     log.info("Agent-Start-Shortcut: %s", _agent_name)
@@ -1289,7 +1285,6 @@ class Agent:
 
         # Netzwerk-Monitor-Intent: "Überwache mein Netzwerk", "neue Geräte erkennen" etc.
         if self._detect_network_monitor_intent(user_input):
-            import re as _re2
             _t2 = user_input.lower()
             # Intervall aus Text
             _interval = 300  # default 5 Min
