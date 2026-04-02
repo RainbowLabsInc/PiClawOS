@@ -14,6 +14,7 @@ Gewählt weil:
 
 import asyncio
 import logging
+import time
 
 from piclaw.config import CONFIG_DIR
 from piclaw.taskutils import create_background_task
@@ -38,6 +39,20 @@ def write_run_now(agent_id: str) -> bool:
         return False
 
 
+
+def write_reload_registry() -> bool:
+    """API: Schreibt einen reload_registry Trigger für den Daemon."""
+    try:
+        IPC_DIR.mkdir(parents=True, exist_ok=True)
+        trigger = IPC_DIR / f"reload_registry_{time.time()}{TRIGGER_SUFFIX}"
+        trigger.write_text("reload")
+        log.debug("IPC: reload_registry trigger geschrieben")
+        return True
+    except Exception as e:
+        log.warning("IPC: Fehler beim Schreiben des reload_registry Triggers: %s", e)
+        return False
+
+
 async def poll_triggers(sa_runner) -> None:
     """
     Daemon: Pollt IPC-Verzeichnis auf run_now Trigger.
@@ -47,6 +62,14 @@ async def poll_triggers(sa_runner) -> None:
     while True:
         try:
             if IPC_DIR.exists():
+                for trigger in list(IPC_DIR.glob(f"reload_registry_*{TRIGGER_SUFFIX}")):
+                    try:
+                        trigger.unlink()
+                        sa_runner.registry._load()
+                        log.info("IPC: Registry via reload_registry trigger neu geladen")
+                    except Exception as e:
+                        log.warning("IPC: Fehler beim Registry-Reload: %s", e)
+
                 for trigger in list(IPC_DIR.glob(f"run_now_*{TRIGGER_SUFFIX}")):
                     try:
                         agent_id = trigger.read_text().strip()

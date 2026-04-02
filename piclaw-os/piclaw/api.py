@@ -263,6 +263,8 @@ async def subagent_create(request: Request, _: str = Depends(require_auth)):
         created_by="api",
     )
     agent_id = _agent.sa_registry.add(agent_def)
+    from piclaw.ipc import write_reload_registry
+    write_reload_registry()
     if body.get("start_now"):
         await _agent.sa_runner.start_agent(agent_id)
     return {"id": agent_id, "name": agent_def.name, "created": True}
@@ -281,6 +283,8 @@ async def subagent_remove(name: str, _: str = Depends(require_auth)):
     if sa.id in _agent.sa_runner._tasks and not _agent.sa_runner._tasks[sa.id].done():
         await _agent.sa_runner.stop_agent(name)
     removed = _agent.sa_registry.remove(name)
+    from piclaw.ipc import write_reload_registry
+    write_reload_registry()
     return {"removed": removed, "name": name}
 
 
