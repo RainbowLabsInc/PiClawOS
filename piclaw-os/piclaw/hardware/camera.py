@@ -122,7 +122,9 @@ async def capture_snapshot(
         ts = int(time.time())
         filename = f"snapshot_{ts}.jpg"
 
-    output = CAPTURE_DIR / filename
+    output = (CAPTURE_DIR / filename).resolve()
+    if not output.is_relative_to(CAPTURE_DIR.resolve()):
+        raise ValueError("Ungültiger Dateiname: Pfad muss innerhalb von CAPTURE_DIR liegen")
     output.parent.mkdir(parents=True, exist_ok=True)
 
     # Versuche libcamera zuerst (Pi Camera)
