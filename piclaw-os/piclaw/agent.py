@@ -20,6 +20,18 @@ _RE_MP_MARKET_KW = re.compile(
     r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|egun|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)",
     re.IGNORECASE,
 )
+_RE_NET_MARKET = re.compile(
+    r"(kleinanzeigen|sonnenschirm|marktplatz|verkaufen|willhaben|inserat|anzeige|fahrrad|wohnung|kaufen|auto|ebay|egun)",
+    re.IGNORECASE,
+)
+_RE_NET_SPECIFIC = re.compile(
+    r"(unbekanntes gerät|neue verbindung|wer ist im netz|welche geräte|fremdes gerät|ip adresse|netzwerk|network|router|device|gerät|wifi|wlan|nmap|lan)",
+    re.IGNORECASE,
+)
+_RE_NET_MONITOR = re.compile(
+    r"(beobacht|überwach|monitor|scan)",
+    re.IGNORECASE,
+)
 
 from collections.abc import Callable
 
@@ -563,23 +575,12 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "inserat",
-                     "anzeige", "marktplatz", "kaufen", "verkaufen",
-                     "sonnenschirm", "fahrrad", "auto", "wohnung")
-        if any(k in t for k in market_kw):
+        if _RE_NET_MARKET.search(t):
             return False
 
         # Netzwerk-spezifische Keywords müssen vorhanden sein
-        network_specific = (
-            "netzwerk", "network", "gerät", "device", "router",
-            "lan", "wlan", "wifi", "nmap", "ip adresse",
-            "wer ist im netz", "welche geräte", "neue verbindung",
-            "fremdes gerät", "unbekanntes gerät",
-        )
-        monitor_kw = ("überwach", "beobacht", "monitor", "scan")
-
-        has_network = any(k in t for k in network_specific)
-        has_monitor = any(k in t for k in monitor_kw)
+        has_network = bool(_RE_NET_SPECIFIC.search(t))
+        has_monitor = bool(_RE_NET_MONITOR.search(t))
         return has_network and has_monitor
 
     async def _create_cron_agent(self, intent: dict) -> str:
