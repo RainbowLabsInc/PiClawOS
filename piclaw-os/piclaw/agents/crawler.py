@@ -102,28 +102,14 @@ class WebCrawler:
     async def _fetch(
         self, session: aiohttp.ClientSession, url: str
     ) -> tuple[str, str, list[str]]:
-        """Fetch a URL, return (text, final_url, links)."""
-        # (v0.18) Try Tandem Browser first if it looks like a complex site or fallback
-        try:
-            from piclaw.tools import tandem
+        """Fetch a URL, return (text, final_url, links).
 
-            if tandem.TOKEN_FILE.exists():
-                log.debug(
-                    "Tandem Browser detected – using for enhanced crawling: %s", url
-                )
-                # Note: This is a simplified integration. For production, we'd
-                # manage tab IDs more strictly.
-                await tandem.browser_open(url, focus=False)
-                await asyncio.sleep(3)  # Wait for JS to render
-                snap_raw = await tandem.browser_snapshot(compact=True)
-                # We return the snapshot as text. Tandem doesn't return links in compact snap yet
-                # in a way we can easily use here without more parsing logic.
-                if not snap_raw.startswith("[ERROR]"):
-                    return f"[TANDEM SNAPSHOT]\n{snap_raw}", url, []
-        except Exception as _te:
-            log.debug("Tandem fetch attempt failed: %s", _te)
-
-        # Standard aiohttp fallback
+        Kaskade: aiohttp (schnell) → Tandem Browser (JS-Rendering, Fallback).
+        Tandem wird nur genutzt wenn aiohttp zu wenig Inhalt liefert (<500 Zeichen)
+        oder HTTP-Fehler zurückgibt.
+        """
+        # ── Strategie 1: aiohttp (schnell, kein Browser nötig) ──────────────
+        text, final_url, links = "[FETCH ERROR] not started", url, []
         try:
             async with session.get(
                 url,
@@ -139,7 +125,6 @@ class WebCrawler:
                 if "html" in ct:
                     p = _TextExtractor()
                     p.feed(raw)
-                    # Resolve relative links
                     base = (
                         f"{urlparse(final_url).scheme}://{urlparse(final_url).netloc}"
                     )
@@ -149,11 +134,38 @@ class WebCrawler:
                             abs_links.append(link)
                         elif link.startswith("/"):
                             abs_links.append(base + link)
-                    return p.text, final_url, abs_links[:50]
+                    text = p.text
+                    links = abs_links[:50]
                 else:
-                    return raw[:8000], final_url, []
+                    text = raw[:8000]
+                    links = []
+
+                # Genug Inhalt → fertig
+                if len(text) >= 500:
+                    return text, final_url, links
+                log.debug("aiohttp: nur %d Zeichen – versuche Tandem für %s", len(text), url)
+
         except Exception as e:
-            return f"[FETCH ERROR] {e}", url, []
+            log.debug("aiohttp Fetch fehlgeschlagen (%s): %s", url, e)
+
+        # ── Strategie 2: Tandem Browser (JS-Rendering) ───────────────────────
+        # Nur als Fallback wenn aiohttp unzureichend. Kein sleep() – Tandem
+        # liefert das gerenderte HTML synchron über die lokale API.
+        try:
+            from piclaw.tools import tandem
+
+            if tandem.TOKEN_FILE.exists():
+                await tandem.browser_open(url, focus=False)
+                # Kurze Wartezeit nur für JS-intensive Seiten (React, Next.js etc.)
+                await asyncio.sleep(2)
+                snap_raw = await tandem.browser_snapshot(compact=True)
+                if not snap_raw.startswith("[ERROR]") and len(snap_raw) > 200:
+                    log.debug("Tandem Browser: %d Zeichen für %s", len(snap_raw), url)
+                    return f"[TANDEM SNAPSHOT]\n{snap_raw}", final_url, links
+        except Exception as _te:
+            log.debug("Tandem Fallback fehlgeschlagen (%s): %s", url, _te)
+
+        return text, final_url, links
 
     # ── LLM summarisation via mainagent API ───────────────────────
 
@@ -273,15 +285,16 @@ class WebCrawler:
         log_path = (
             CRAWL_LOG_DIR / f"{job.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
         )
-        log_path.write_text(
+        log_content = (
             f"# Crawl: {job.query}\n"
             f"Date: {datetime.now().isoformat()}\n"
             f"Pages: {pages_done}\n\n"
             f"## Summary\n{summary}\n\n"
             f"## Raw\n{combined[:20000]}"
         )
+        await asyncio.to_thread(log_path.write_text, log_content)
 
-        status = JobStatus.DONE if not found_match else JobStatus.DONE
+        status = JobStatus.DONE  # until_found endet ebenfalls mit DONE (nicht CANCELLED)
         update_job_status(job.id, status, result=summary[:500])
 
         result_msg = summary
@@ -343,17 +356,21 @@ class WebCrawler:
         if not token:
             return
         try:
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            tg_url = f"https://api.telegram.org/bot{token}/sendMessage"
             async with aiohttp.ClientSession() as s:
                 for chunk in [text[i : i + 4096] for i in range(0, len(text), 4096)]:
-                    await s.post(
-                        url,
+                    async with s.post(
+                        tg_url,
                         json={
                             "chat_id": chat_id,
                             "text": chunk,
                             "parse_mode": "Markdown",
                         },
-                    )
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status != 200:
+                            body = await resp.text()
+                            log.warning("Telegram notify HTTP %s: %s", resp.status, body[:100])
         except Exception as e:
             log.error("Telegram notify failed: %s", e)
 
