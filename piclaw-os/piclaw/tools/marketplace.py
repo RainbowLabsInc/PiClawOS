@@ -45,6 +45,7 @@ RE_CLEAN_PLATFORMS = {
     term: re.compile(re.escape(term), flags=re.IGNORECASE)
     for term in [
         "kleinanzeigen.de", "ebay.de", "willhaben.at", "egun.de",
+        "troostwijkauctions.com", "troostwijk",
         "kleinanzeigen", "ebay", "willhaben", "egun", ".de", ".at",
     ]
 }
@@ -616,21 +617,21 @@ async def _search_egun(
 
 
 # ── Troostwijk.com ─────────────────────────────────────────────────────────────
-# Troostwijk ist eine vollständig client-seitige React/Next.js-App.
-# Lots werden per JavaScript geladen – HTML-Source enthält keine Daten.
 #
-# Kaskaden-Strategie:
-#   1. Next.js /_next/data/{buildId}/de/search.json  (schnell, kein Rendering)
-#   2. Scrapling Headless via _fetch_html            (JS-Rendering)
-#   3. Google-Suche als letzter Fallback             (kein Preis)
+# Live-Debugging ergab drei Fehler in der alten Implementierung:
+#   1. Domain war troostwijk.com → korrekt: troostwijkauctions.com
+#   2. Pfad war /de/a/ → korrekt: /de/l/
+#   3. Suchparameter war q= → korrekt: searchTerm=
+#      (q= liefert immer 0 Ergebnisse; searchTerm= liefert 131+)
 #
-# Lot-ID-Format: A1-{AUCTION_ID}-{LOT_NR}  (z.B. A1-42244-620)
-# Auktion-URL:   /de/a/TITEL-A1-42244
-# Lot-URL:       /de/a/TITEL-A1-42244-620
-# Länderfilter:  ?countries=DE
+# Datenquelle: /_next/data/{buildId}/de/search.json?searchTerm=X&countries=DE
+# Lot-ID:      A\d+-\d+-\d+  (z.B. A7-44764-172, A1-44837-40)
+# Pagination:  &page=2, &page=3 ...  (20 Lots pro Seite)
+# Lot-URL:     /de/l/{urlSlug}
 
+_TW_BASE = "https://www.troostwijkauctions.com"
+_TW_BUILD_ID_CACHE: dict[str, str] = {}
 
-_TW_BASE = "https://www.troostwijk.com"
 _TW_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -638,186 +639,149 @@ _TW_HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
-    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+    "Accept": "application/json, text/html, */*;q=0.8",
+    "Referer": "https://www.troostwijkauctions.com/de",
 }
-_TW_HEADERS_JSON = {**_TW_HEADERS, "Accept": "application/json", "x-nextjs-data": "1"}
 
 
-def _tw_clean_price(text: str) -> float | None:
-    """€ 1.250,00 → 1250.0"""
-    if not text:
-        return None
-    cleaned = re.sub(r"[^\d,.]", "", str(text)).replace(",", ".")
-    parts = cleaned.split(".")
-    if len(parts) > 2:
-        cleaned = "".join(parts[:-1]) + "." + parts[-1]
+async def _tw_get_build_id(session: aiohttp.ClientSession) -> str | None:
+    """
+    Holt die aktuelle Next.js BuildId aus der Troostwijk-Hauptseite.
+    Gecacht bis das Programm neu startet (ändert sich nur bei Deployments).
+    Bei 404-Antwort wird der Cache geleert damit beim nächsten Aufruf frisch geholt wird.
+    """
+    cached = _TW_BUILD_ID_CACHE.get("twk")
+    if cached:
+        return cached
     try:
-        return float(cleaned)
-    except ValueError:
-        return None
-
-
-def _tw_normalize_lot(lot: dict) -> dict | None:
-    """Normalisiert ein Lot-Objekt aus der Next.js API oder dem HTML-Parser."""
-    try:
-        lot_id = (lot.get("lotNumber") or lot.get("lot_number")
-                  or lot.get("id") or lot.get("auctionLotId"))
-        title = (lot.get("title") or lot.get("name")
-                 or lot.get("description", "")[:80])
-        if not title:
-            return None
-
-        slug = (lot.get("slug") or lot.get("auctionSlug")
-                or lot.get("url") or "")
-        if slug:
-            url = (slug if slug.startswith("http")
-                   else f"{_TW_BASE}/de/a/{slug.lstrip('/')}")
-        elif lot_id and re.search(r"A1-\d+", str(lot_id)):
-            url = f"{_TW_BASE}/de/a/{str(lot_id).lower()}"
-        else:
-            url = ""
-
-        price_raw = (lot.get("currentPrice") or lot.get("startPrice")
-                     or lot.get("price") or {})
-        if isinstance(price_raw, dict):
-            price_raw = price_raw.get("amount") or price_raw.get("value", 0)
-        price = _tw_clean_price(price_raw) if price_raw else None
-
-        return {
-            "id": str(lot_id) if lot_id else "",
-            "platform": "troostwijk",
-            "title": str(title)[:100],
-            "price": price,
-            "price_text": f"{price:.0f} €" if price else "",
-            "location": str(lot.get("location") or lot.get("city") or ""),
-            "url": url,
-        }
-    except Exception:
-        return None
+        async with session.get(
+            f"{_TW_BASE}/de",
+            headers=_TW_HEADERS,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            if resp.status != 200:
+                return None
+            html = await resp.text()
+        m = re.search(r'"buildId"\s*:\s*"([^"]+)"', html)
+        if m:
+            bid = m.group(1)
+            _TW_BUILD_ID_CACHE["twk"] = bid
+            log.debug("Troostwijk BuildId: %s", bid)
+            return bid
+    except Exception as exc:
+        log.debug("Troostwijk BuildId Fehler: %s", exc)
+    return None
 
 
 async def _search_troostwijk(
     session: aiohttp.ClientSession,
     query: str,
-    location: str = "Hamburg",
+    location: str = "",
     country: str = "DE",
     max_price: float | None = None,
     max_results: int = 10,
 ) -> list[dict]:
     """
-    Sucht auf Troostwijk.com nach Auktions-Lots.
+    Sucht auf troostwijkauctions.com via Next.js Data-API.
 
-    Kaskade: Next.js API → Scrapling → Google-Fallback
+    Korrekte API:
+        GET /_next/data/{buildId}/de/search.json?searchTerm=QUERY&countries=DE&page=N
+        → pageProps.lots[]  (20 pro Seite)
+        → pageProps.searchTotalSize
+
+    Lot-Felder: id (UUID), displayId (A7-44764-172), title, urlSlug,
+                location.city, currentBidAmount.cents, endDate (Unix-TS),
+                biddingStatus
     """
     results: list[dict] = []
 
-    # ── Strategie 1: Next.js interne Data-API ────────────────────────────────
-    try:
-        async with session.get(
-            _TW_BASE, headers=_TW_HEADERS, timeout=aiohttp.ClientTimeout(total=10)
-        ) as resp:
-            html_home = await resp.text() if resp.status == 200 else ""
+    build_id = await _tw_get_build_id(session)
+    if not build_id:
+        log.warning("Troostwijk: BuildId nicht verfügbar")
+        return []
 
-        build_id_m = re.search(r'"buildId"\s*:\s*"([^"]+)"', html_home)
-        if build_id_m:
-            build_id = build_id_m.group(1)
-            encoded_q = quote_plus(query)
-            api_url = (
-                f"{_TW_BASE}/_next/data/{build_id}/de/search.json"
-                f"?q={encoded_q}&countries={country}"
-            )
-            async with session.get(
-                api_url, headers=_TW_HEADERS_JSON,
-                timeout=aiohttp.ClientTimeout(total=15)
-            ) as resp2:
-                if resp2.status == 200:
-                    data = await resp2.json(content_type=None)
-                    page_props = data.get("pageProps", {})
-                    lots = (page_props.get("lots") or page_props.get("items")
-                            or page_props.get("results") or [])
-                    if not lots and "initialState" in page_props:
-                        lots = (page_props["initialState"]
-                                .get("search", {}).get("lots", []))
-                    for lot in lots[:max_results]:
-                        item = _tw_normalize_lot(lot)
-                        if item:
-                            results.append(item)
-                    if results:
-                        log.info("Troostwijk: %d Lots via Next.js API", len(results))
-    except Exception as exc:
-        log.debug("Troostwijk Next.js API: %s", exc)
+    encoded_q = quote_plus(query)
+    pages_needed = max(1, (max_results + 19) // 20)
 
-    # ── Strategie 2: Scrapling / _fetch_html ─────────────────────────────────
-    if not results:
+    for page in range(1, pages_needed + 1):
+        api_url = (
+            f"{_TW_BASE}/_next/data/{build_id}/de/search.json"
+            f"?searchTerm={encoded_q}&countries={country}&page={page}"
+        )
         try:
-            search_url = (
-                f"{_TW_BASE}/de/search?q={quote_plus(query)}&countries={country}"
-            )
-            html = await _fetch_html(search_url, label="Troostwijk")
-            if html:
-                lot_re = re.compile(
-                    r'<a[^>]+href="([^"]*(?:A1-\d+(?:-\d+)?)[^"]*)"[^>]*>'                    r'(.*?)</a>', re.DOTALL | re.IGNORECASE
-                )
-                seen_ids: set[str] = set()
-                for m in lot_re.finditer(html):
-                    href = m.group(1)
-                    text = re.sub(r"<[^>]+>", "", m.group(2)).strip()
-                    if not text or len(text) < 4:
-                        continue
-                    id_m = re.search(r"(A1-\d+(?:-\d+)?)", href)
-                    lot_id = id_m.group(1) if id_m else href[-20:]
-                    if lot_id in seen_ids:
-                        continue
-                    seen_ids.add(lot_id)
-                    url = href if href.startswith("http") else f"{_TW_BASE}{href}"
-                    results.append({
-                        "id": lot_id, "platform": "troostwijk",
-                        "title": text[:100], "price": None, "price_text": "",
-                        "location": "", "url": url,
-                    })
-                    if len(results) >= max_results:
-                        break
-                if results:
-                    log.info("Troostwijk: %d Lots via Scrapling/HTML", len(results))
-        except Exception as exc:
-            log.debug("Troostwijk Scrapling: %s", exc)
-
-    # ── Strategie 3: Google-Fallback ─────────────────────────────────────────
-    if not results:
-        try:
-            google_q = quote_plus(f"site:troostwijk.com {query} {location}")
-            google_url = f"https://html.duckduckgo.com/html/?q={google_q}"
             async with session.get(
-                google_url, headers=_TW_HEADERS,
-                timeout=aiohttp.ClientTimeout(total=10)
+                api_url,
+                headers=_TW_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=20),
             ) as resp:
-                if resp.status == 200:
-                    html_g = await resp.text(errors="replace")
-                    for m in RE_WEB_HITS.finditer(html_g):
-                        href, title_raw = m.group(1), m.group(2)
-                        if "troostwijk.com" not in href:
-                            continue
-                        title = re.sub(r"<[^>]+>", "", title_raw).strip()
-                        id_m = re.search(r"(A1-\d+(?:-\d+)?)", href)
-                        results.append({
-                            "id": id_m.group(1) if id_m else "",
-                            "platform": "troostwijk",
-                            "title": title[:100], "price": None, "price_text": "",
-                            "location": "", "url": href,
-                        })
-                        if len(results) >= max_results:
-                            break
-            if results:
-                log.info("Troostwijk: %d Lots via Google-Fallback", len(results))
+                if resp.status == 404:
+                    # BuildId veraltet → Cache leeren
+                    _TW_BUILD_ID_CACHE.clear()
+                    log.warning("Troostwijk: BuildId veraltet (404) – bitte erneut versuchen")
+                    break
+                if resp.status != 200:
+                    log.warning("Troostwijk: HTTP %s für Seite %d", resp.status, page)
+                    break
+                data = await resp.json(content_type=None)
         except Exception as exc:
-            log.debug("Troostwijk Google-Fallback: %s", exc)
+            log.warning("Troostwijk Fetch Fehler Seite %d: %s", page, exc)
+            break
 
-    # Preisfilter
-    if max_price is not None:
-        results = [r for r in results if r.get("price") is None or r["price"] <= max_price]
+        page_props = data.get("pageProps", {})
+        lots = page_props.get("lots", [])
+        if not lots:
+            log.debug("Troostwijk: Keine Lots auf Seite %d", page)
+            break
 
-    return results[:max_results]
+        for lot in lots:
+            if len(results) >= max_results:
+                break
 
+            # Preis: Cents → Euro
+            bid_data = lot.get("currentBidAmount") or {}
+            bid_cents = bid_data.get("cents")
+            price = bid_cents / 100.0 if bid_cents else None
+
+            # Preisfilter
+            if max_price is not None and price is not None and price > max_price:
+                continue
+
+            # URL aus urlSlug
+            url_slug = lot.get("urlSlug", "")
+            lot_url = f"{_TW_BASE}/de/l/{url_slug}" if url_slug else ""
+
+            # Standort
+            loc = lot.get("location") or {}
+            city = loc.get("city", "")
+            cc = loc.get("countryCode", "").upper()
+            location_str = f"{city}, {cc}".strip(", ") if city or cc else ""
+
+            # Enddatum
+            end_ts = lot.get("endDate")
+            from datetime import datetime as _dt
+            end_str = _dt.fromtimestamp(end_ts).strftime("%d.%m.%Y %H:%M") if end_ts else ""
+
+            results.append({
+                "id":         lot.get("displayId") or lot.get("id", ""),
+                "platform":   "troostwijk",
+                "title":      (lot.get("title") or "")[:100],
+                "price":      price,
+                "price_text": f"{price:.0f} \u20ac" if price else "",
+                "location":   location_str,
+                "url":        lot_url,
+                "end_date":   end_str,
+                "status":     lot.get("biddingStatus", ""),
+            })
+
+        total = page_props.get("searchTotalSize", 0)
+        log.debug("Troostwijk Seite %d/%d: %d Lots (gesamt: %d)",
+                  page, pages_needed, len(lots), total)
+
+        if len(lots) < 20:
+            break  # letzte Seite
+
+    log.info("Troostwijk: %d Lots für '%s'", len(results), query)
+    return results
 
 # ── Willhaben Standort-Mapping (areaId) ──────────────────────────────────────
 # Willhaben nutzt interne areaIds für den Standortfilter im webapi-Endpoint.
