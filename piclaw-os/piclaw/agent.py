@@ -852,6 +852,10 @@ class Agent:
             platforms.append("ebay")
         if any(k in t for k in ("egun", "egun.de")):
             platforms.append("egun")
+        if any(k in t for k in ("troostwijk", "troost")):
+            platforms.append("troostwijk")
+        if "ebay" in t and "kleinanzeigen" not in t:
+            platforms.append("ebay")
         if "willhaben" in t:
             platforms.append("willhaben")
         if "web" in t or "internet" in t:
@@ -1016,6 +1020,10 @@ class Agent:
         platforms = []
         if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
             platforms.append("kleinanzeigen")
+        if any(k in t for k in ("egun", "egun.de")):
+            platforms.append("egun")          # FIX: egun vor ebay prüfen (ebay-Fallback würde sonst greifen)
+        if any(k in t for k in ("troostwijk", "troost")):
+            platforms.append("troostwijk")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
         if "willhaben" in t:

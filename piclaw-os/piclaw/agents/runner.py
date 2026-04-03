@@ -294,8 +294,27 @@ class SubAgentRunner:
                  agent.name, "ok" if _has_output else "empty", agent.notify)
 
         if _intentionally_silent:
-            # Bewusst kein Output → stillschweigend beenden (kein Fallback, kein Spam)
-            pass
+            # Bewusst kein Output → stillschweigend beenden (kein Fallback, kein Spam).
+            # Ausnahme: Netzwerk-Monitor sendet stündlichen Heartbeat auch wenn alles ruhig ist,
+            # damit der Nutzer weiß dass der Agent noch läuft.
+            if agent.direct_tool == "check_new_devices" and agent.notify and self.notify:
+                import time as _time
+                _HB_KEY = f"_hb_{agent.id}"
+                _last_hb = getattr(self, _HB_KEY, 0)
+                _now = _time.time()
+                _hb_interval = 3600  # max 1x/Stunde
+                if _now - _last_hb >= _hb_interval:
+                    setattr(self, _HB_KEY, _now)
+                    hb_header = f"🤖 *{agent.name}* [heartbeat]\n"
+                    heartbeat_msg = hb_header + "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde."
+                    try:
+                        await self.notify(heartbeat_msg)
+                        log.info("Sub-agent '%s': Heartbeat (silent) gesendet", agent.name)
+                    except Exception as e:
+                        log.warning("Sub-agent '%s': Heartbeat-Fehler: %s", agent.name, e)
+                else:
+                    _remaining = int((_hb_interval - (_now - _last_hb)) / 60)
+                    log.debug("Sub-agent '%s': alles ruhig, nächster Heartbeat in %dmin", agent.name, _remaining)
         elif not _has_output:
             # Echter leerer Output → Fallback: Main Agent formuliert Status
             log.warning("Sub-agent '%s': kein Ergebnis – Fallback wird ausgelöst", agent.name)
@@ -317,8 +336,9 @@ class SubAgentRunner:
             log.debug("Sub-agent '%s': notify=False", agent.name)
         elif not self.notify:
             log.error("Sub-agent '%s': KEIN Notify-Callback! Telegram nicht konfiguriert?", agent.name)
-        elif agent.direct_tool and self._is_quiet_network_result(result):
-            # Heartbeat für Direct-Tool-Agenten (z.B. Monitor_Netzwerk).
+        elif agent.direct_tool == "check_new_devices" and self._is_quiet_network_result(result):
+            # Heartbeat NUR für den Netzwerk-Monitor (direct_tool="check_new_devices").
+            # KEIN Heartbeat für Marktplatz-Monitore (_mp_monitor_*) – die haben eigene Logik.
             # Gedrosselt auf max. 1x/Stunde um Spam zu vermeiden.
             import time as _time
             _HB_KEY = f"_hb_{agent.id}"
