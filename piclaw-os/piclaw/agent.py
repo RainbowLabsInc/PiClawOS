@@ -21,40 +21,51 @@ _RE_MP_MARKET_KW = re.compile(
     re.IGNORECASE,
 )
 
-from collections.abc import Callable
+from collections.abc import Callable # noqa: E402
 
-from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
-from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall
-from piclaw.taskutils import create_background_task
+from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR # noqa: E402
+from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall # noqa: E402
+from piclaw.taskutils import create_background_task # noqa: E402
 
-from piclaw.tools import shell as shell_mod
-from piclaw.tools import network as network_mod
-from piclaw.tools import gpio as gpio_mod
-from piclaw.tools import services as services_mod
-from piclaw.tools import updater as updater_mod
-from piclaw.tools.scheduler import Scheduler
+from piclaw.tools import shell as shell_mod # noqa: E402
+from piclaw.tools import network as network_mod # noqa: E402
+from piclaw.tools import gpio as gpio_mod # noqa: E402
+from piclaw.tools import services as services_mod # noqa: E402
+from piclaw.tools import updater as updater_mod # noqa: E402
+from piclaw.tools.scheduler import Scheduler # noqa: E402
 
-from piclaw.memory import QMDBackend, MemoryMiddleware
-from piclaw.memory.tools import TOOL_DEFS as MEMORY_TOOL_DEFS
-from piclaw.memory.tools import build_handlers as build_memory_handlers
-from piclaw.agents import heartbeat_loop
-from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS
-from piclaw.agents.orchestration import build_handlers as build_agent_handlers
-from piclaw.agents.sa_registry import (
+from piclaw.memory import QMDBackend, MemoryMiddleware # noqa: E402
+from piclaw.memory.tools import TOOL_DEFS as MEMORY_TOOL_DEFS # noqa: E402
+from piclaw.memory.tools import build_handlers as build_memory_handlers # noqa: E402
+from piclaw.agents import heartbeat_loop # noqa: E402
+from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS # noqa: E402
+from piclaw.agents.orchestration import build_handlers as build_agent_handlers # noqa: E402
+from piclaw.agents.sa_registry import ( # noqa: E402
     SubAgentRegistry,
     SubAgentDef,
     INSTALLER_MISSION_TEMPLATE,
 )
-from piclaw.agents.runner import SubAgentRunner
-from piclaw.agents.sa_tools import TOOL_DEFS as SA_TOOL_DEFS
-from piclaw.agents.sa_tools import build_handlers as build_sa_handlers
-from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS
-from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers
-from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
-from piclaw import soul as soul_mod
-from piclaw.tools import homeassistant as ha_mod
+from piclaw.agents.runner import SubAgentRunner # noqa: E402
+from piclaw.agents.sa_tools import TOOL_DEFS as SA_TOOL_DEFS # noqa: E402
+from piclaw.agents.sa_tools import build_handlers as build_sa_handlers # noqa: E402
+from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS # noqa: E402
+from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers # noqa: E402
+from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS # noqa: E402
+from piclaw import soul as soul_mod # noqa: E402
+from piclaw.tools import homeassistant as ha_mod # noqa: E402
 
 log = logging.getLogger("piclaw.agent")
+
+_RE_AGENT_STATUS = re.compile(r"(?:laufende|running|welche|status|aktive|liste|zeig|alle|show|list|was)")
+_RE_AGENT_NOUN = re.compile(r"(?:sub-agent|subagent|monitor|aufgabe|agent|task|job)")
+_RE_AGENT_STOP = re.compile(r"(?:deaktiviere|halte\ an|stopp|beend|pause|stop)")
+_RE_AGENT_START = re.compile(r"(?:reaktiviere|aktiviere|starte|start)")
+_RE_AGENT_REMOVE = re.compile(r"(?:entfern|delete|remove|lösch)")
+_RE_HA_ON = re.compile(r"(?:einschalten|anschalten|einmachen|anmachen|ein|an|on)")
+_RE_HA_OFF = re.compile(r"(?:ausschalten|ausknipsen|ausmachen|löschen|aus|off)")
+_RE_HA_TOGGLE = re.compile(r"(?:umschalten|wechseln|toggle)")
+_RE_HA_CMD = re.compile(r"(?:steckdose|schalter|schalte|leuchte|stelle|mache|stell|knips|licht|lampe|mach|dreh)")
+
 
 
 @dataclass
@@ -730,20 +741,20 @@ class Agent:
         on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
         off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
         toggle_kw = ("toggle", "umschalten", "wechseln")
-        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter")
+        # cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
+        # "licht", "lampe", "leuchte", "steckdose", "schalter")
 
         # Muss mindestens ein Befehlswort enthalten
-        if not any(k in t for k in cmd_kw):
+        if not _RE_HA_CMD.search(t):
             return None
 
         # Richtung bestimmen
         action = None
-        if any(k in t for k in on_kw):
+        if _RE_HA_ON.search(t):
             action = "on"
-        elif any(k in t for k in off_kw):
+        elif _RE_HA_OFF.search(t):
             action = "off"
-        elif any(k in t for k in toggle_kw):
+        elif _RE_HA_TOGGLE.search(t):
             action = "toggle"
         else:
             return None  # Kein klarer On/Off Intent
@@ -1242,7 +1253,7 @@ class Agent:
         _agent_noun_kw = (
             "agent", "job", "monitor", "subagent", "sub-agent", "task", "aufgabe",
         )
-        if any(k in _t for k in _agent_status_kw) and any(k in _t for k in _agent_noun_kw):
+        if _RE_AGENT_STATUS.search(_t) and _RE_AGENT_NOUN.search(_t):
             handler = self._handlers.get("agent_list")
             if handler:
                 log.info("Agent-Status-Shortcut ausgelöst")
@@ -1259,17 +1270,17 @@ class Agent:
         )
         if _agent_name_match:
             _agent_name = _agent_name_match.group(1)
-            if any(k in _t for k in _stop_kw):
+            if _RE_AGENT_STOP.search(_t):
                 handler = self._handlers.get("agent_stop")
                 if handler:
                     log.info("Agent-Stop-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
-            elif any(k in _t for k in _remove_kw):
+            elif _RE_AGENT_REMOVE.search(_t):
                 handler = self._handlers.get("agent_remove")
                 if handler:
                     log.info("Agent-Remove-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
-            elif any(k in _t for k in _start_kw):
+            elif _RE_AGENT_START.search(_t):
                 handler = self._handlers.get("agent_start")
                 if handler:
                     log.info("Agent-Start-Shortcut: %s", _agent_name)
