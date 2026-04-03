@@ -615,6 +615,210 @@ async def _search_egun(
     return results
 
 
+# ── Troostwijk.com ─────────────────────────────────────────────────────────────
+# Troostwijk ist eine vollständig client-seitige React/Next.js-App.
+# Lots werden per JavaScript geladen – HTML-Source enthält keine Daten.
+#
+# Kaskaden-Strategie:
+#   1. Next.js /_next/data/{buildId}/de/search.json  (schnell, kein Rendering)
+#   2. Scrapling Headless via _fetch_html            (JS-Rendering)
+#   3. Google-Suche als letzter Fallback             (kein Preis)
+#
+# Lot-ID-Format: A1-{AUCTION_ID}-{LOT_NR}  (z.B. A1-42244-620)
+# Auktion-URL:   /de/a/TITEL-A1-42244
+# Lot-URL:       /de/a/TITEL-A1-42244-620
+# Länderfilter:  ?countries=DE
+
+
+_TW_BASE = "https://www.troostwijk.com"
+_TW_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+}
+_TW_HEADERS_JSON = {**_TW_HEADERS, "Accept": "application/json", "x-nextjs-data": "1"}
+
+
+def _tw_clean_price(text: str) -> float | None:
+    """€ 1.250,00 → 1250.0"""
+    if not text:
+        return None
+    cleaned = re.sub(r"[^\d,.]", "", str(text)).replace(",", ".")
+    parts = cleaned.split(".")
+    if len(parts) > 2:
+        cleaned = "".join(parts[:-1]) + "." + parts[-1]
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _tw_normalize_lot(lot: dict) -> dict | None:
+    """Normalisiert ein Lot-Objekt aus der Next.js API oder dem HTML-Parser."""
+    try:
+        lot_id = (lot.get("lotNumber") or lot.get("lot_number")
+                  or lot.get("id") or lot.get("auctionLotId"))
+        title = (lot.get("title") or lot.get("name")
+                 or lot.get("description", "")[:80])
+        if not title:
+            return None
+
+        slug = (lot.get("slug") or lot.get("auctionSlug")
+                or lot.get("url") or "")
+        if slug:
+            url = (slug if slug.startswith("http")
+                   else f"{_TW_BASE}/de/a/{slug.lstrip('/')}")
+        elif lot_id and re.search(r"A1-\d+", str(lot_id)):
+            url = f"{_TW_BASE}/de/a/{str(lot_id).lower()}"
+        else:
+            url = ""
+
+        price_raw = (lot.get("currentPrice") or lot.get("startPrice")
+                     or lot.get("price") or {})
+        if isinstance(price_raw, dict):
+            price_raw = price_raw.get("amount") or price_raw.get("value", 0)
+        price = _tw_clean_price(price_raw) if price_raw else None
+
+        return {
+            "id": str(lot_id) if lot_id else "",
+            "platform": "troostwijk",
+            "title": str(title)[:100],
+            "price": price,
+            "price_text": f"{price:.0f} €" if price else "",
+            "location": str(lot.get("location") or lot.get("city") or ""),
+            "url": url,
+        }
+    except Exception:
+        return None
+
+
+async def _search_troostwijk(
+    session: aiohttp.ClientSession,
+    query: str,
+    location: str = "Hamburg",
+    country: str = "DE",
+    max_price: float | None = None,
+    max_results: int = 10,
+) -> list[dict]:
+    """
+    Sucht auf Troostwijk.com nach Auktions-Lots.
+
+    Kaskade: Next.js API → Scrapling → Google-Fallback
+    """
+    results: list[dict] = []
+
+    # ── Strategie 1: Next.js interne Data-API ────────────────────────────────
+    try:
+        async with session.get(
+            _TW_BASE, headers=_TW_HEADERS, timeout=aiohttp.ClientTimeout(total=10)
+        ) as resp:
+            html_home = await resp.text() if resp.status == 200 else ""
+
+        build_id_m = re.search(r'"buildId"\s*:\s*"([^"]+)"', html_home)
+        if build_id_m:
+            build_id = build_id_m.group(1)
+            encoded_q = quote_plus(query)
+            api_url = (
+                f"{_TW_BASE}/_next/data/{build_id}/de/search.json"
+                f"?q={encoded_q}&countries={country}"
+            )
+            async with session.get(
+                api_url, headers=_TW_HEADERS_JSON,
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as resp2:
+                if resp2.status == 200:
+                    data = await resp2.json(content_type=None)
+                    page_props = data.get("pageProps", {})
+                    lots = (page_props.get("lots") or page_props.get("items")
+                            or page_props.get("results") or [])
+                    if not lots and "initialState" in page_props:
+                        lots = (page_props["initialState"]
+                                .get("search", {}).get("lots", []))
+                    for lot in lots[:max_results]:
+                        item = _tw_normalize_lot(lot)
+                        if item:
+                            results.append(item)
+                    if results:
+                        log.info("Troostwijk: %d Lots via Next.js API", len(results))
+    except Exception as exc:
+        log.debug("Troostwijk Next.js API: %s", exc)
+
+    # ── Strategie 2: Scrapling / _fetch_html ─────────────────────────────────
+    if not results:
+        try:
+            search_url = (
+                f"{_TW_BASE}/de/search?q={quote_plus(query)}&countries={country}"
+            )
+            html = await _fetch_html(search_url, label="Troostwijk")
+            if html:
+                lot_re = re.compile(
+                    r'<a[^>]+href="([^"]*(?:A1-\d+(?:-\d+)?)[^"]*)"[^>]*>'                    r'(.*?)</a>', re.DOTALL | re.IGNORECASE
+                )
+                seen_ids: set[str] = set()
+                for m in lot_re.finditer(html):
+                    href = m.group(1)
+                    text = re.sub(r"<[^>]+>", "", m.group(2)).strip()
+                    if not text or len(text) < 4:
+                        continue
+                    id_m = re.search(r"(A1-\d+(?:-\d+)?)", href)
+                    lot_id = id_m.group(1) if id_m else href[-20:]
+                    if lot_id in seen_ids:
+                        continue
+                    seen_ids.add(lot_id)
+                    url = href if href.startswith("http") else f"{_TW_BASE}{href}"
+                    results.append({
+                        "id": lot_id, "platform": "troostwijk",
+                        "title": text[:100], "price": None, "price_text": "",
+                        "location": "", "url": url,
+                    })
+                    if len(results) >= max_results:
+                        break
+                if results:
+                    log.info("Troostwijk: %d Lots via Scrapling/HTML", len(results))
+        except Exception as exc:
+            log.debug("Troostwijk Scrapling: %s", exc)
+
+    # ── Strategie 3: Google-Fallback ─────────────────────────────────────────
+    if not results:
+        try:
+            google_q = quote_plus(f"site:troostwijk.com {query} {location}")
+            google_url = f"https://html.duckduckgo.com/html/?q={google_q}"
+            async with session.get(
+                google_url, headers=_TW_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    html_g = await resp.text(errors="replace")
+                    for m in RE_WEB_HITS.finditer(html_g):
+                        href, title_raw = m.group(1), m.group(2)
+                        if "troostwijk.com" not in href:
+                            continue
+                        title = re.sub(r"<[^>]+>", "", title_raw).strip()
+                        id_m = re.search(r"(A1-\d+(?:-\d+)?)", href)
+                        results.append({
+                            "id": id_m.group(1) if id_m else "",
+                            "platform": "troostwijk",
+                            "title": title[:100], "price": None, "price_text": "",
+                            "location": "", "url": href,
+                        })
+                        if len(results) >= max_results:
+                            break
+            if results:
+                log.info("Troostwijk: %d Lots via Google-Fallback", len(results))
+        except Exception as exc:
+            log.debug("Troostwijk Google-Fallback: %s", exc)
+
+    # Preisfilter
+    if max_price is not None:
+        results = [r for r in results if r.get("price") is None or r["price"] <= max_price]
+
+    return results[:max_results]
+
+
 # ── Willhaben Standort-Mapping (areaId) ──────────────────────────────────────
 # Willhaben nutzt interne areaIds für den Standortfilter im webapi-Endpoint.
 # Bundesland-IDs: 100er-Schritte. Bezirks/Stadt-IDs: Bundesland + 2 Ziffern.
@@ -1029,6 +1233,8 @@ async def marketplace_search(
             tasks.append(_search_egun(session, query, max_price, max_results))
         if "willhaben" in platforms:
             tasks.append(_search_willhaben(session, query, max_price, max_results, location, radius_km))
+        if "troostwijk" in platforms:
+            tasks.append(_search_troostwijk(session, query, location or "", "DE", max_price, max_results))
         if "web" in platforms:
             tasks.append(_search_web(session, query, min(max_results, 5)))
 
@@ -1079,8 +1285,8 @@ def format_results(results: dict, mode: str = "text") -> str:
     header += "─" * 50 + "\n"
 
     lines = [header]
-    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben", "egun": "eGun"}
-    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯"}
+    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben", "egun": "eGun", "troostwijk": "Troostwijk"}
+    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨"}
 
     for i, item in enumerate(new[:10], 1):
         emoji = platform_emoji.get(item["platform"], "🔗")
@@ -1089,7 +1295,14 @@ def format_results(results: dict, mode: str = "text") -> str:
         loc = f"  📍 {item['location']}" if item.get("location") else ""
         url = item.get("url", "")
         # Markdown-Titel bereinigen (Klammern eskapen)
-        safe_title = item["title"].replace("[", "\\[").replace("]", "\\]")[:70]
+        safe_title = (
+            item["title"]
+            .replace("*", "\\*")
+            .replace("_", "\\_")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
+            [:70]
+        )
 
         lines.append(f"{i}. {emoji} [{plat}] {safe_title}")
         if price:
@@ -1127,11 +1340,18 @@ def format_results_telegram(results: dict) -> str:
         lines[0] += f"(max. {results['max_price']:.0f} €)"
 
     for item in new[:10]:  # Max 10 pro Nachricht
-        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯"}.get(
+        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨"}.get(
             item["platform"], "🔗"
         )
         # Markdown-Titel bereinigen (Klammern eskapen)
-        safe_title = item["title"].replace("[", "\\[").replace("]", "\\]")[:60]
+        safe_title = (
+            item["title"]
+            .replace("*", "\\*")   # MarkdownV1: * escaped
+            .replace("_", "\\_")   # MarkdownV1: _ escaped
+            .replace("[", "\\[")
+            .replace("]", "\\]")
+            [:60]
+        )
         safe_url = _telegram_url(item["url"])
 
         price_str = f" · {item['price_text']}" if item.get("price_text") else ""
