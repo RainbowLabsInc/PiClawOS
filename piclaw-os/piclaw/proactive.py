@@ -172,18 +172,24 @@ class ProactiveRunner:
 
         warnings: list[str] = []
 
-        # CPU-Temperatur
+        # CPU-Temperatur – asyncio.to_thread statt subprocess.run (kein Event-Loop-Block)
         try:
-            import subprocess
-
-            r = subprocess.run(
-                ["vcgencmd", "measure_temp"], capture_output=True, text=True, timeout=3
+            import subprocess as _sp
+            result_obj = await asyncio.wait_for(
+                asyncio.to_thread(
+                    _sp.run,
+                    ["vcgencmd", "measure_temp"],
+                    capture_output=True, text=True,
+                ),
+                timeout=3,
             )
-            if r.returncode == 0:
-                temp = float(r.stdout.strip().replace("temp=", "").replace("'C", ""))
+            if result_obj.returncode == 0:
+                temp = float(result_obj.stdout.strip().replace("temp=", "").replace("'C", ""))
                 if temp >= temp_warn and _cooldown_ok("cpu_temp"):
                     warnings.append(f"⚠ Pi CPU: {temp}°C (Grenze: {temp_warn}°C)")
                     _mark("cpu_temp")
+        except (TimeoutError, asyncio.TimeoutError):
+            log.debug("cpu_temp check: Timeout")
         except Exception as _e:
             log.debug("cpu_temp check: %s", _e)
 

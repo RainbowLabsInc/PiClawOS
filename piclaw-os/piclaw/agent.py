@@ -17,7 +17,7 @@ _RE_MP_SEARCH_KW = re.compile(
     re.IGNORECASE,
 )
 _RE_MP_MARKET_KW = re.compile(
-    r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|egun|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)",
+    r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|egun|troostwijk|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)",
     re.IGNORECASE,
 )
 
@@ -262,7 +262,7 @@ class Agent:
                     "platforms": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Plattformen: kleinanzeigen, ebay, egun, web",
+                        "description": "Plattformen: kleinanzeigen, ebay, egun, willhaben, troostwijk, web",
                     },
                     "max_price": {
                         "type": "number",
@@ -515,7 +515,7 @@ class Agent:
             return None
         if not any(k in t for k in time_kw):
             return None
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "inserat", "marktplatz")
+        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "inserat", "marktplatz")
         if any(k in t for k in market_kw):
             return None
 
@@ -563,7 +563,7 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "inserat",
+        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "inserat",
                      "anzeige", "marktplatz", "kaufen", "verkaufen",
                      "sonnenschirm", "fahrrad", "auto", "wohnung")
         if any(k in t for k in market_kw):
@@ -811,7 +811,7 @@ class Agent:
             "jede stunde", "alle stunde", "jede halbe stunde",
         )
         market_kw = (
-            "kleinanzeigen", "ebay", "willhaben", "egun", "inserat", "anzeige", "kaufen",
+            "kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "inserat", "anzeige", "kaufen",
             "marktplatz", "gebraucht", "preis", "euro", "angebot",
         )
 
@@ -1338,7 +1338,7 @@ class Agent:
             # Direkt ausführen wenn: query + (location/radius ODER spezifische Plattform genannt)
             _specific_platform = any(
                 p in user_input.lower()
-                for p in ["willhaben", "kleinanzeigen", "ebay", "egun"]
+                for p in ["willhaben", "kleinanzeigen", "ebay", "egun", "troostwijk"]
             )
             if mp_kwargs.get("query") and (
                 mp_kwargs.get("location") or mp_kwargs.get("radius_km") or _specific_platform
