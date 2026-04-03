@@ -90,9 +90,9 @@ def detect_cameras() -> list[CameraInfo]:
             )
             name = "USB Camera"
             if result.returncode == 0:
-                for l in result.stdout.split("\n"):
-                    if "Card type" in l:
-                        name = l.split(":", 1)[-1].strip()
+                for line in result.stdout.split("\n"):
+                    if "Card type" in line:
+                        name = line.split(":", 1)[-1].strip()
                         break
             cameras.append(
                 CameraInfo(
@@ -103,7 +103,7 @@ def detect_cameras() -> list[CameraInfo]:
                 )
             )
     except Exception as _e:
-        log.debug("v4l2 camera enumeration: %s", _e)
+        logger.debug("v4l2 camera enumeration: %s", _e)
 
     return cameras
 
@@ -148,7 +148,11 @@ async def capture_snapshot(
             logger.info("Snapshot (libcamera): %s", output)
             return output
     except (TimeoutError, FileNotFoundError):
-        pass
+        if 'result' in locals() and result.returncode is None:
+            try:
+                result.kill()
+            except Exception:
+                pass
 
     # Fallback: fswebcam (USB-Webcam)
     try:
@@ -170,7 +174,11 @@ async def capture_snapshot(
             logger.info("Snapshot (fswebcam): %s", output)
             return output
     except (TimeoutError, FileNotFoundError):
-        pass
+        if 'result' in locals() and result.returncode is None:
+            try:
+                result.kill()
+            except Exception:
+                pass
 
     # Fallback: raspistill (ältere Pis)
     try:
@@ -195,7 +203,11 @@ async def capture_snapshot(
             logger.info("Snapshot (raspistill): %s", output)
             return output
     except (TimeoutError, FileNotFoundError):
-        pass
+        if 'result' in locals() and result.returncode is None:
+            try:
+                result.kill()
+            except Exception:
+                pass
 
     raise RuntimeError(
         "Keine Kamera gefunden. Installiere libcamera-apps (Pi Camera) oder fswebcam (USB)."
