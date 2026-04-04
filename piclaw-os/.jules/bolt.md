@@ -1,3 +1,7 @@
 ## 2026-03-29 - Pre-compile Regex for Hot Paths
 **Learning:** Found that `any(k in text for k in [...])` using generator expressions and inline list definitions within highly repetitive functions (`_detect_marketplace_intent`) causes inefficient repeated allocations and O(N) linear loops in Python. This gets extremely slow when called multiple times per message context loop on resource-constrained devices like the Raspberry Pi.
 **Action:** Always extract inline keyword arrays out of the function into module-level variables. Use `re.compile(r'(word1|word2)', re.IGNORECASE)` combining the words. Crucially, sort the keywords by length descending before joining them, so the regex engine does not eagerly consume partial matches, making substring scanning significantly faster than generator loops.
+
+## 2025-05-24 - Pre-compiling HA Shortcut Regexes and Sets
+**Learning:** Found that `any()` generator checks inside `_ha_shortcut` coupled with repeated tuple allocations on every message evaluation are very inefficient. Furthermore, checking `w not in on_kw + off_kw + toggle_kw + [...]` within a list comprehension triggered O(N) array concatenation and O(M) linear scanning on every word.
+**Action:** Converted these inline constant tuples to module-level pre-compiled regexes and a pre-allocated O(1) lookup `frozenset()` to minimize CPU cycles per message and avoid redundant memory allocation on resource-constrained devices.

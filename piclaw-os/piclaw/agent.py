@@ -21,6 +21,18 @@ _RE_MP_MARKET_KW = re.compile(
     re.IGNORECASE,
 )
 
+_RE_HA_CMD = re.compile(r"(steckdose|schalter|schalte|leuchte|stelle|knips|mache|licht|lampe|stell|dreh|mach)")
+_RE_HA_ON = re.compile(r"(einschalten|anschalten|einmachen|anmachen|ein|an|on)")
+_RE_HA_OFF = re.compile(r"(ausschalten|ausknipsen|ausmachen|löschen|aus|off)")
+_RE_HA_TOGGLE = re.compile(r"(umschalten|wechseln|toggle)")
+_HA_ALL_KW = frozenset((
+    "ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen",
+    "aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen",
+    "toggle", "umschalten", "wechseln",
+    "schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
+    "licht", "lampe", "leuchte", "steckdose", "schalter", "bitte"
+))
+
 from collections.abc import Callable
 
 from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
@@ -618,7 +630,7 @@ class Agent:
             # Standard-Fallback: Systembericht via direct_tool (kein LLM nötig!)
             # Spart ~3-5 LLM-Calls/Tag und schont das Groq/NIM Token-Budget.
             tools = ["system_report", "thermal_status", "pi_info", "memory_log"]
-            mission = f"Direct tool mode: system_report"
+            mission = "Direct tool mode: system_report"
             # direct_tool wird weiter unten gesetzt
 
         # direct_tool für Systembericht-Tasks (kein LLM-Loop nötig)
@@ -728,27 +740,20 @@ class Agent:
         if not client:
             return None
 
-        # Intent erkennen
-        on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
-        off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
-        toggle_kw = ("toggle", "umschalten", "wechseln")
-        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter")
-
-        # Muss mindestens ein Befehlswort enthalten
-        if not any(k in t for k in cmd_kw):
-            return None
-
-        # Richtung bestimmen
+        # Intent erkennen & Richtung bestimmen
         action = None
-        if any(k in t for k in on_kw):
+        if _RE_HA_ON.search(t):
             action = "on"
-        elif any(k in t for k in off_kw):
+        elif _RE_HA_OFF.search(t):
             action = "off"
-        elif any(k in t for k in toggle_kw):
+        elif _RE_HA_TOGGLE.search(t):
             action = "toggle"
         else:
             return None  # Kein klarer On/Off Intent
+
+        # Muss mindestens ein Befehlswort enthalten
+        if not _RE_HA_CMD.search(t):
+            return None
 
         # Raum/Gerät extrahieren – alles zwischen Befehlswort und Richtungswort
         # Stopwörter entfernen
@@ -756,11 +761,7 @@ class Agent:
                 "bitte", "mal", "doch", "jetzt", "sofort", "kurz", "einmal"}
         words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
         # Raum-Keywords suchen
-        area_words = [w for w in words if w not in
-                      on_kw + off_kw + toggle_kw +
-                      ["schalte", "mach", "mache", "stell", "stelle",
-                       "knips", "dreh", "licht", "lampe", "leuchte",
-                       "steckdose", "schalter", "bitte"]]
+        area_words = [w for w in words if w not in _HA_ALL_KW]
         area = " ".join(area_words).strip() if area_words else ""
 
         # Entität suchen
