@@ -374,6 +374,12 @@ class SubAgentRunner:
         die keine Intelligenz brauchen, nur ein Tool-Ergebnis.
         Spart 3 LLM-Calls pro Run.
         """
+        # ── Marktplatz-Monitor: Parameter aus mission-JSON lesen ────
+        # Kein Closure, kein externer Handler nötig – Params in subagents.json.
+        # Neustart-sicher: alles steht dauerhaft in der Registry.
+        if agent.direct_tool == "marketplace_monitor":
+            return await self._run_marketplace_monitor(agent)
+
         handler = self.handlers.get(agent.direct_tool)
         if not handler:
             return f"[ERROR] Direct tool '{agent.direct_tool}' nicht gefunden."
@@ -387,6 +393,47 @@ class SubAgentRunner:
             return str(result)
         except Exception as e:
             return f"[ERROR] Direct tool '{agent.direct_tool}' Fehler: {e}"
+
+    async def _run_marketplace_monitor(self, agent: SubAgentDef) -> str:
+        """
+        Marktplatz-Monitor: liest Parameter direkt aus agent.mission (JSON).
+        Neustart-sicher – keine Closures, keine externe Datei nötig.
+
+        mission-Format (JSON):
+          {"query": "Gartentisch", "platforms": ["kleinanzeigen"],
+           "location": "21224", "radius_km": 20, "max_price": null,
+           "max_results": 10}
+        """
+        import json as _json
+        try:
+            params = _json.loads(agent.mission)
+        except Exception:
+            return "[ERROR] marketplace_monitor: mission kein gueltiges JSON"
+
+        handler = self.handlers.get("marketplace_search")
+        if not handler:
+            return "[ERROR] marketplace_search Tool nicht registriert."
+
+        try:
+            result = handler(
+                query=params.get("query", ""),
+                platforms=params.get("platforms", ["kleinanzeigen"]),
+                location=params.get("location"),
+                radius_km=params.get("radius_km"),
+                max_price=params.get("max_price"),
+                max_results=params.get("max_results", 10),
+                notify_all=False,
+            )
+            if asyncio.iscoroutine(result):
+                result = await result
+        except Exception as e:
+            return f"[ERROR] marketplace_monitor Fehler: {e}"
+
+        if not result.get("new"):
+            return "__NO_NEW_RESULTS__"
+
+        from piclaw.tools.marketplace import format_results_telegram
+        return format_results_telegram(result)
 
     def _is_quiet_network_result(self, result: str) -> bool:
         """
