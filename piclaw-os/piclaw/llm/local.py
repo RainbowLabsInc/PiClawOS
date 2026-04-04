@@ -120,26 +120,20 @@ def _build_chatml_prompt(messages: list[Message]) -> str:
     system_added = False
     for m in messages:
         if m.role == "system":
-            parts.append(f"<|im_start|>system
-{m.content}<|im_end|>")
+            parts.append(f"<|im_start|>system\n{m.content}<|im_end|>")
             system_added = True
         elif m.role == "user":
             if not system_added:
-                parts.append(f"<|im_start|>system
-{OFFLINE_SYSTEM}<|im_end|>")
+                parts.append(f"<|im_start|>system\n{OFFLINE_SYSTEM}<|im_end|>")
                 system_added = True
-            parts.append(f"<|im_start|>user
-{m.content}<|im_end|>")
+            parts.append(f"<|im_start|>user\n{m.content}<|im_end|>")
         elif m.role == "assistant":
-            parts.append(f"<|im_start|>assistant
-{m.content}<|im_end|>")
+            parts.append(f"<|im_start|>assistant\n{m.content}<|im_end|>")
         elif m.role == "tool":
             # Tool-Ergebnisse als user-Nachricht (Qwen3-Konvention)
-            parts.append(f"<|im_start|>user
-Tool-Ergebnis: {m.content}<|im_end|>")
+            parts.append(f"<|im_start|>user\nTool-Ergebnis: {m.content}<|im_end|>")
     parts.append("<|im_start|>assistant")
-    return "
-".join(parts)
+    return "\n".join(parts)
 
 
 def _build_gemma_prompt(messages: list[Message]) -> str:

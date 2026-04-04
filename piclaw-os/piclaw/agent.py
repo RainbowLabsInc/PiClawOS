@@ -3,7 +3,6 @@ PiClaw OS – Core Agent
 """
 
 import asyncio
-import json
 import logging
 import traceback
 from dataclasses import dataclass, field
@@ -21,38 +20,71 @@ _RE_MP_MARKET_KW = re.compile(
     re.IGNORECASE,
 )
 
-from collections.abc import Callable
+_KNOWN_CITIES = [
+    # Österreich
+    "Wien", "Graz", "Linz", "Salzburg", "Innsbruck", "Klagenfurt",
+    "Villach", "Wels", "Steyr", "Dornbirn", "Feldkirch", "Bregenz",
+    "Leoben", "Kapfenberg", "Eisenstadt", "St. Pölten", "Wiener Neustadt",
+    "Krems", "Baden", "Mödling",
+    # Deutschland
+    "Hamburg", "Berlin", "München", "Köln", "Frankfurt", "Bremen",
+    "Hannover", "Düsseldorf", "Leipzig", "Dresden", "Stuttgart",
+    "Dortmund", "Essen", "Nürnberg", "Duisburg", "Bochum",
+    "Wuppertal", "Bielefeld", "Bonn", "Mannheim", "Karlsruhe",
+    "Rosengarten", "Augsburg", "Münster", "Wiesbaden",
+]
+_RE_KNOWN_CITIES = re.compile(
+    r"\b(" + "|".join(re.escape(c) for c in sorted(_KNOWN_CITIES, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
 
-from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
-from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall
-from piclaw.taskutils import create_background_task
+_STOPWORDS = [
+    "auf", "im", "in", "um", "von", "bis", "bitte", "suche", "finde", "such",
+    "durchsuche", "liste", "umkreis", "radius", "einen", "eine", "ein", "mir",
+    "dem", "der", "die", "das", "schnäppchen", "angebot", "angebote", "nach",
+    "einem", "einer", "nähe", "nähe von", "in der", "nach einem",
+    "ob es neue anzeigen zu", "ob es neue inserate zu", "ob es neue",
+    "neue anzeigen zu", "neue inserate zu", "neue angebote zu", "anzeigen zu",
+    "inserate zu", "ob es", "neue", "anzeigen", "inserate", "gibt", "ob", "es",
+    "zu", "für", "über", "wegen",
+]
+_RE_STOPWORDS = re.compile(
+    r"(?<![\w])(" + "|".join(re.escape(w) for w in sorted(_STOPWORDS, key=len, reverse=True)) + r")(?![\w])",
+    re.IGNORECASE,
+)
 
-from piclaw.tools import shell as shell_mod
-from piclaw.tools import network as network_mod
-from piclaw.tools import gpio as gpio_mod
-from piclaw.tools import services as services_mod
-from piclaw.tools import updater as updater_mod
-from piclaw.tools.scheduler import Scheduler
+from collections.abc import Callable  # noqa: E402
 
-from piclaw.memory import QMDBackend, MemoryMiddleware
-from piclaw.memory.tools import TOOL_DEFS as MEMORY_TOOL_DEFS
-from piclaw.memory.tools import build_handlers as build_memory_handlers
-from piclaw.agents import heartbeat_loop
-from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS
-from piclaw.agents.orchestration import build_handlers as build_agent_handlers
-from piclaw.agents.sa_registry import (
+from piclaw.config import PiClawConfig, CRASH_DIR  # noqa: E402
+from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall  # noqa: E402
+from piclaw.taskutils import create_background_task  # noqa: E402
+
+from piclaw.tools import shell as shell_mod  # noqa: E402
+from piclaw.tools import network as network_mod  # noqa: E402
+from piclaw.tools import gpio as gpio_mod  # noqa: E402
+from piclaw.tools import services as services_mod  # noqa: E402
+from piclaw.tools import updater as updater_mod  # noqa: E402
+from piclaw.tools.scheduler import Scheduler  # noqa: E402
+
+from piclaw.memory import QMDBackend, MemoryMiddleware  # noqa: E402
+from piclaw.memory.tools import TOOL_DEFS as MEMORY_TOOL_DEFS  # noqa: E402
+from piclaw.memory.tools import build_handlers as build_memory_handlers  # noqa: E402
+from piclaw.agents import heartbeat_loop  # noqa: E402
+from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS  # noqa: E402
+from piclaw.agents.orchestration import build_handlers as build_agent_handlers  # noqa: E402
+from piclaw.agents.sa_registry import (  # noqa: E402
     SubAgentRegistry,
     SubAgentDef,
     INSTALLER_MISSION_TEMPLATE,
 )
-from piclaw.agents.runner import SubAgentRunner
-from piclaw.agents.sa_tools import TOOL_DEFS as SA_TOOL_DEFS
-from piclaw.agents.sa_tools import build_handlers as build_sa_handlers
-from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS
-from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers
-from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
-from piclaw import soul as soul_mod
-from piclaw.tools import homeassistant as ha_mod
+from piclaw.agents.runner import SubAgentRunner  # noqa: E402
+from piclaw.agents.sa_tools import TOOL_DEFS as SA_TOOL_DEFS  # noqa: E402
+from piclaw.agents.sa_tools import build_handlers as build_sa_handlers  # noqa: E402
+from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS  # noqa: E402
+from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers  # noqa: E402
+from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS  # noqa: E402
+from piclaw import soul as soul_mod  # noqa: E402
+from piclaw.tools import homeassistant as ha_mod  # noqa: E402
 
 log = logging.getLogger("piclaw.agent")
 
@@ -618,7 +650,7 @@ class Agent:
             # Standard-Fallback: Systembericht via direct_tool (kein LLM nötig!)
             # Spart ~3-5 LLM-Calls/Tag und schont das Groq/NIM Token-Budget.
             tools = ["system_report", "thermal_status", "pi_info", "memory_log"]
-            mission = f"Direct tool mode: system_report"
+            mission = "Direct tool mode: system_report"
             # direct_tool wird weiter unten gesetzt
 
         # direct_tool für Systembericht-Tasks (kein LLM-Loop nötig)
@@ -1003,26 +1035,12 @@ class Agent:
         plz_match = re.search(r"\b(\d{5})\b", text_clean)
         location = plz_match.group(1) if plz_match else None
 
-        # Städtenamen erkennen (Österreich + Deutschland) falls keine PLZ
-        # Reihenfolge: längere Namen zuerst um Konflikte zu vermeiden
-        _KNOWN_CITIES = [
-            # Österreich
-            "Wien", "Graz", "Linz", "Salzburg", "Innsbruck", "Klagenfurt",
-            "Villach", "Wels", "Steyr", "Dornbirn", "Feldkirch", "Bregenz",
-            "Leoben", "Kapfenberg", "Eisenstadt", "St. Pölten", "Wiener Neustadt",
-            "Krems", "Baden", "Mödling",
-            # Deutschland
-            "Hamburg", "Berlin", "München", "Köln", "Frankfurt", "Bremen",
-            "Hannover", "Düsseldorf", "Leipzig", "Dresden", "Stuttgart",
-            "Dortmund", "Essen", "Nürnberg", "Duisburg", "Bochum",
-            "Wuppertal", "Bielefeld", "Bonn", "Mannheim", "Karlsruhe",
-            "Rosengarten", "Augsburg", "Münster", "Wiesbaden",
-        ]
-        if not location:
-            for city in sorted(_KNOWN_CITIES, key=len, reverse=True):
-                if re.search(r"(?i)\b" + re.escape(city) + r"\b", text_clean):
-                    location = city
-                    break
+        # Städtenamen erkennen (Österreich + Deutschland)
+        city_match = _RE_KNOWN_CITIES.search(text_clean)
+        city_name = city_match.group(1) if city_match else None
+
+        if not location and city_name:
+            location = city_name
 
         # Radius
         radius_match = re.search(r"(\d+)\s*km", t)
@@ -1057,70 +1075,14 @@ class Agent:
         # PLZ + Stadtname aus Query entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
-        if location and not (plz_match and location == plz_match.group(1)):
-            # Stadtname entfernen (war kein PLZ)
-            query = re.sub(r"(?i)\b" + re.escape(location) + r"\b", " ", query)
+        if city_name:
+            # Stadtname immer entfernen, auch wenn PLZ gefunden wurde
+            query = re.sub(r"(?i)\b" + re.escape(city_name) + r"\b", " ", query)
+
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
         query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
         # Stoppwörter entfernen
-        stopwords = [
-            "auf",
-            "im",
-            "in",
-            "um",
-            "von",
-            "bis",
-            "bitte",
-            "suche",
-            "finde",
-            "such",
-            "durchsuche",
-            "liste",
-            "umkreis",
-            "radius",
-            "einen",
-            "eine",
-            "ein",
-            "mir",
-            "dem",
-            "der",
-            "die",
-            "das",
-            # Städtenamen werden jetzt als location extrahiert (siehe oben)
-            # und aus dem Query via location-Removal entfernt
-            "schnäppchen",
-            "angebot",
-            "angebote",
-            "nach",
-            "einem",
-            "einer",
-            "nähe",
-            "nähe von",
-            "in der",
-            "nach einem",
-            # Query-Rauschen bei Formulierungen wie "ob es neue Anzeigen zu X gibt"
-            "ob es neue anzeigen zu",
-            "ob es neue inserate zu",
-            "ob es neue",
-            "neue anzeigen zu",
-            "neue inserate zu",
-            "neue angebote zu",
-            "anzeigen zu",
-            "inserate zu",
-            "ob es",
-            "neue",
-            "anzeigen",
-            "inserate",
-            "gibt",
-            "ob",
-            "es",
-            "zu",
-            "für",
-            "über",
-            "wegen",
-        ]
-        for w in stopwords:
-            query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
+        query = _RE_STOPWORDS.sub(" ", query)
         # .de Suffix entfernen
         query = re.sub(r"\.de\b", " ", query, flags=re.IGNORECASE)
         # Mehrfache Leerzeichen
