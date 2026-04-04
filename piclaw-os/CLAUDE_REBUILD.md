@@ -724,9 +724,74 @@ INV_034: runner.status_dict() MUSS direct_tool enthalten
   FIELD: "direct_tool": a.direct_tool  (None = läuft via LLM)
   FILE: piclaw-os/piclaw/agents/runner.py status_dict()
 
+
+---
+## CHANGES_SESSION_8B
+# marketplace_monitor Refactor (2026-04-04, Commits: b1fe021)
+
+### Architektur-Änderung: Closure → JSON-Params
+
+VORHER (broken nach Neustart):
+  - direct_tool = "_mp_monitor_{name}" (unique pro Agent)
+  - Handler als RAM-Closure → ging bei Neustart verloren
+  - marketplace_monitors.json + _restore_marketplace_monitor_handlers() nötig
+  - mp-restore Endpoint half nur API-Prozess, nicht Daemon
+  - Resultat: [ERROR] Direct tool nicht gefunden nach jedem Neustart
+
+NACHHER (neustart-sicher):
+  - direct_tool = "marketplace_monitor" (ein generischer Handler für alle)
+  - Parameter als JSON direkt in SubAgentDef.mission
+  - Neustart-sicher: alles in subagents.json, kein externes File nötig
+  - Kein _restore, kein mp-restore, keine Closures
+
+### Entfernt aus agent.py
+  - _save_mp_monitor_params()
+  - _remove_mp_monitor_params()
+  - _restore_marketplace_monitor_handlers()
+  - _MP_PARAMS_FILE = CONFIG_DIR / "marketplace_monitors.json"
+  - _restore_marketplace_monitor_handlers() Aufruf in boot()
+
+### Entfernt aus api.py
+  - POST /api/subagents/mp-restore Endpoint
+
+### Hinzugefügt in runner.py
+  - _direct_tool_call(): erkennt direct_tool=="marketplace_monitor" → _run_marketplace_monitor()
+  - _run_marketplace_monitor(): parsed JSON aus agent.mission, ruft marketplace_search() direkt auf
+
+### Hinzugefügt in agent.py (_create_monitor_agent)
+  - Speichert Parameter als JSON in mission statt als Closure
+  - direct_tool = "marketplace_monitor" (nicht mehr unique pro Agent)
+
+---
+## NEUE_INVARIANTS_SESSION_8B
+
+INV_035: marketplace_monitor – Parameter in mission als JSON
+  direct_tool: "marketplace_monitor"
+  mission: JSON-String mit Suchparametern
+  FORMAT: {"query":"...","platforms":[...],"location":"...","radius_km":N,"max_price":N,"max_results":N}
+  PLATTFORMEN: kleinanzeigen, ebay, willhaben, egun, troostwijk, web
+  WICHTIG: mission MUSS gültiges JSON sein – runner.py parsed es via json.loads()
+  NEUSTART-SICHER: alles in subagents.json, kein externes File nötig
+
+INV_036: marketplace_monitor Syntax für Dameon-Chat
+  EINMALIG:   "Suche [Artikel] auf [Plattform]"              → schedule=once, keine Registry
+  DAUERHAFT:  "Überwache [Artikel] auf [Plattform]"          → schedule=interval:3600
+  DAUERHAFT:  "Beobachte [Artikel] auf [Plattform]"          → schedule=interval:3600
+  DAUERHAFT:  "Richte eine Suche ein für [Artikel]"          → schedule=interval:3600
+  WICHTIG: Ortsnamen NICHT in Query – nur in location-Parameter!
+           FALSCH: query="Gartentisch Rosengarten"
+           RICHTIG: query="Gartentisch", location="21224"
+
+INV_037: Neuer Agent nach Daemon-Start → einmaliger Neustart nötig
+  PROBLEM: Daemon lädt subagents.json nur beim Start. Via API hinzugefügte Agenten
+           werden vom Daemon erst beim nächsten Neustart erkannt.
+  WORKAROUND: sudo systemctl restart piclaw-agent nach Agenten-Erstellung
+  DAUERLÖSUNG: v0.18 Queue System + IPC-Reload (Roadmap)
+  ERKENNUNG: last_status=null, last_run="" nach IPC-Trigger → Daemon kennt Agent nicht
+
 ---
 ## END_OF_REFERENCE
-checksum_invariants=34
+checksum_invariants=37
 checksum_services=4+1timer
 status=PRODUCTION_STABLE
 last_updated=2026-04-04
@@ -808,9 +873,15 @@ HEALTH_MONITOR:
   Auto-Repair: 404 → /models API → preferred list → registry.update()
 
 SUB_AGENTS (aktuell):
-  Monitor_Netzwerk    interval:300    direct_tool=check_new_devices        PROTECTED
-  Monitor_Gartentisch interval:3600   direct_tool=_mp_monitor_gartentisch  TOKENLOS
+  Monitor_Netzwerk    interval:300    direct_tool=check_new_devices    PROTECTED, TOKENLOS
+  Monitor_Gartentisch interval:3600   direct_tool=marketplace_monitor  TOKENLOS, JSON-Params
+  Monitor_Sonnenschirm interval:3600  direct_tool=marketplace_monitor  TOKENLOS, JSON-Params
+  Monitor_Sauer505    interval:3600   direct_tool=marketplace_monitor  TOKENLOS, JSON-Params (eGun)
   CronJob_0715        cron:15 7 * * * LLM (gewollt – täglicher Bericht)
+
+marketplace_monitor FORMAT (mission als JSON):
+  {"query":"Gartentisch","platforms":["kleinanzeigen"],"location":"21224","radius_km":20,"max_price":null,"max_results":10}
+  Plattformen: kleinanzeigen, ebay, willhaben, egun, troostwijk, web
 
 ACTIVE_LLM_BACKENDS:
   [10] groq-actions   llama-3.3-70b-versatile  Groq       30k TPM
