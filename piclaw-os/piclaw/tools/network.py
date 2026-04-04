@@ -91,7 +91,7 @@ async def wifi_disconnect() -> str:
     )
     if not dev:
         return "No active WiFi device found."
-    return await _run(f"nmcli dev disconnect {dev.strip()}")
+    return await _run(["nmcli", "dev", "disconnect", dev.strip()])
 
 
 HANDLERS = {
