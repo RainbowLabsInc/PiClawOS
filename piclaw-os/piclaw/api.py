@@ -268,21 +268,6 @@ async def subagent_create(request: Request, _: str = Depends(require_auth)):
     return {"id": agent_id, "name": agent_def.name, "created": True}
 
 
-@app.post("/api/subagents/mp-restore")
-async def mp_monitor_restore(_: str = Depends(require_auth)):
-    """Registriert Marketplace-Monitor direct_tool Handler im laufenden Daemon neu.
-    Noetig wenn Monitor via API angelegt wurde – Handler-Closure fehlt im Speicher.
-    """
-    if not _agent:
-        raise HTTPException(503, "Agent not ready")
-    try:
-        _agent._restore_marketplace_monitor_handlers()
-        registered = [k for k in _agent._handlers if k.startswith("_mp_monitor_")]
-        return {"restored": True, "handlers": registered}
-    except Exception as e:
-        raise HTTPException(500, str(e))
-
-
 @app.patch("/api/subagents/{name}")
 async def subagent_update(name: str, request: Request, _: str = Depends(require_auth)):
     """Aktualisiert Felder eines bestehenden Sub-Agents (inkl. direct_tool)."""
