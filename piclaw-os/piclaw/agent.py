@@ -615,16 +615,17 @@ class Agent:
                 f"Fasse das Ergebnis in 1-2 Saetzen zusammen."
             )
         else:
-            tools = ["thermal_status", "pi_info", "memory_log"]
-            mission = (
-                f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
-                f"Deine Aufgabe: {task}\n\n"
-                f"Vorgehensweise:\n"
-                f"1. Nutze thermal_status und pi_info um den Systemstatus abzurufen.\n"
-                f"2. Fasse das Ergebnis in 1-2 Saetzen auf DEUTSCH zusammen.\n"
-                f"3. Protokolliere das Ergebnis mit memory_log.\n\n"
-                f"WICHTIG: Antworte ausschliesslich auf Deutsch."
-            )
+            # Standard-Fallback: Systembericht via direct_tool (kein LLM nötig!)
+            # Spart ~3-5 LLM-Calls/Tag und schont das Groq/NIM Token-Budget.
+            tools = ["system_report", "thermal_status", "pi_info", "memory_log"]
+            mission = f"Direct tool mode: system_report"
+            # direct_tool wird weiter unten gesetzt
+
+        # direct_tool für Systembericht-Tasks (kein LLM-Loop nötig)
+        _use_direct_tool = not any(
+            k in t for k in ("service", "dienst", "status", "prozess")
+        )
+        _direct_tool_name = "system_report" if _use_direct_tool else ""
 
         # Collision check
         if self.sa_registry.get(name):
@@ -636,6 +637,7 @@ class Agent:
             mission=mission,
             tools=tools,
             schedule=f"cron:{cron_expr}",
+            direct_tool=_direct_tool_name,   # leer → LLM-Loop; gesetzt → kein LLM
             created_by="mainagent",
         )
         agent_id = self.sa_registry.add(agent)

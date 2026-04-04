@@ -78,11 +78,13 @@ async def _daemon_main():
             multirouter=agent.llm,
             notify=_notify_all,
         )
-        if _monitor.registry:
+        # FIX: Registry ist beim Start noch leer (bootstrap_from_config läuft in boot()).
+        # Monitor immer starten wenn Registry-Objekt vorhanden – es befüllt sich danach.
+        if _monitor.registry is not None:
             create_background_task(_monitor.start(stop), name="llm-health-monitor")
             log.info("LLM Health Monitor gestartet.")
         else:
-            log.info("LLM Health Monitor: kein Registry – übersprungen.")
+            log.info("LLM Health Monitor: kein Registry-Objekt – übersprungen.")
     except Exception as _e:
         log.warning("LLM Health Monitor konnte nicht starten: %s", _e)
 
