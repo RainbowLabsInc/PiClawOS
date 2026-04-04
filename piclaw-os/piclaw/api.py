@@ -268,6 +268,26 @@ async def subagent_create(request: Request, _: str = Depends(require_auth)):
     return {"id": agent_id, "name": agent_def.name, "created": True}
 
 
+@app.patch("/api/subagents/{name}")
+async def subagent_update(name: str, request: Request, _: str = Depends(require_auth)):
+    """Aktualisiert Felder eines bestehenden Sub-Agents (inkl. direct_tool)."""
+    if not _agent or not _agent.sa_registry:
+        raise HTTPException(503, "Agent not ready")
+    if not _agent.sa_registry.get(name):
+        raise HTTPException(404, f"Sub-agent '{name}' not found")
+    body = await request.json()
+    # Nur erlaubte Felder durchlassen
+    _UPDATABLE = {"description", "mission", "schedule", "tools", "notify",
+                  "enabled", "direct_tool", "llm_tags", "max_steps", "timeout"}
+    updates = {k: v for k, v in body.items() if k in _UPDATABLE}
+    if not updates:
+        raise HTTPException(400, f"Keine gültigen Felder. Erlaubt: {sorted(_UPDATABLE)}")
+    ok = _agent.sa_registry.update(name, **updates)
+    sa = _agent.sa_registry.get(name)
+    return {"updated": ok, "name": name,
+            "direct_tool": sa.direct_tool if sa else None}
+
+
 @app.delete("/api/subagents/{name}")
 async def subagent_remove(name: str, _: str = Depends(require_auth)):
     from piclaw.agents.sa_tools import _PROTECTED_AGENTS
@@ -403,11 +423,13 @@ async def llm_mode(_: str = Depends(require_auth)):
 async def llm_health(_: str = Depends(require_auth)):
     """LLM Health Monitor Status – zeigt Rate-Limits, Fehler, Recovery-Zeiten."""
     try:
-        from piclaw.llm.health_monitor import get_monitor
+        from piclaw.llm.health_monitor import get_monitor, read_status_file
         monitor = get_monitor()
-        if not monitor:
-            return {"available": False, "message": "Health Monitor nicht aktiv"}
-        return {"available": True, "backends": monitor.status_dict()}
+        if monitor:
+            # Selber Prozess (z.B. Tests) – direkt vom Objekt lesen
+            return {"available": True, "backends": monitor.status_dict()}
+        # API läuft als separater Prozess – Status aus Datei lesen
+        return read_status_file()
     except Exception as e:
         return {"available": False, "error": str(e)}
 

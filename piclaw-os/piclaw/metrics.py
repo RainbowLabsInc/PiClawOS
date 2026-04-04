@@ -448,10 +448,9 @@ _collector: MetricsCollector | None = None
 def get_db() -> MetricsDB:
     global _db
     if _db is None:
-        from piclaw.config import load as load_config
+        from piclaw.config import CONFIG_DIR  # Modul-Konstante, immer verfügbar
 
-        cfg = load_config()
-        db_path = Path(cfg.config_dir) / "metrics.db"
+        db_path = CONFIG_DIR / "metrics.db"
         _db = MetricsDB(db_path)
     return _db
 

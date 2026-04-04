@@ -550,6 +550,12 @@ class LLMHealthMonitor:
         while not self._stop.is_set():
             try:
                 await self.run_check()
+                # Status für API-Prozess in Datei schreiben (Cross-Prozess-Kommunikation)
+                try:
+                    from piclaw.llm.health_monitor import write_status_file
+                    await asyncio.to_thread(write_status_file, self)
+                except Exception as _wse:
+                    log.debug("Status-Datei schreiben: %s", _wse)
             except Exception as e:
                 log.error("Health-Check Fehler: %s", e)
 
@@ -853,12 +859,57 @@ class LLMHealthMonitor:
 
 _monitor: LLMHealthMonitor | None = None
 
+# Statusdatei für Cross-Prozess-Kommunikation (daemon → api)
+_STATUS_FILE_NAME = "llm_health_status.json"
 
-def get_monitor() -> LLMHealthMonitor | None:
+
+def _status_file_path():
+    try:
+        from piclaw.config import CONFIG_DIR
+        return CONFIG_DIR / _STATUS_FILE_NAME
+    except Exception:
+        from pathlib import Path
+        return Path("/etc/piclaw") / _STATUS_FILE_NAME
+
+
+def write_status_file(monitor: "LLMHealthMonitor") -> None:
+    """Schreibt aktuellen Monitor-Status in Datei (für API-Prozess lesbar)."""
+    import json
+    import time as _time
+    try:
+        status = {
+            "available": True,
+            "ts": int(_time.time()),
+            "backends": monitor.status_dict(),
+        }
+        p = _status_file_path()
+        p.write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
+    except Exception as _e:
+        log.debug("write_status_file: %s", _e)
+
+
+def read_status_file() -> dict:
+    """Liest Monitor-Status aus Datei (vom API-Prozess aufgerufen)."""
+    import json
+    import time as _time
+    try:
+        p = _status_file_path()
+        if not p.exists():
+            return {"available": False, "message": "Health Monitor nicht aktiv"}
+        data = json.loads(p.read_text(encoding="utf-8"))
+        age_s = int(_time.time()) - data.get("ts", 0)
+        if age_s > 600:  # >10min alt = veraltet
+            return {"available": False, "message": f"Health Monitor Status veraltet ({age_s}s)"}
+        return data
+    except Exception as _e:
+        return {"available": False, "error": str(_e)}
+
+
+def get_monitor() -> "LLMHealthMonitor | None":
     return _monitor
 
 
-def start_monitor(registry, multirouter, notify=None) -> LLMHealthMonitor:
+def start_monitor(registry, multirouter, notify=None) -> "LLMHealthMonitor":
     global _monitor
     _monitor = LLMHealthMonitor(registry, multirouter, notify=notify)
     return _monitor
