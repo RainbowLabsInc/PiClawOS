@@ -1,103 +1,87 @@
 # PiClaw OS – Offene Punkte für nächste Session
 # Letzte Aktualisierung: 2026-04-04 (Session 8B)
-# Version: 0.15.5 (in Vorbereitung)
+# Version: v0.15.5
 
 ---
 
 ## ⚠️ SOFORT ERLEDIGEN
 
-### 1. piclaw-agent neustarten (neue Monitore aktivieren)
-Die 3 neuen Monitor-Agenten wurden nach dem letzten Daemon-Start angelegt und
-werden erst beim nächsten Neustart vom Daemon erkannt.
-```bash
-sudo systemctl restart piclaw-agent
-```
-Danach laufen alle 5 Agenten korrekt:
-- Monitor_Netzwerk (check_new_devices, tokenlos)
-- Monitor_Gartentisch (marketplace_monitor, Kleinanzeigen 21224, 20km)
-- Monitor_Sonnenschirm (marketplace_monitor, Kleinanzeigen 21224, 20km)
-- Monitor_Sauer505 (marketplace_monitor, eGun)
-- CronJob_0715 (LLM, täglicher Bericht, gewollt)
+### 1. Credentials rotieren (nach jeder Dev-Session!)
+- API-Token: `piclaw config token` → neues Token generieren
+- GitHub PAT: https://github.com/settings/tokens → rotieren
+- Alte Werte aus dieser Session sind kompromittiert.
 
-### 2. piclaw-api neustarten (neuer Code für Chat-Erstellung)
+### 2. Home Assistant prüfen
+Falls piclaw doctor ⬜ zeigt:
 ```bash
-sudo systemctl restart piclaw-api
+curl -s http://homeassistant:8123/api/ -H "Authorization: Bearer $(grep token /etc/piclaw/config.toml | tail -1 | cut -d'"' -f2)"
 ```
-Danach erstellt Dameon neue Monitore korrekt im marketplace_monitor Format.
+Falls 200 → nur Timing-Problem, alles ok.
 
-### 3. API-Token + GitHub PAT rotieren (vor Release)
-- API-Token: REDACTED_PICLAW_TOKEN
-- GitHub PAT: REDACTED_GITHUB_PAT
+### 3. gpt-oss-120b Status prüfen
+Falls noch nicht registriert (Telegram-Bestätigung abwarten):
+```
+llm_list → prüfen ob groq-gptoss mit Prio 8 da ist
+llm_test name="groq-gptoss"
+```
 
 ---
 
-## 🔧 Bekannte Issues / Offene Features
+## 🔧 Bekannte Issues / Nächste Features
 
-### 4. Query-Extraktion verbessern
-Dameon extrahiert Ortsnamen in die Query: "Gartentischen Rosengarten" statt "Gartentisch"
-Fix: _detect_marketplace_intent() in agent.py – Ortsnamen aus Query entfernen
-Datei: piclaw-os/piclaw/agent.py, Funktion _detect_marketplace_intent()
+### Query-Extraktion verbessern
+Dameon nimmt Ortsnamen in die Query auf: "Gartentisch Rosengarten" statt "Gartentisch"
+Datei: piclaw-os/piclaw/agent.py → _detect_marketplace_intent()
+Fix: Stadtname/PLZ nach Extraktion aus clean_text entfernen
 
-### 5. Neuer Agent → Daemon-Neustart nötig (INV_037)
-Bis v0.18 (Queue System + IPC-Reload): nach Anlegen neuer Agenten manuell neustarten.
+### Troostwijk testen
+Monitor noch nicht getestet. Chat mit Dameon:
+> "Überwache Troostwijk nach [Artikel]"
 
-### 6. /api/shell Endpoint entfernen (vor Release)
-
-### 7. Troostwijk testen
-Monitor noch nicht getestet. Syntax: "Überwache Troostwijk nach [Artikel]"
+### Home Assistant doctor fix
+Doctor macht HTTP-Request mit 5s Timeout kurz nach Neustart.
+Fix: Retry-Logik oder längerer Timeout in cli.py
 
 ---
 
-## ✅ Session 8B – komplett erledigt (2026-04-04)
+## ✅ Session 8B Zusammenfassung
 
 ### marketplace_monitor Refactor (b1fe021)
-
-**Problem:** Marketplace-Monitor Handler gingen bei jedem Daemon-Neustart verloren
-wegen Closure-basiertem Ansatz → [ERROR] Direct tool nicht gefunden nach Neustart.
-
-**Lösung:** Parameter als JSON direkt in SubAgentDef.mission gespeichert.
 - direct_tool = "marketplace_monitor" (generisch für alle Plattformen)
-- mission = JSON mit query, platforms, location, radius_km, max_price, max_results
-- Neustart-sicher: alles in subagents.json, kein externes File nötig
-- Entfernt: marketplace_monitors.json, alle Closure-Funktionen, mp-restore Endpoint
+- Parameter als JSON in mission-Feld → neustart-sicher
+- Entfernt: Closures, marketplace_monitors.json, mp-restore
 
-**Plattformen:** kleinanzeigen, ebay, willhaben, egun, troostwijk, web
-
-**Syntax (für Dameon-Chat):**
-- Einmalig:   "Suche Gartentisch auf Kleinanzeigen in 21224"
-- Dauerhaft:  "Überwache Kleinanzeigen nach Gartentischen in 21224 Umkreis 20km"
-
-**Aktive Monitore:**
+### Neue Monitore
 - Monitor_Gartentisch: Kleinanzeigen, "Gartentisch", 21224, 20km
 - Monitor_Sonnenschirm: Kleinanzeigen, "Sonnenschirm", 21224, 20km
 - Monitor_Sauer505: eGun, "Sauer 505"
 
+### LLM Backends (aktuell)
+- [10] groq-actions: llama-3.3-70b-versatile
+- [ 9] groq-fallback: kimi-k2-instruct
+- [ 8] groq-gptoss: openai/gpt-oss-120b ← NEU
+- [ 6] nemotron-nvidia: llama-4-maverick
+- [ 5] openai-default: llama-3.3-70b@nvidia
+- lokal: qwen3-1.7b-q4_k_m ← NEU (Offline-Fallback)
+
+### Dokumentation
+- AGENTS.md: Agent-Architektur, Syntax, Kaskadierung
+- ROADMAP.md: bereinigt, aktuell
+- CLAUDE_REBUILD.md: INV_035–037, CHANGES_SESSION_8B
+
 ---
 
-## 📋 Roadmap
+## 🤖 Sub-Agents (aktuell)
 
-| Version | Feature |
-|---|---|
-| v0.15.5 | Stabilisierung marketplace_monitor + Troostwijk Test |
-| v0.16 | LLM Autonomie + Qwen3-1.7B als Offline-Fallback |
-| v0.17 | Emergency Shutdown via schaltbare Steckdose |
-| **v0.18** | **Queue System + IPC-Reload (löst INV_037)** |
-| v0.19 | Willhaben Kategorie-Filter |
-| v1.0 | Release |
+| Name | Plattform | Query | Intervall |
+|---|---|---|---|
+| Monitor_Netzwerk | intern | Neue Geräte | 5 Min (PROTECTED) |
+| Monitor_Gartentisch | Kleinanzeigen | Gartentisch, 21224, 20km | 1h |
+| Monitor_Sonnenschirm | Kleinanzeigen | Sonnenschirm, 21224, 20km | 1h |
+| Monitor_Sauer505 | eGun | Sauer 505 | 1h |
+| CronJob_0715 | – | Tagesbericht | täglich 07:15 |
 
----
-
-## 🤖 Sub-Agents (aktuell, nach Daemon-Neustart)
-
-```
-Monitor_Netzwerk    interval:300    direct_tool=check_new_devices    PROTECTED, TOKENLOS
-Monitor_Gartentisch interval:3600   direct_tool=marketplace_monitor  JSON: {query, location, radius}
-Monitor_Sonnenschirm interval:3600  direct_tool=marketplace_monitor  JSON: {query, location, radius}
-Monitor_Sauer505    interval:3600   direct_tool=marketplace_monitor  JSON: {query, platforms=[egun]}
-CronJob_0715        cron:15 7 * * * LLM (täglicher Bericht, gewollt)
-```
-
-## 🏠 HA-Entities (aktuell)
+## 🏠 HA-Entities
 ```
 light.licht_fernsehzimmer_switch_0, light.licht_schlafzimmer_switch_0
 light.licht_esszimmer_switch_0, light.shellyplus1_08b61fd0b64c_switch_0
