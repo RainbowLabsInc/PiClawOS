@@ -527,11 +527,21 @@ async def get_config(_: str = Depends(require_auth)):
     """Safe subset of config – never returns secret_key or API keys."""
     if not _cfg:
         return {}
+    # HA-Status aus dem lebenden Modul lesen (nicht aus config.toml)
+    ha_info = {}
+    try:
+        from piclaw.tools import homeassistant as _ha
+        client = _ha.get_client()
+        if client:
+            ha_info = {"url": str(client.base_url).rstrip("/api/").rstrip("/"), "configured": True}
+    except Exception:
+        pass
     return {
         "agent_name": _cfg.agent_name,
         "llm_backend": _cfg.llm.backend,
         "llm_model": _cfg.llm.model,
         "api_port": _cfg.api.port,
+        "homeassistant": ha_info,
     }
 
 
