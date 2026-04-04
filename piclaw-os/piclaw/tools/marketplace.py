@@ -268,6 +268,34 @@ def _parse_price(text: str) -> float | None:
 # ── Kleinanzeigen.de ───────────────────────────────────────────────────────────
 
 
+async def _resolve_kleinanzeigen_location_id(
+    session: aiohttp.ClientSession,
+    location: str,
+) -> str | None:
+    """Löst PLZ/Ort in die interne Kleinanzeigen Location-ID auf.
+
+    Kleinanzeigen nutzt ein internes URL-Format:
+      /s-{PLZ}/{query}/k0l{LOCATION_ID}r{RADIUS}
+    Die Location-ID wird über die Ort-Empfehlungs-API aufgelöst.
+    """
+    try:
+        url = f"https://www.kleinanzeigen.de/s-ort-empfehlungen.json?query={quote_plus(location)}"
+        async with session.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json(content_type=None)
+        # Format: {"_0": "Deutschland", "_2811": "21224 Rosengarten"}
+        # Den ersten Nicht-_0-Eintrag nehmen (= lokaler Treffer)
+        for key, val in data.items():
+            if key != "_0" and key.startswith("_"):
+                loc_id = key[1:]  # "_2811" → "2811"
+                log.debug("Kleinanzeigen Location-ID: %s → %s (%s)", location, loc_id, val)
+                return loc_id
+    except Exception as e:
+        log.debug("Kleinanzeigen Location-ID Fehler: %s", e)
+    return None
+
+
 async def _search_kleinanzeigen(
     session: aiohttp.ClientSession,
     query: str,
@@ -279,17 +307,32 @@ async def _search_kleinanzeigen(
     """Sucht auf Kleinanzeigen.de (ehemals eBay Kleinanzeigen)."""
     results = []
 
-    # URL aufbauen mit Radius-Unterstützung
+    # URL aufbauen – Kleinanzeigen nutzt internes Format mit Location-ID
+    # Korrekt: /s-{PLZ}/{query}/k0l{LOC_ID}r{RADIUS_KM}
+    # Falsch (alt): /s-{location}/{query}/k0?radius=N  (funktioniert nicht)
     q = quote_plus(query)
-    url = f"https://www.kleinanzeigen.de/s-{q}/k0"
-    params = []
-    if location:
+
+    if location and radius_km:
+        # Location-ID auflösen für korrekte Radius-Suche
+        loc_id = await _resolve_kleinanzeigen_location_id(session, location)
+        if loc_id:
+            loc = quote_plus(location)
+            url = f"https://www.kleinanzeigen.de/s-{loc}/{q}/k0l{loc_id}r{int(radius_km)}"
+        else:
+            # Fallback ohne Location-ID: nur PLZ im Pfad, kein Radius
+            log.warning("Kleinanzeigen: Location-ID für '%s' nicht gefunden – kein Radius-Filter", location)
+            loc = quote_plus(location)
+            url = f"https://www.kleinanzeigen.de/s-{loc}/{q}/k0"
+    elif location:
         loc = quote_plus(location)
         url = f"https://www.kleinanzeigen.de/s-{loc}/{q}/k0"
+    else:
+        url = f"https://www.kleinanzeigen.de/s-{q}/k0"
+
+    # maxPrice als Query-Parameter anhängen (einziger verbleibender QP)
+    params = []
     if max_price:
         params.append(f"maxPrice={int(max_price)}")
-    if radius_km:
-        params.append(f"radius={int(radius_km)}")
     if params:
         url += "?" + "&".join(params)
 
