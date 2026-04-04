@@ -55,31 +55,35 @@ def _suppress_output():
 
 
 # Default model path – can be overridden in config
-DEFAULT_MODEL_PATH = Path("/etc/piclaw/models/gemma-2b-q4.gguf")
-# Standard-Modell: Gemma 2B Q4 – schnell, effizient, gute Qualität
+DEFAULT_MODEL_PATH = Path("/etc/piclaw/models/qwen3-1.7b-q4_k_m.gguf")
+# Standard-Modell: Qwen3 1.7B Q4_K_M – native Tool Calling, agentic, Agent Score 0.96
 MODEL_URL = (
-    "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF"
-    "/resolve/main/gemma-2-2b-it-Q4_K_M.gguf"
+    "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF"
+    "/resolve/main/qwen3-1.7b-q4_k_m.gguf"
 )
+# Legacy Fallback (falls Qwen3 nicht geladen werden kann)
+LEGACY_MODEL_PATH = Path("/etc/piclaw/models/gemma-2b-q4.gguf")
 
 # System prompt tuned for the offline/setup context
-OFFLINE_SYSTEM = """You are PiClaw in offline mode. You are a helpful AI assistant
-running locally on a Raspberry Pi 5. You have limited capabilities compared to the
-cloud API mode. Be concise and honest about your limitations.
+OFFLINE_SYSTEM = """Du bist Dameon im Offline-Modus, ein KI-Agent auf einem Raspberry Pi 5.
+Du läufst lokal ohne Cloud-APIs. Du kannst Tool-Calls ausführen.
 
-You can help with:
-- Basic system setup and configuration
-- Simple questions about the Raspberry Pi
-- Guiding users to configure WiFi and API keys
-- Basic GPIO and service management
+Deine Hauptaufgabe im Offline-Modus:
+1. System-Monitoring und -Diagnose
+2. Neue LLM-API-Backends suchen und konfigurieren (self-healing)
+3. Services verwalten
+4. Einfache Aufgaben erledigen bis Cloud-APIs wieder verfügbar sind
 
-For complex tasks, coding, or detailed analysis, suggest the user connect to
-the internet and configure an API key."""
+Für die Selbstheilung: Suche aktive LLM-Anbieter (Groq, NVIDIA NIM, Together AI,
+Fireworks, Cerebras) und registriere funktionierende Backends automatisch.
+Antworte auf Deutsch, präzise und handlungsorientiert."""
 
 
 def _detect_format(model_path: Path) -> str:
     """Erkennt das Chat-Format anhand des Dateinamens."""
     name = model_path.name.lower()
+    if "qwen" in name:
+        return "qwen3"   # ChatML + natives Tool Calling
     if "gemma" in name:
         return "gemma"
     if "tinyllama" in name or "llama" in name:
@@ -90,11 +94,52 @@ def _detect_format(model_path: Path) -> str:
 def _build_prompt(messages: list[Message], model_path: Path) -> str:
     """Universeller Prompt-Builder für verschiedene Modell-Formate."""
     fmt = _detect_format(model_path)
+    if fmt == "qwen3":
+        return _build_chatml_prompt(messages)
     if fmt == "gemma":
         return _build_gemma_prompt(messages)
     if fmt == "tinyllama":
         return _build_tinyllama_prompt(messages)
     return _build_phi3_prompt(messages)
+
+
+def _build_chatml_prompt(messages: list[Message]) -> str:
+    """
+    ChatML Format (Qwen3, Mistral, LFM2 etc.):
+    <|im_start|>system
+...<|im_end|>
+    <|im_start|>user
+...<|im_end|>
+    <|im_start|>assistant
+
+
+    Qwen3 unterstützt natives Tool Calling über dieses Format.
+    Tool-Definitionen werden im System-Prompt übergeben.
+    """
+    parts = []
+    system_added = False
+    for m in messages:
+        if m.role == "system":
+            parts.append(f"<|im_start|>system
+{m.content}<|im_end|>")
+            system_added = True
+        elif m.role == "user":
+            if not system_added:
+                parts.append(f"<|im_start|>system
+{OFFLINE_SYSTEM}<|im_end|>")
+                system_added = True
+            parts.append(f"<|im_start|>user
+{m.content}<|im_end|>")
+        elif m.role == "assistant":
+            parts.append(f"<|im_start|>assistant
+{m.content}<|im_end|>")
+        elif m.role == "tool":
+            # Tool-Ergebnisse als user-Nachricht (Qwen3-Konvention)
+            parts.append(f"<|im_start|>user
+Tool-Ergebnis: {m.content}<|im_end|>")
+    parts.append("<|im_start|>assistant")
+    return "
+".join(parts)
 
 
 def _build_gemma_prompt(messages: list[Message]) -> str:
@@ -198,6 +243,8 @@ def _simple_tool_parse(text: str, tools: list[ToolDefinition]) -> list[ToolCall]
 def _stop_tokens(model_path: Path) -> list[str]:
     """Stop-Tokens je nach Modell-Format."""
     fmt = _detect_format(model_path)
+    if fmt == "qwen3":
+        return ["<|im_end|>", "<|endoftext|>", "<|im_start|>"]
     if fmt == "gemma":
         return ["<end_of_turn>", "<start_of_turn>"]
     if fmt == "tinyllama":
@@ -207,8 +254,10 @@ def _stop_tokens(model_path: Path) -> list[str]:
 
 class LocalBackend(LLMBackend):
     """
-    Phi-3 Mini Q4 via llama-cpp-python.
-    Loads lazily on first use, unloads via .unload().
+    Qwen3-1.7B Q4_K_M via llama-cpp-python.
+    Natives Tool Calling via ChatML-Format, Agent Score 0.96 auf CPU.
+    Lädt lazy beim ersten Aufruf, entlädt via .unload().
+    Fallback: gemma-2b-q4.gguf falls Qwen3 nicht vorhanden.
     """
 
     def __init__(
@@ -219,7 +268,16 @@ class LocalBackend(LLMBackend):
         max_tokens: int = 1024,
         temperature: float = 0.7,
     ):
-        self.model_path = Path(model_path)
+        # Qwen3 bevorzugen, auf Legacy-Gemma zurückfallen falls nicht vorhanden
+        requested = Path(model_path)
+        if not requested.exists() and model_path == DEFAULT_MODEL_PATH:
+            if LEGACY_MODEL_PATH.exists():
+                log.warning(
+                    "Qwen3 Modell nicht gefunden (%s), nutze Legacy-Fallback: %s",
+                    requested, LEGACY_MODEL_PATH
+                )
+                requested = LEGACY_MODEL_PATH
+        self.model_path = requested
         self.n_ctx = n_ctx
         self.n_threads = n_threads
         self.max_tokens = max_tokens
