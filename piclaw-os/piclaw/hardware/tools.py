@@ -122,6 +122,14 @@ TOOL_DEFS = [
         ),
         parameters={"type": "object", "properties": {}},
     ),
+    ToolDefinition(
+        name="system_report",
+        description=(
+            "Erstellt einen deutschen Systembericht (Temperatur, RAM, CPU, Disk) ohne LLM. "
+            "Ideal als direct_tool für täglich geplante CronJob-Agenten."
+        ),
+        parameters={"type": "object", "properties": {}},
+    ),
 ]
 
 
@@ -264,6 +272,71 @@ async def _thermal_status() -> str:
         return f"[thermal_status error] {e}"
 
 
+
+async def _system_report() -> str:
+    """
+    Erstellt einen deutschen Systembericht ohne LLM.
+    Wird als direct_tool für CronJob-Agenten genutzt um Groq/NIM Token zu sparen.
+    Ersetzt den LLM-basierten Systembericht (vorher: ~3-5 LLM-Calls/Tag).
+    """
+    import asyncio
+    from datetime import datetime
+
+    lines = [f"🖥️ *Systembericht* – {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"]
+
+    # Temperatur
+    try:
+        temp_text = await asyncio.to_thread(_thermal_status)
+        # Erste Zeile extrahieren (enthält Status + Temperatur)
+        temp_line = temp_text.splitlines()[0] if temp_text else "–"
+        lines.append(f"🌡️ {temp_line}")
+    except Exception as e:
+        lines.append(f"🌡️ Temperatur: Fehler ({e})")
+
+    # System-Info
+    try:
+        info_text = await asyncio.to_thread(_pi_info)
+        # Relevante Zeilen aus pi_info extrahieren
+        for line in info_text.splitlines():
+            l = line.strip()
+            if any(k in l.lower() for k in ("cpu", "ram", "disk", "speicher", "uptime", "load", "memory")):
+                lines.append(f"  {l}")
+    except Exception as e:
+        lines.append(f"  System-Info: Fehler ({e})")
+
+    # psutil für RAM/Disk (schnell, kein LLM nötig)
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage("/")
+        cpu = psutil.cpu_percent(interval=0.5)
+        lines.append(f"💾 RAM: {mem.percent:.0f}% ({mem.used//1024//1024}/{mem.total//1024//1024} MB)")
+        lines.append(f"💽 Disk: {disk.percent:.0f}% ({disk.used//1024**3:.1f}/{disk.total//1024**3:.1f} GB)")
+        lines.append(f"⚙️  CPU: {cpu:.0f}%")
+    except ImportError:
+        pass
+    except Exception as e:
+        lines.append(f"  Stats: Fehler ({e})")
+
+    # Bewertung
+    try:
+        temp_val = None
+        import re
+        m = re.search(r"(\d+\.\d+)\s*°C", "\n".join(lines))
+        if m:
+            temp_val = float(m.group(1))
+        if temp_val and temp_val >= 75:
+            lines.append("\n⚠️ Temperatur kritisch – Lüftung prüfen!")
+        elif temp_val and temp_val >= 60:
+            lines.append("\n⚠️ Temperatur erhöht.")
+        else:
+            lines.append("\n✅ System läuft stabil.")
+    except Exception:
+        pass
+
+    return "\n".join(lines)
+
+
 # ── Handler dispatch map ──────────────────────────────────────────
 
 HANDLERS: dict[str, callable] = {
@@ -275,4 +348,5 @@ HANDLERS: dict[str, callable] = {
     "sensor_add": lambda **kw: _sensor_add(**kw),
     "sensor_remove": lambda **kw: _sensor_remove(**kw),
     "thermal_status": lambda **_: _thermal_status(),
+    "system_report":  lambda **_: _system_report(),
 }
