@@ -1597,9 +1597,15 @@ class Agent:
                 for a in self.sa_registry.list_all()
             )
             if not agent_exists:
-                log.info("MP-Monitor '%s' hat keinen Agent mehr – wird aus Params entfernt", tool_name)
-                stale_keys.append(tool_name)
-                continue
+                # Nur als stale markieren wenn der tool_name in marketplace_monitors.json
+                # UND kein Agent mit diesem direct_tool existiert.
+                # ABER: nicht sofort löschen – vielleicht wurde der Agent neu angelegt
+                # aber der Daemon noch nicht neugestartet. Wir behalten den Eintrag.
+                log.info(
+                    "MP-Monitor '%s': kein Agent mit direct_tool='%s' gefunden – Handler wird NICHT registriert",
+                    tool_name, tool_name,
+                )
+                continue  # Params behalten, nur Handler nicht registrieren
 
             # Handler-Closure rekonstruieren
             _q = params.get("query", "")
@@ -1622,15 +1628,9 @@ class Agent:
             restored += 1
 
         # Verwaiste Param-Einträge bereinigen (Agent gelöscht aber Params noch vorhanden)
-        if stale_keys:
-            try:
-                cleaned = {k: v for k, v in all_params.items() if k not in stale_keys}
-                self._MP_PARAMS_FILE.write_text(
-                    json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
-                log.info("MP-Monitor: %d verwaiste Einträge aus Params entfernt", len(stale_keys))
-            except Exception as e:
-                log.warning("MP-Monitor Params bereinigen fehlgeschlagen: %s", e)
+        # Stale-Einträge werden NICHT aus der Datei gelöscht.
+        # Grund: Agent könnte existieren aber subagents.json noch nicht neu geladen haben.
+        # Bereinigung nur manuell oder beim expliziten Löschen eines Monitors.
 
         if restored:
             log.info("MP-Monitor: %d direct_tool Handler wiederhergestellt", restored)
