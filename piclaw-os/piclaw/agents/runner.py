@@ -174,6 +174,8 @@ class SubAgentRunner:
                     "last_status": a.last_status,
                     "trusted": a.trusted,
                     "privileged": a.privileged,
+                    "direct_tool": a.direct_tool,
+                    "mission": a.mission,
                 }
             )
         return {"sub_agents": result}
