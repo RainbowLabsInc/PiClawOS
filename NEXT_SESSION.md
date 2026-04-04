@@ -1,130 +1,76 @@
 # PiClaw OS – Offene Punkte für nächste Session
-# Letzte Aktualisierung: 2026-04-04 (Session 8)
-# Version: 0.15.4
+# Letzte Aktualisierung: 2026-04-04 (Session 8B)
+# Version: 0.15.5 (in Vorbereitung)
 
 ---
 
-## ⚠️ SOFORT ERLEDIGEN (vor nächster Nutzung)
+## ⚠️ SOFORT ERLEDIGEN
 
-### 1. `sudo git pull + restart` auf der Pi durchführen
-Die Commits 830e297..5da8724 sind auf GitHub aber noch nicht vollständig aktiv.
+### 1. piclaw-agent neustarten (neue Monitore aktivieren)
+Die 3 neuen Monitor-Agenten wurden nach dem letzten Daemon-Start angelegt und
+werden erst beim nächsten Neustart vom Daemon erkannt.
 ```bash
-cd /opt/piclaw && sudo git pull
-sudo systemctl restart piclaw-agent piclaw-api
+sudo systemctl restart piclaw-agent
 ```
-Danach: `POST /api/subagents/mp-restore` aufrufen (oder via Browser-Console):
-```javascript
-fetch('http://192.168.178.120:7842/api/subagents/mp-restore', {
-  method: 'POST',
-  headers: {'Authorization': 'Bearer L1gFu490BMv_50TFYek6Yveh3FwFfEoW3ycDaCCFsLA'}
-}).then(r=>r.json()).then(console.log)
-```
+Danach laufen alle 5 Agenten korrekt:
+- Monitor_Netzwerk (check_new_devices, tokenlos)
+- Monitor_Gartentisch (marketplace_monitor, Kleinanzeigen 21224, 20km)
+- Monitor_Sonnenschirm (marketplace_monitor, Kleinanzeigen 21224, 20km)
+- Monitor_Sauer505 (marketplace_monitor, eGun)
+- CronJob_0715 (LLM, täglicher Bericht, gewollt)
 
-### 2. marketplace_monitors.json prüfen
-Nach dem Neustart sicherstellen dass Handler registriert sind:
+### 2. piclaw-api neustarten (neuer Code für Chat-Erstellung)
 ```bash
-cat /etc/piclaw/marketplace_monitors.json
-# Sollte _mp_monitor_gartentisch enthalten
+sudo systemctl restart piclaw-api
 ```
-Falls leer → manuell schreiben:
-```bash
-sudo python3 -c "
-import json
-from pathlib import Path
-p = Path('/etc/piclaw/marketplace_monitors.json')
-p.write_text(json.dumps({'_mp_monitor_gartentisch': {
-  'query': 'Gartentisch', 'platforms': ['kleinanzeigen'],
-  'location': None, 'radius_km': None, 'max_price': None
-}}, indent=2))
-print('OK')
-"
-```
+Danach erstellt Dameon neue Monitore korrekt im marketplace_monitor Format.
 
-### 3. API-Token rotieren (vor Release)
-`L1gFu490BMv_50TFYek6Yveh3FwFfEoW3ycDaCCFsLA` → in mehreren Sessions verwendet
-
-### 4. GitHub PAT rotieren (vor Release)
-`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` → wurde im Chat verwendet
+### 3. API-Token + GitHub PAT rotieren (vor Release)
+- API-Token: L1gFu490BMv_50TFYek6Yveh3FwFfEoW3ycDaCCFsLA
+- GitHub PAT: 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
 
 ---
 
 ## 🔧 Bekannte Issues / Offene Features
 
-### 5. /api/shell Endpoint entfernen (vor Release)
-**Datei:** `piclaw-os/piclaw/api.py`
-**Suche:** `@app.post("/api/shell")` → gesamten Block löschen
-**Test:** `curl -X POST http://localhost:7842/api/shell` → 404
+### 4. Query-Extraktion verbessern
+Dameon extrahiert Ortsnamen in die Query: "Gartentischen Rosengarten" statt "Gartentisch"
+Fix: _detect_marketplace_intent() in agent.py – Ortsnamen aus Query entfernen
+Datei: piclaw-os/piclaw/agent.py, Funktion _detect_marketplace_intent()
 
-### 6. Sub-Agent via API → Daemon-Registry-Reload fehlt
-Registry-Reload via IPC fehlt → Roadmap v0.18
-**Workaround:** piclaw-agent neustarten nach API-basierten Agent-Änderungen
+### 5. Neuer Agent → Daemon-Neustart nötig (INV_037)
+Bis v0.18 (Queue System + IPC-Reload): nach Anlegen neuer Agenten manuell neustarten.
 
-### 7. Monitor_Gartentisch Handler nach Neustart prüfen
-Nach git pull + restart läuft `_restore_marketplace_monitor_handlers()`.
-Prüfen ob Handler korrekt registriert wurde:
-```bash
-curl -s -H "Authorization: Bearer TOKEN" \
-  http://localhost:7842/api/subagents/mp-restore -X POST
-# Sollte {"restored": true, "handlers": ["_mp_monitor_gartentisch"]} zurückgeben
-```
+### 6. /api/shell Endpoint entfernen (vor Release)
+
+### 7. Troostwijk testen
+Monitor noch nicht getestet. Syntax: "Überwache Troostwijk nach [Artikel]"
 
 ---
 
-## ✅ Session 8 – komplett erledigt (2026-04-04)
+## ✅ Session 8B – komplett erledigt (2026-04-04)
 
-### Bug-Fixes (gepusht, noch nicht vollständig deployt)
+### marketplace_monitor Refactor (b1fe021)
 
-- **metrics.py AttributeError:** `cfg.config_dir` existiert nicht in PiClawConfig
-  → Fix: `CONFIG_DIR` Modul-Konstante direkt importiert ✅
-  Commit: `da623de` | Datei: `piclaw-os/piclaw/metrics.py`
+**Problem:** Marketplace-Monitor Handler gingen bei jedem Daemon-Neustart verloren
+wegen Closure-basiertem Ansatz → [ERROR] Direct tool nicht gefunden nach Neustart.
 
-- **LLM Health Monitor Cross-Prozess:** `/api/llm/health` zeigte immer
-  „Health Monitor nicht aktiv" weil daemon und api separate Prozesse sind.
-  → Fix: Monitor schreibt Status in `/etc/piclaw/llm_health_status.json` ✅
-  Commit: `da623de` | Datei: `piclaw-os/piclaw/llm/health_monitor.py` + `api.py`
+**Lösung:** Parameter als JSON direkt in SubAgentDef.mission gespeichert.
+- direct_tool = "marketplace_monitor" (generisch für alle Plattformen)
+- mission = JSON mit query, platforms, location, radius_km, max_price, max_results
+- Neustart-sicher: alles in subagents.json, kein externes File nötig
+- Entfernt: marketplace_monitors.json, alle Closure-Funktionen, mp-restore Endpoint
 
-- **status_dict() ohne direct_tool:** GET /api/subagents zeigte direct_tool=null ✅
-  Commit: `a669a0a` | Datei: `piclaw-os/piclaw/agents/runner.py`
+**Plattformen:** kleinanzeigen, ebay, willhaben, egun, troostwijk, web
 
-- **Marketplace Monitor Stale-Cleanup:** `_restore_marketplace_monitor_handlers()`
-  löschte marketplace_monitors.json Einträge wenn Daemon nach Delete+Recreate
-  eines Agenten neu startete → Handler nie registriert → [ERROR] Direct tool not found ✅
-  Commit: `e553135` | Datei: `piclaw-os/piclaw/agent.py`
+**Syntax (für Dameon-Chat):**
+- Einmalig:   "Suche Gartentisch auf Kleinanzeigen in 21224"
+- Dauerhaft:  "Überwache Kleinanzeigen nach Gartentischen in 21224 Umkreis 20km"
 
-- **Kleinanzeigen Radius ignoriert:** `?radius=N` Query-Parameter wird von
-  Kleinanzeigen komplett ignoriert. Echtes Format: `/k0l{LOC_ID}r{RADIUS}`.
-  Location-ID über `s-ort-empfehlungen.json?query={PLZ}` aufgelöst.
-  Resultat: 1.542 DE-weit → 42 lokale Ergebnisse ✅
-  Commit: `5da8724` | Datei: `piclaw-os/piclaw/tools/marketplace.py`
-
-### Neue Features
-
-- **PATCH /api/subagents/{name}:** Live-Update von direct_tool, schedule, etc.
-  ohne Delete+Recreate ✅ Commit: `da623de`
-
-- **POST /api/subagents/mp-restore:** Handler ohne Daemon-Neustart neu registrieren ✅
-  Commit: `e553135`
-
-- **direct_check Action-Typ:** Tokenloser Routine-Check (cpu_temp, disk, ram,
-  new_devices, ha_state) ohne LLM-Aufruf ✅
-  Commit: `830e297` | Dateien: `proactive.py`, `routines.py`
-
-### Live auf Pi geändert (via API, kein Git Pull nötig)
-
-- Monitor_Netzwerk: `direct_tool=check_new_devices` gesetzt (tokenlos) ✅
-- Monitor_Gartentisch: Neu angelegt mit `direct_tool=_mp_monitor_gartentisch` ✅
-- temp_check Routine: auf `direct_check` Action umgestellt ✅
-
----
-
-## ✅ Session 7 – komplett erledigt
-
-- Netzwerk-Monitor Heartbeat ✅
-- Marketplace direct_tool + format_results_telegram mit Links ✅
-- daemon.py stop-Event Race Condition ✅
-- Crawler Link-Extraktion ✅
-- MessagingHub.send_to() ✅
-- PLZ-Extraktion aus Query ✅
+**Aktive Monitore:**
+- Monitor_Gartentisch: Kleinanzeigen, "Gartentisch", 21224, 20km
+- Monitor_Sonnenschirm: Kleinanzeigen, "Sonnenschirm", 21224, 20km
+- Monitor_Sauer505: eGun, "Sauer 505"
 
 ---
 
@@ -132,45 +78,31 @@ curl -s -H "Authorization: Bearer TOKEN" \
 
 | Version | Feature |
 |---|---|
-| v0.16 | **LLM Autonomie** – Dameon sucht neue Backends selbst 🧠 |
+| v0.15.5 | Stabilisierung marketplace_monitor + Troostwijk Test |
+| v0.16 | LLM Autonomie + Qwen3-1.7B als Offline-Fallback |
 | v0.17 | Emergency Shutdown via schaltbare Steckdose |
-| v0.18 | Queue System + Registry-Reload via IPC (löst Sub-Agent API-Problem) |
+| **v0.18** | **Queue System + IPC-Reload (löst INV_037)** |
 | v0.19 | Willhaben Kategorie-Filter |
-| v0.20 | Kamera-Tools vollständig |
-| **v1.0** | **Release** |
+| v1.0 | Release |
 
 ---
 
-## 🏠 HA-Entities (aktuell bekannt)
+## 🤖 Sub-Agents (aktuell, nach Daemon-Neustart)
 
 ```
-light.licht_fernsehzimmer_switch_0       (Licht Fernsehzimmer)
-light.licht_schlafzimmer_switch_0        (Licht Schlafzimmer)
-light.licht_esszimmer_switch_0           (Licht Esszimmer)
-light.shellyplus1_08b61fd0b64c_switch_0  (Licht Gäste WC)
-switch.licht_kuche_switch_0              (Licht Küche)
-switch.fernseher                         (Fernseher)
-switch.aquarium_licht                    (Aquarium Licht)
-cover.shellyplus2pm_d48afc41a22c         (Rolladen Büro)
-cover.shellyplus2pm_c82e180c7a1c         (Rolladen Schlafzimmer)
-cover.rolladen_kuche                     (Rolladen Küche)
-cover.rollladen_kinderzimmer             (Rollladen Kinderzimmer)
+Monitor_Netzwerk    interval:300    direct_tool=check_new_devices    PROTECTED, TOKENLOS
+Monitor_Gartentisch interval:3600   direct_tool=marketplace_monitor  JSON: {query, location, radius}
+Monitor_Sonnenschirm interval:3600  direct_tool=marketplace_monitor  JSON: {query, location, radius}
+Monitor_Sauer505    interval:3600   direct_tool=marketplace_monitor  JSON: {query, platforms=[egun]}
+CronJob_0715        cron:15 7 * * * LLM (täglicher Bericht, gewollt)
 ```
 
-## 🤖 LLM Backends (aktuell)
-
+## 🏠 HA-Entities (aktuell)
 ```
-[10] groq-actions     llama-3.3-70b-versatile    Groq       action, home_automation
-[ 9] groq-fallback    kimi-k2-instruct            Groq       general, reasoning
-[ 8] nemotron-nvidia  llama-4-maverick-17b        NVIDIA NIM general, fast
-[ 7] openai-default   llama-3.3-70b-instruct      NVIDIA NIM general (Fallback)
-     lokal            gemma-2b-q4                 llama.cpp  letzter Fallback
-```
-
-## 🤖 Sub-Agents (aktuell)
-
-```
-Monitor_Netzwerk    interval:300    direct_tool=check_new_devices        PROTECTED, TOKENLOS
-Monitor_Gartentisch interval:3600   direct_tool=_mp_monitor_gartentisch  TOKENLOS
-CronJob_0715        cron:15 7 * * * LLM (täglicher Systembericht, gewollt)
+light.licht_fernsehzimmer_switch_0, light.licht_schlafzimmer_switch_0
+light.licht_esszimmer_switch_0, light.shellyplus1_08b61fd0b64c_switch_0
+switch.licht_kuche_switch_0, switch.fernseher, switch.aquarium_licht
+cover.shellyplus2pm_d48afc41a22c (Rolladen Büro)
+cover.shellyplus2pm_c82e180c7a1c (Rolladen Schlafzimmer)
+cover.rolladen_kuche, cover.rollladen_kinderzimmer
 ```
