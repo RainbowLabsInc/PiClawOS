@@ -410,12 +410,11 @@ class SubAgentRunner:
         except Exception:
             return "[ERROR] marketplace_monitor: mission kein gueltiges JSON"
 
-        handler = self.handlers.get("marketplace_search")
-        if not handler:
-            return "[ERROR] marketplace_search Tool nicht registriert."
-
+        # Direkt marketplace_search importieren – nicht den Tool-Handler
+        # (Tool-Handler geben Strings zurueck, wir brauchen das Dict)
         try:
-            result = handler(
+            from piclaw.tools.marketplace import marketplace_search as _mp_fn
+            result = _mp_fn(
                 query=params.get("query", ""),
                 platforms=params.get("platforms", ["kleinanzeigen"]),
                 location=params.get("location"),
