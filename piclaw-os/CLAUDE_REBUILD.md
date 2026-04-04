@@ -604,12 +604,132 @@ piclaw/wizard.py:
   - block menu: shows ✅/⚠️/⬜ badge + hint per block
   - after completion: shows remaining unconfigured blocks + "piclaw setup" tip
 
+
+---
+## CHANGES_SESSION_8
+# Alle Änderungen aus Session 8 (2026-04-04)
+# Commits: 830e297, da623de, a669a0a, e553135, 5da8724
+
+### Bug-Fixes
+
+metrics.py – cfg.config_dir AttributeError:
+  PiClawConfig hat kein config_dir Attribut.
+  FIX: CONFIG_DIR Modul-Konstante direkt importieren statt cfg.config_dir
+  FILE: piclaw-os/piclaw/metrics.py
+
+llm/health_monitor.py – Health Monitor unsichtbar im API-Prozess:
+  Daemon und API laufen als separate Prozesse. Der _monitor Singleton im
+  daemon-Prozess ist für den API-Prozess unsichtbar → /api/llm/health gab
+  immer "Health Monitor nicht aktiv" zurück.
+  FIX: Monitor schreibt Status nach jedem Check in
+       /etc/piclaw/llm_health_status.json (max. 10min Alter).
+       API liest diese Datei, fällt auf In-Process-Monitor zurück.
+  FILE: piclaw-os/piclaw/llm/health_monitor.py + api.py
+
+runner.py – status_dict() gab direct_tool nicht zurück:
+  GET /api/subagents zeigte direct_tool immer als null obwohl in Registry gesetzt.
+  FIX: direct_tool und mission zur status_dict() Ausgabe hinzugefügt.
+  FILE: piclaw-os/piclaw/agents/runner.py
+
+agent.py – Marketplace Monitor Handler Stale-Cleanup zerstörte Params:
+  _restore_marketplace_monitor_handlers() löschte Einträge aus
+  marketplace_monitors.json wenn beim Start kein Agent mit direct_tool==tool_name
+  gefunden wurde. Das passierte nach Delete+Recreate eines Monitors via API.
+  FIX: Stale-Cleanup deaktiviert – Params bleiben immer erhalten.
+       Handler wird nur nicht registriert wenn kein Agent existiert.
+  FILE: piclaw-os/piclaw/agent.py
+
+### Neue Features
+
+PATCH /api/subagents/{name}:
+  Erlaubt Updates von direct_tool, schedule, enabled etc. ohne Delete+Recreate.
+  Nutzt bestehende registry.update() Methode.
+  FILE: piclaw-os/piclaw/api.py
+
+POST /api/subagents/mp-restore:
+  Registriert Marketplace-Monitor direct_tool Handler im laufenden Daemon neu.
+  Nötig wenn Monitor via API (nicht via LLM) angelegt wurde.
+  Ruft _restore_marketplace_monitor_handlers() direkt auf.
+  FILE: piclaw-os/piclaw/api.py
+
+direct_check Action-Typ in routines.py:
+  Neuer tokenloser Action-Typ für Routinen.
+  check_types: cpu_temp, disk, ram, new_devices, ha_state
+  Kein LLM-Aufruf – direkte Systemabfragen.
+  FILE: piclaw-os/piclaw/proactive.py + piclaw-os/piclaw/routines.py
+
+Kleinanzeigen Radius-Suche – Location-ID URL-Format:
+  KRITISCHER BUG: ?radius=N Query-Parameter wird von Kleinanzeigen ignoriert.
+  Echtes URL-Format: /s-{PLZ}/{query}/k0l{LOCATION_ID}r{RADIUS_KM}
+  Location-ID Auflösung via:
+    GET https://www.kleinanzeigen.de/s-ort-empfehlungen.json?query={PLZ}
+    Antwort: {"_0":"Deutschland","_2811":"21224 Rosengarten"}
+    → Location-ID = Key ohne "_" Prefix (hier: 2811)
+  FILE: piclaw-os/piclaw/tools/marketplace.py
+
+---
+## NEUE_INVARIANTS_SESSION_8
+
+INV_028: metrics.py MUSS CONFIG_DIR direkt importieren
+  WRONG: cfg = load_config(); db_path = Path(cfg.config_dir) / "metrics.db"
+  RIGHT: from piclaw.config import CONFIG_DIR; db_path = CONFIG_DIR / "metrics.db"
+  REASON: PiClawConfig hat kein config_dir Attribut → AttributeError
+
+INV_029: LLM Health Monitor Status via Datei (Cross-Prozess)
+  FILE: /etc/piclaw/llm_health_status.json
+  WRITTEN_BY: health_monitor.py LLMHealthMonitor.start() nach jedem run_check()
+  READ_BY: api.py /api/llm/health (wenn _monitor is None im API-Prozess)
+  MAX_AGE: 600 Sekunden (10 Minuten)
+  REASON: daemon und api sind separate Prozesse – Singleton nicht geteilt
+
+INV_030: Kleinanzeigen Radius-Suche braucht Location-ID im URL-Pfad
+  WRONG: https://www.kleinanzeigen.de/s-{PLZ}/{q}/k0?radius=20  (IGNORIERT!)
+  RIGHT: https://www.kleinanzeigen.de/s-{PLZ}/{q}/k0l{LOC_ID}r{RADIUS}
+  LOC_ID_API: GET https://www.kleinanzeigen.de/s-ort-empfehlungen.json?query={PLZ}
+  LOC_ID_PARSE: erste Key die nicht "_0" ist → strip "_" prefix
+  FALLBACK: ohne LOC_ID → URL ohne Radius-Suffix (Suche ohne Umkreisfilter)
+
+INV_031: Marketplace Monitor Handler-Registrierung nach API-basierten Agenten
+  FLOW: Agent via LLM erstellt → _create_monitor_agent() → _save_mp_monitor_params()
+         + Handler in self._handlers registriert (sofort aktiv)
+        Agent via API erstellt → POST /api/subagents mit direct_tool gesetzt
+         → marketplace_monitors.json MANUELL schreiben
+         → POST /api/subagents/mp-restore aufrufen ODER piclaw-agent neustarten
+  PARAMS_FILE: /etc/piclaw/marketplace_monitors.json
+  FORMAT: {"_mp_monitor_{name}": {"query":"...","platforms":[...],"location":null,...}}
+  RESTORE_ENDPOINT: POST /api/subagents/mp-restore
+    → ruft _restore_marketplace_monitor_handlers() im laufenden API-Prozess auf
+    → registriert Handler aus marketplace_monitors.json in self._handlers
+  STALE_CLEANUP: DEAKTIVIERT – Params werden NIE aus Datei gelöscht
+    (verhindert Datenverlust nach Delete+Recreate von Agenten)
+
+INV_032: Monitor-Agenten MÜSSEN via LLM erstellt werden für automatische Handler-Reg.
+  REASON: Nur _create_monitor_agent() ruft _save_mp_monitor_params() auf und
+          registriert den Handler-Closure sofort im laufenden Prozess.
+          Agenten via POST /api/subagents brauchen manuelle Nacharbeit (INV_031).
+  EXCEPTION: Falls via API erstellt → danach mp-restore aufrufen.
+
+INV_033: direct_check Routinen für tokenlosen Monitoring
+  ACTION_TYPE: "direct_check" in routines.json
+  REPLACES: "agent_prompt" mit silent_on_ok=True (verbraucht LLM-Token)
+  PARAMS:
+    check_type: cpu_temp | disk | ram | new_devices | ha_state
+    threshold:  Schwellwert (numerisch)
+    entity_id:  für ha_state
+  SILENT: Leerer String bei OK → keine Nachricht gesendet
+  FILE: piclaw-os/piclaw/proactive.py _run_direct_check()
+
+INV_034: runner.status_dict() MUSS direct_tool enthalten
+  REASON: API-Response /api/subagents zeigte immer direct_tool=null
+  FIELD: "direct_tool": a.direct_tool  (None = läuft via LLM)
+  FILE: piclaw-os/piclaw/agents/runner.py status_dict()
+
 ---
 ## END_OF_REFERENCE
-checksum_invariants=27
+checksum_invariants=34
 checksum_services=4+1timer
 status=PRODUCTION_STABLE
-last_updated=2026-03-27
+last_updated=2026-04-04
 
 ---
 ## NEW_INVARIANTS_v0154
@@ -688,9 +808,9 @@ HEALTH_MONITOR:
   Auto-Repair: 404 → /models API → preferred list → registry.update()
 
 SUB_AGENTS (aktuell):
-  Monitor_Netzwerk  interval:300   direct_tool=check_new_devices  PROTECTED
-  CronJob_0715      cron:15 7 * * * LLM                           
-  Monitor_Gartentisch interval:3600 LLM                           
+  Monitor_Netzwerk    interval:300    direct_tool=check_new_devices        PROTECTED
+  Monitor_Gartentisch interval:3600   direct_tool=_mp_monitor_gartentisch  TOKENLOS
+  CronJob_0715        cron:15 7 * * * LLM (gewollt – täglicher Bericht)
 
 ACTIVE_LLM_BACKENDS:
   [10] groq-actions   llama-3.3-70b-versatile  Groq       30k TPM
