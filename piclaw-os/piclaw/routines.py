@@ -105,16 +105,12 @@ DEFAULT_ROUTINES: list[dict] = [
     {
         "id": "temp_check",
         "name": "Temperatur-Check",
-        "enabled": False,
+        "enabled": False,  # Deaktiviert: _threshold_loop in proactive.py übernimmt das bereits tokenlos
         "cron": "*/30 * * * *",  # alle 30 Minuten
-        "action": "agent_prompt",
+        "action": "direct_check",  # Kein LLM – direkte vcgencmd-Abfrage
         "params": {
-            "prompt": (
-                "Prüfe die CPU-Temperatur des Pi. "
-                "Falls sie über 80°C liegt, sende eine Warnung. "
-                "Falls alles normal ist, schweige (keine Nachricht senden)."
-            ),
-            "silent_on_ok": True,
+            "check_type": "cpu_temp",
+            "threshold": 80,  # °C
         },
         "channel": "all",
         "conditions": {},
@@ -126,14 +122,9 @@ DEFAULT_ROUTINES: list[dict] = [
         "name": "Netzwerk-Überwachung",
         "enabled": False,
         "cron": "*/15 * * * *",  # alle 15 Minuten
-        "action": "agent_prompt",
+        "action": "direct_check",  # Kein LLM – direkte nmap-Abfrage
         "params": {
-            "prompt": (
-                "Prüfe das Netzwerk auf neue Geräte (check_new_devices). "
-                "Falls neue Geräte gefunden wurden, liste sie auf und melde sie. "
-                "Falls keine neuen Geräte da sind, schweige."
-            ),
-            "silent_on_ok": True,
+            "check_type": "new_devices",
         },
         "channel": "all",
         "conditions": {},
@@ -305,7 +296,7 @@ TOOL_DEFS = [
                 },
                 "action": {
                     "type": "string",
-                    "description": "briefing | agent_prompt | notify | ha_scene",
+                    "description": "briefing | agent_prompt | notify | ha_scene | direct_check",
                 },
                 "prompt": {
                     "type": "string",

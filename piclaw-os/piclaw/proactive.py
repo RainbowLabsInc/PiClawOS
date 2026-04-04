@@ -264,6 +264,10 @@ class ProactiveRunner:
             elif prompt:
                 result = f"[Kein Agent – Prompt: {prompt[:80]}]"
 
+        elif action == "direct_check":
+            # ── Tokenloser Check: kein LLM, direkte Systemabfragen ──────────
+            result = await _run_direct_check(params, routine.name)
+
         elif action == "ha_scene":
             scene = params.get("scene_id", "")
             if scene:
@@ -291,6 +295,104 @@ class ProactiveRunner:
                 log.warning("Routine-Nachricht senden fehlgeschlagen: %s", e)
 
         return result
+
+
+async def _run_direct_check(params: dict, routine_name: str) -> str:
+    """
+    Tokenloser Direct-Check: Prüft Schwellwerte und Netzwerk ohne LLM-Aufruf.
+
+    Unterstützte check_type-Werte:
+      cpu_temp  – CPU-Temperatur via vcgencmd
+      disk      – Disk-Auslastung via psutil
+      ram       – RAM-Auslastung via psutil
+      new_devices – Neue Netzwerkgeräte via network_monitor
+      ha_state  – Home-Assistant Entity-State vergleichen
+    """
+    check_type = params.get("check_type", "cpu_temp")
+    threshold = params.get("threshold")
+
+    # ── CPU-Temperatur ──────────────────────────────────────────────
+    if check_type == "cpu_temp":
+        limit = float(threshold) if threshold is not None else 80.0
+        try:
+            import subprocess as _sp
+            r = await asyncio.wait_for(
+                asyncio.to_thread(
+                    _sp.run, ["vcgencmd", "measure_temp"],
+                    capture_output=True, text=True,
+                ),
+                timeout=3,
+            )
+            if r.returncode != 0:
+                return ""
+            temp = float(r.stdout.strip().replace("temp=", "").replace("'C", ""))
+            if temp >= limit:
+                return f"⚠️ Pi CPU-Temperatur: {temp}°C (Grenze: {limit}°C)"
+        except Exception as e:
+            log.debug("direct_check cpu_temp: %s", e)
+        return ""  # Kein Problem → keine Nachricht
+
+    # ── Disk ────────────────────────────────────────────────────────
+    elif check_type == "disk":
+        limit = float(threshold) if threshold is not None else 85.0
+        try:
+            import psutil
+            disk = psutil.disk_usage("/")
+            if disk.percent >= limit:
+                free_gb = round(disk.free / 1024**3, 1)
+                return f"⚠️ Disk {disk.percent:.0f}% voll ({free_gb} GB frei)"
+        except Exception as e:
+            log.debug("direct_check disk: %s", e)
+        return ""
+
+    # ── RAM ─────────────────────────────────────────────────────────
+    elif check_type == "ram":
+        limit = float(threshold) if threshold is not None else 90.0
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            if mem.percent >= limit:
+                return f"⚠️ RAM {mem.percent:.0f}% belegt"
+        except Exception as e:
+            log.debug("direct_check ram: %s", e)
+        return ""
+
+    # ── Neue Netzwerkgeräte ─────────────────────────────────────────
+    elif check_type == "new_devices":
+        try:
+            from piclaw.tools.network_monitor import check_new_devices
+            new = await asyncio.wait_for(check_new_devices(), timeout=120)
+            if new:
+                lines = [f"🔍 {len(new)} neues Gerät(e) im Netzwerk erkannt:"]
+                for d in new:
+                    lines.append(f"  📍 {d.ip}  {d.mac}  {d.vendor}  {d.hostname}")
+                return "\n".join(lines)
+        except Exception as e:
+            log.debug("direct_check new_devices: %s", e)
+        return ""
+
+    # ── Home Assistant State ─────────────────────────────────────────
+    elif check_type == "ha_state":
+        entity_id = params.get("entity_id", "")
+        expected = params.get("expected_state", "")
+        alert_msg = params.get("alert_message", "")
+        if not entity_id:
+            return ""
+        try:
+            from piclaw.tools.homeassistant import get_client
+            client = get_client()
+            if client:
+                state = await client.get_state(entity_id)
+                actual = state.get("state", "") if isinstance(state, dict) else str(state)
+                if expected and actual != expected:
+                    msg = alert_msg or f"⚠️ {entity_id}: Status ist '{actual}' (erwartet: '{expected}')"
+                    return msg
+        except Exception as e:
+            log.debug("direct_check ha_state: %s", e)
+        return ""
+
+    log.warning("direct_check: unbekannter check_type '%s' in Routine '%s'", check_type, routine_name)
+    return ""
 
 
 def _looks_ok(text: str) -> bool:
