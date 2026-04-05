@@ -33,6 +33,14 @@ TOOL_DEFS = [
 
 
 def _is_allowed(command: str, cfg: ShellConfig) -> tuple[bool, str]:
+    # SEC-6: Shell-Metacharakter blockieren bevor der Befehl ausgeführt wird.
+    # Die allowlist prüft nur das erste Wort – ohne diese Prüfung wäre
+    # Command-Chaining möglich: "ls && rm -rf /" besteht die allowlist-Prüfung.
+    _DANGEROUS_METACHAR = ("&&", "||", ";", "|", "$(", "`", "${", ">", ">>", "<")
+    for meta in _DANGEROUS_METACHAR:
+        if meta in command:
+            return False, f"Geblockt: Shell-Metacharakter '{meta}' nicht erlaubt"
+
     for blocked in cfg.blocklist:
         if blocked.lower() in command.lower():
             return False, f"Blocked: contains '{blocked}'"
