@@ -16,7 +16,7 @@
 
 ---
 
-PiClaw OS verwandelt einen Raspberry Pi in einen intelligenten Assistenten, der rund um die Uhr für dich arbeitet: Marktplätze überwachen, Smart Home steuern, Netzwerk im Blick behalten – alles per Telegram oder Browser-Dashboard.
+PiClaw OS verwandelt einen Raspberry Pi in einen intelligenten Assistenten, der rund um die Uhr für dich arbeitet: Marktplätze überwachen, Smart Home steuern, Netzwerk im Blick behalten – alles per Telegram, Discord, Browser-Dashboard oder weiteren Schnittstellen.
 
 ---
 
