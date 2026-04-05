@@ -195,8 +195,11 @@ class LLMHealthMonitor:
         # TPD-Limit erkennen (Groq: "tokens per day")
         if _RE_TPD.search(error_msg):
             h.is_tpd_limited = True
-            # Bis Mitternacht UTC + 5min Puffer sperren
-            now = datetime.utcnow()
+            # Bis Mitternacht UTC + 5min Puffer sperren.
+            # datetime.utcnow() ist seit Python 3.12 deprecated →
+            # datetime.now(timezone.utc) ist die korrekte, aware Alternative.
+            from datetime import timezone as _tz
+            now = datetime.now(_tz.utc).replace(tzinfo=None)  # naive UTC für Arithmetik
             midnight = (now + timedelta(days=1)).replace(
                 hour=0, minute=5, second=0, microsecond=0
             )
