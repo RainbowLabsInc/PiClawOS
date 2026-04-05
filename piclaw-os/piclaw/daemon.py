@@ -57,6 +57,12 @@ async def _daemon_main():
     except Exception as e:
         log.warning("HA Connector Fehler: %s", e)
 
+    # Früh importieren – create_background_task wird in der Lambda SOFORT
+    # gebraucht. Python behandelt das als lokale Variable, wenn es irgendwo
+    # in _daemon_main() importiert wird → UnboundLocalError falls Lambda
+    # vor dem Import aufgerufen wird (z.B. durch Sub-Agenten in boot()).
+    from piclaw.taskutils import create_background_task
+
     agent = Agent(cfg)
     agent.start_scheduler()
     # Messaging Hub in Agent einhängen – damit Sub-Agenten (auch per Bash/CLI
@@ -72,7 +78,6 @@ async def _daemon_main():
     # ── LLM Health Monitor ─────────────────────────────────────────
     try:
         from piclaw.llm.health_monitor import start_monitor
-        from piclaw.taskutils import create_background_task
         _monitor = start_monitor(
             registry=agent.llm.registry if hasattr(agent.llm, "registry") else None,
             multirouter=agent.llm,
@@ -90,7 +95,6 @@ async def _daemon_main():
 
     # IPC: Trigger-Polling starten (run_now via API)
     from piclaw.ipc import poll_triggers
-    from piclaw.taskutils import create_background_task
     create_background_task(poll_triggers(agent.sa_runner), name="ipc-poll")
 
     # ── Proaktiver Agent ───────────────────────────────────────────

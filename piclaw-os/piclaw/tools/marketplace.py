@@ -674,6 +674,7 @@ async def _search_egun(
 
 _TW_BASE = "https://www.troostwijkauctions.com"
 _TW_BUILD_ID_CACHE: dict[str, str] = {}
+_TW_BUILD_ID_LOCK: asyncio.Lock | None = None  # lazy-init (loop muss bereits laufen)
 
 _TW_HEADERS = {
     "User-Agent": (
@@ -692,27 +693,40 @@ async def _tw_get_build_id(session: aiohttp.ClientSession) -> str | None:
     Holt die aktuelle Next.js BuildId aus der Troostwijk-Hauptseite.
     Gecacht bis das Programm neu startet (ändert sich nur bei Deployments).
     Bei 404-Antwort wird der Cache geleert damit beim nächsten Aufruf frisch geholt wird.
+    Lock verhindert dass mehrere parallele Monitore gleichzeitig fetchen.
     """
+    global _TW_BUILD_ID_LOCK
+    if _TW_BUILD_ID_LOCK is None:
+        _TW_BUILD_ID_LOCK = asyncio.Lock()
+
+    # Schnellpfad ohne Lock (cache hit)
     cached = _TW_BUILD_ID_CACHE.get("twk")
     if cached:
         return cached
-    try:
-        async with session.get(
-            f"{_TW_BASE}/de",
-            headers=_TW_HEADERS,
-            timeout=aiohttp.ClientTimeout(total=10),
-        ) as resp:
-            if resp.status != 200:
-                return None
-            html = await resp.text()
-        m = re.search(r'"buildId"\s*:\s*"([^"]+)"', html)
-        if m:
-            bid = m.group(1)
-            _TW_BUILD_ID_CACHE["twk"] = bid
-            log.debug("Troostwijk BuildId: %s", bid)
-            return bid
-    except Exception as exc:
-        log.debug("Troostwijk BuildId Fehler: %s", exc)
+
+    # Kritischer Abschnitt: nur ein Fetch zur selben Zeit
+    async with _TW_BUILD_ID_LOCK:
+        # Nochmals prüfen – anderer Task hat ggf. inzwischen befüllt
+        cached = _TW_BUILD_ID_CACHE.get("twk")
+        if cached:
+            return cached
+        try:
+            async with session.get(
+                f"{_TW_BASE}/de",
+                headers=_TW_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                html = await resp.text()
+            m = re.search(r'"buildId"\s*:\s*"([^"]+)"', html)
+            if m:
+                bid = m.group(1)
+                _TW_BUILD_ID_CACHE["twk"] = bid
+                log.debug("Troostwijk BuildId: %s", bid)
+                return bid
+        except Exception as exc:
+            log.debug("Troostwijk BuildId Fehler: %s", exc)
     return None
 
 
@@ -879,19 +893,19 @@ async def _search_troostwijk_auctions(
 
         page_props = data.get("pageProps", {})
         list_data = page_props.get("listData") or {}
+        total = page_props.get("totalSize", 0)
 
-        # listData kann dict (keyed by UUID) oder list sein
+        # listData kann dict (keyed by UUID), list oder leer sein
         if isinstance(list_data, dict):
             auctions = list(list_data.values())
         elif isinstance(list_data, list):
             auctions = list_data
         else:
-            auctions = []
-
-        total = page_props.get("totalSize", 0)
+            log.warning("Troostwijk Auctions: unbekanntes listData-Format auf Seite %d: %s", page, type(list_data))
+            break
 
         if not auctions:
-            log.debug("Troostwijk Auctions: Keine Auktionen auf Seite %d", page)
+            log.debug("Troostwijk Auctions: Keine Auktionen auf Seite %d (total=%d)", page, total)
             break
 
         for auction in auctions:
