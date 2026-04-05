@@ -277,48 +277,57 @@ class SubAgentRunner:
             log.info("Sub-agent '%s' (once) after run removed from registry", agent.name)
 
         # ── Write result to memory so mainagent can recall it ──────
-        if self.memory_log and result:
+        # ── Stille Tokens ──────────────────────────────────────────
+        # Tools signalisieren "kein neues Ergebnis" mit diesen Tokens.
+        _SILENT_TOKENS = ("__NO_NEW_RESULTS__", "__NO_NEW_DEVICES__", "__SILENT__")
+        _intentionally_silent = bool(result and result.strip() in _SILENT_TOKENS)
+        if _intentionally_silent:
+            log.debug("Sub-agent '%s': stilles Token – kein Output", agent.name)
+
+        # ── Write result to memory so mainagent can recall it ──────
+        # Silent Tokens NICHT ins Memory – sie erzeugen stundenweisen Rausch
+        if self.memory_log and result and not _intentionally_silent:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
             mem_entry = f"[{ts}] Sub-Agent '{agent.name}' ({status}): {result[:800]}"
             create_background_task(self.memory_log(mem_entry))
 
-        # ── Stille Tokens herausfiltern ────────────────────────────
-        # Tools signalisieren "kein neues Ergebnis" mit diesen Tokens.
-        _SILENT_TOKENS = ("__NO_NEW_RESULTS__", "__NO_NEW_DEVICES__", "__SILENT__")
-        _intentionally_silent = result and result.strip() in _SILENT_TOKENS
-        if _intentionally_silent:
-            log.debug("Sub-agent '%s': stilles Token – kein Output", agent.name)
-
         # ── Notify via messaging hub ────────────────────────────────
-        _has_output = bool(result and result.strip() and not _intentionally_silent
-                           and result.strip() != "(no output)")
+        _has_output = bool(
+            result and result.strip()
+            and not _intentionally_silent
+            and result.strip() != "(no output)"
+        )
         log.info("Sub-agent '%s': result=%s notify=%s",
                  agent.name, "ok" if _has_output else "empty", agent.notify)
 
+        # ── Heartbeat-Helper (Netzwerk-Monitor, max 1x/Stunde) ─────
+        async def _maybe_send_heartbeat() -> None:
+            """Sendet gedrosselten Heartbeat für den Netzwerk-Monitor."""
+            if not (agent.direct_tool == "check_new_devices" and agent.notify and self.notify):
+                return
+            import time as _time
+            _hb_key = f"_hb_{agent.id}"
+            _last_hb = getattr(self, _hb_key, 0.0)
+            _now = _time.time()
+            if _now - _last_hb < 3600:
+                log.debug("Sub-agent '%s': alles ruhig, nächster Heartbeat in %dmin",
+                          agent.name, int((3600 - (_now - _last_hb)) / 60))
+                return
+            setattr(self, _hb_key, _now)
+            hb_msg = (f"🤖 *{agent.name}* [heartbeat]\n"
+                      "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde.")
+            try:
+                await self.notify(hb_msg)
+                log.info("Sub-agent '%s': Heartbeat gesendet", agent.name)
+            except Exception as e:
+                log.warning("Sub-agent '%s': Heartbeat-Fehler: %s", agent.name, e)
+
         if _intentionally_silent:
-            # Bewusst kein Output → stillschweigend beenden (kein Fallback, kein Spam).
-            # Ausnahme: Netzwerk-Monitor sendet stündlichen Heartbeat auch wenn alles ruhig ist,
-            # damit der Nutzer weiß dass der Agent noch läuft.
-            if agent.direct_tool == "check_new_devices" and agent.notify and self.notify:
-                import time as _time
-                _HB_KEY = f"_hb_{agent.id}"
-                _last_hb = getattr(self, _HB_KEY, 0)
-                _now = _time.time()
-                _hb_interval = 3600  # max 1x/Stunde
-                if _now - _last_hb >= _hb_interval:
-                    setattr(self, _HB_KEY, _now)
-                    hb_header = f"🤖 *{agent.name}* [heartbeat]\n"
-                    heartbeat_msg = hb_header + "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde."
-                    try:
-                        await self.notify(heartbeat_msg)
-                        log.info("Sub-agent '%s': Heartbeat (silent) gesendet", agent.name)
-                    except Exception as e:
-                        log.warning("Sub-agent '%s': Heartbeat-Fehler: %s", agent.name, e)
-                else:
-                    _remaining = int((_hb_interval - (_now - _last_hb)) / 60)
-                    log.debug("Sub-agent '%s': alles ruhig, nächster Heartbeat in %dmin", agent.name, _remaining)
+            # Still beenden. Ausnahme: Netzwerk-Monitor-Heartbeat.
+            await _maybe_send_heartbeat()
+
         elif not _has_output:
-            # Echter leerer Output → Fallback: Main Agent formuliert Status
+            # Echter leerer Output → Fallback via Main Agent
             log.warning("Sub-agent '%s': kein Ergebnis – Fallback wird ausgelöst", agent.name)
             if agent.notify and self.notify and self.report_to_main:
                 fallback_prompt = (
@@ -329,40 +338,24 @@ class SubAgentRunner:
                 try:
                     summary = await self.report_to_main(fallback_prompt)
                     if summary and summary.strip():
-                        header = f"🤖 *{agent.name}* [status]\n"
-                        await self.notify(header + summary[:1500])
+                        await self.notify(f"🤖 *{agent.name}* [status]\n" + summary[:1500])
                         log.info("Sub-agent '%s': Fallback-Status via Main Agent gesendet", agent.name)
                 except Exception as e:
                     log.warning("Sub-agent '%s': Fallback Fehler: %s", agent.name, e)
+
         elif not agent.notify:
             log.debug("Sub-agent '%s': notify=False", agent.name)
+
         elif not self.notify:
             log.error("Sub-agent '%s': KEIN Notify-Callback! Telegram nicht konfiguriert?", agent.name)
+
         elif agent.direct_tool == "check_new_devices" and self._is_quiet_network_result(result):
-            # Heartbeat NUR für den Netzwerk-Monitor (direct_tool="check_new_devices").
-            # KEIN Heartbeat für Marktplatz-Monitore (_mp_monitor_*) – die haben eigene Logik.
-            # Gedrosselt auf max. 1x/Stunde um Spam zu vermeiden.
-            import time as _time
-            _HB_KEY = f"_hb_{agent.id}"
-            _last_hb = getattr(self, _HB_KEY, 0)
-            _now = _time.time()
-            _hb_interval = 3600  # 1 Stunde
-            if _now - _last_hb >= _hb_interval:
-                setattr(self, _HB_KEY, _now)
-                header = f"🤖 *{agent.name}* [heartbeat]\n"
-                heartbeat_msg = header + "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde."
-                try:
-                    await self.notify(heartbeat_msg)
-                    log.info("Sub-agent '%s': Heartbeat gesendet", agent.name)
-                except Exception as e:
-                    log.warning("Sub-agent '%s': Heartbeat-Fehler: %s", agent.name, e)
-            else:
-                _remaining = int((_hb_interval - (_now - _last_hb)) / 60)
-                log.debug("Sub-agent '%s': alles ruhig, nächster Heartbeat in %dmin", agent.name, _remaining)
+            # Netzwerk-Monitor: nicht-leeres aber ruhiges Ergebnis → Heartbeat
+            await _maybe_send_heartbeat()
+
         else:
-            header = f"🤖 *{agent.name}* [{status}]\n"
             try:
-                await self.notify(header + result[:1500])
+                await self.notify(f"🤖 *{agent.name}* [{status}]\n" + result[:1500])
                 log.info("Sub-agent '%s': Telegram-Notify OK (%d Zeichen)", agent.name, len(result))
             except Exception as e:
                 log.error("Sub-agent '%s': Notify FEHLER: %s", agent.name, e)
@@ -410,11 +403,10 @@ class SubAgentRunner:
         except Exception:
             return "[ERROR] marketplace_monitor: mission kein gueltiges JSON"
 
-        # Direkt marketplace_search importieren – nicht den Tool-Handler
-        # (Tool-Handler geben Strings zurueck, wir brauchen das Dict)
+        # Direkt marketplace_search importieren und awaiten
         try:
             from piclaw.tools.marketplace import marketplace_search as _mp_fn
-            result = _mp_fn(
+            result = await _mp_fn(
                 query=params.get("query", ""),
                 platforms=params.get("platforms", ["kleinanzeigen"]),
                 location=params.get("location"),
@@ -424,8 +416,6 @@ class SubAgentRunner:
                 country=params.get("country", "de"),
                 notify_all=False,
             )
-            if asyncio.iscoroutine(result):
-                result = await result
         except Exception as e:
             return f"[ERROR] marketplace_monitor Fehler: {e}"
 
@@ -536,12 +526,14 @@ class SubAgentRunner:
     # ── Callbacks ─────────────────────────────────────────────────
 
     def _on_done(self, agent_id: str, task: asyncio.Task):
+        self._tasks.pop(agent_id, None)   # Aufräumen damit done Tasks kein Speicherleck erzeugen
         agent = self.registry.get(agent_id)
         name = agent.name if agent else agent_id
         if task.cancelled():
             log.info("Sub-agent '%s' was cancelled.", name)
         elif task.exception():
-            log.error("Sub-agent '%s' crashed: %s", name, task.exception())
+            exc = task.exception()
+            log.error("Sub-agent '%s' crashed: %s", name, exc, exc_info=exc)
             if agent:
                 self.registry.mark_run(agent_id, "error")
         else:
