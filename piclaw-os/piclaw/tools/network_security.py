@@ -163,6 +163,11 @@ async def _run_command(*args: str) -> str:
             return f"[ERROR] Command failed: {stderr.decode().strip()}"
         return stdout.decode().strip()
     except asyncio.TimeoutError:
+        if 'proc' in locals() and proc.returncode is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
         return "[ERROR] Command timed out"
     except Exception as e:
         return f"[ERROR] {e}"
