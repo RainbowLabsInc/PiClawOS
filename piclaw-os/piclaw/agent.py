@@ -793,6 +793,188 @@ class Agent:
             log.warning("HA-Shortcut Fehler: %s", e)
             return None  # LLM übernimmt bei Fehler
 
+    # ── Troostwijk Auktions-Monitor ────────────────────────────────────────────
+
+    _TW_COUNTRY_MAP: dict[str, str] = {
+        # Deutsch
+        "deutschland": "de", "german": "de", "germany": "de",
+        "niederlande": "nl", "holland": "nl", "netherlands": "nl",
+        "belgien": "be", "belgium": "be",
+        "frankreich": "fr", "france": "fr",
+        "österreich": "at", "austria": "at", "oesterreich": "at",
+        "italien": "it", "italy": "it",
+        "spanien": "es", "spain": "es",
+        "schweden": "se", "sweden": "se",
+        "dänemark": "dk", "daenemark": "dk", "denmark": "dk",
+        "Polen": "pl", "poland": "pl",
+        "tschechien": "cz", "czech": "cz",
+        "ungarn": "hu", "hungary": "hu",
+        "rumänien": "ro", "rumaenien": "ro", "romania": "ro",
+        "kroatien": "hr", "croatia": "hr",
+        "portugal": "pt",
+        "finnland": "fi", "finland": "fi",
+        "estland": "ee", "estonia": "ee",
+        "griechenland": "gr", "greece": "gr",
+        "irland": "ie", "ireland": "ie",
+        "slowakei": "sk", "slovakia": "sk",
+        "bulgarien": "bg", "bulgaria": "bg",
+    }
+
+    _TW_AUCTION_MONITOR_KW = (
+        "neue auktionen", "neue auktion", "auktionen in", "auktion in",
+        "troostwijk.*auktion", "auktionen.*troostwijk",
+        "neue.*troostwijk", "troostwijk.*neu",
+    )
+
+    def _detect_tw_auction_monitor_intent(self, text: str) -> dict | None:
+        """
+        Erkennt Troostwijk-Auktions-Monitoring-Anfragen wie:
+          'Überwache Troostwijk auf neue Auktionen in Deutschland'
+          'Neue Auktionen in Hamburg auf Troostwijk – sag mir Bescheid'
+          'Benachrichtige mich über neue Troostwijk Auktionen in Belgien'
+
+        Gibt zurück: {"country": "de", "city": "Hamburg"|None, "interval_sec": 3600}
+        """
+        t = re.sub(r"\[.*?\]", " ", text).lower()
+
+        # Muss Troostwijk + Auktions-Kontext haben
+        if not any(k in t for k in ("troostwijk", "troost")):
+            return None
+        if not any(k in t for k in ("auktion", "auction", "neue", "überwach", "monitor",
+                                     "benachrichtig", "meld", "inform")):
+            return None
+
+        # Intervall (default: 1h)
+        interval_sec = 3600
+        if any(k in t for k in ("30 min", "30min", "halbstündlich")):
+            interval_sec = 1800
+        elif any(k in t for k in ("täglich", "24h", "einmal am tag")):
+            interval_sec = 86400
+        m_iv = re.search(r"(?:alle|jede)\s+(\d+)\s*(min|stund)", t)
+        if m_iv:
+            val, unit = int(m_iv.group(1)), m_iv.group(2)
+            interval_sec = val * 3600 if "stund" in unit else max(val * 60, 300)
+
+        # Land erkennen
+        country = "de"  # default: Deutschland
+        for name, code in self._TW_COUNTRY_MAP.items():
+            if re.search(r"(?i)\b" + re.escape(name) + r"\b", text):
+                country = code
+                break
+
+        # Stadt erkennen (bekannte Städte aus allen TW-Ländern)
+        _TW_CITIES = [
+            # Deutschland
+            "Hamburg", "Berlin", "München", "Köln", "Frankfurt", "Bremen",
+            "Hannover", "Düsseldorf", "Leipzig", "Dresden", "Stuttgart",
+            "Dortmund", "Essen", "Nürnberg", "Duisburg", "Bochum",
+            "Wuppertal", "Bielefeld", "Bonn", "Mannheim", "Karlsruhe",
+            "Augsburg", "Münster", "Wiesbaden", "Rosengarten",
+            # Niederlande
+            "Amsterdam", "Rotterdam", "Den Haag", "Utrecht", "Eindhoven",
+            "Tilburg", "Groningen", "Almere", "Breda", "Nijmegen",
+            # Belgien
+            "Brüssel", "Bruxelles", "Antwerpen", "Gent", "Brügge", "Lüttich",
+            # Österreich
+            "Wien", "Graz", "Linz", "Salzburg", "Innsbruck",
+            # Frankreich
+            "Paris", "Lyon", "Marseille", "Bordeaux", "Toulouse",
+        ]
+        city = None
+        for c in sorted(_TW_CITIES, key=len, reverse=True):
+            if re.search(r"(?i)\b" + re.escape(c) + r"\b", text):
+                city = c
+                break
+
+        return {
+            "country": country,
+            "city": city,
+            "interval_sec": interval_sec,
+        }
+
+    async def _create_tw_auction_monitor(self, params: dict) -> str:
+        """
+        Erstellt einen Troostwijk-Auktions-Monitor Sub-Agenten.
+        Nutzt direct_tool='marketplace_monitor' mit platforms=['troostwijk_auctions'].
+        Kein LLM in der Monitor-Schleife – rein tokenlos.
+        """
+        import json as _json
+
+        country      = params.get("country", "de")
+        city         = params.get("city")       # optional
+        interval_sec = params.get("interval_sec", 3600)
+
+        # Ländercode → lesbarer Name für Agent-Description
+        _country_names = {
+            "de": "Deutschland", "nl": "Niederlande", "be": "Belgien",
+            "fr": "Frankreich", "at": "Österreich", "it": "Italien",
+            "es": "Spanien", "se": "Schweden", "dk": "Dänemark",
+            "pl": "Polen", "cz": "Tschechien", "hu": "Ungarn",
+            "hr": "Kroatien", "pt": "Portugal", "fi": "Finnland",
+            "ee": "Estland", "gr": "Griechenland", "ro": "Rumänien",
+        }
+        country_name = _country_names.get(country, country.upper())
+        location_str = city if city else country_name
+
+        # Agentname: z.B. Monitor_TW_DE oder Monitor_TW_Hamburg
+        safe_loc = re.sub(r"[^a-zA-Z0-9]", "", location_str)[:15]
+        agent_name = f"Monitor_TW_{safe_loc}"
+
+        existing = self.sa_registry.get(agent_name)
+        if existing:
+            return (
+                f"Es läuft bereits ein Troostwijk-Auktions-Monitor für {location_str} "
+                f"(ID: {existing.id}, schedule: {existing.schedule})."
+            )
+
+        if interval_sec == 3600:
+            interval_str = "stündlich"
+        elif interval_sec < 3600:
+            interval_str = f"alle {interval_sec // 60} Minuten"
+        else:
+            interval_str = f"alle {interval_sec // 3600} Stunden"
+
+        mission_params = {
+            "query":    "",                         # troostwijk_auctions braucht keine Query
+            "platforms": ["troostwijk_auctions"],
+            "location": city,                       # Stadtname-Filter (None = alle Städte)
+            "country":  country,                    # ISO-Code für Länder-API-Filter
+            "radius_km": None,
+            "max_price": None,
+            "max_results": 24,
+        }
+
+        from piclaw.agents.sa_registry import SubAgentDef
+        agent_def = SubAgentDef(
+            name=agent_name,
+            description=(
+                f"Troostwijk Auktionen: {location_str} – {interval_str}"
+            ),
+            mission=_json.dumps(mission_params, ensure_ascii=False),
+            tools=["marketplace_search"],
+            schedule=f"interval:{interval_sec}",
+            notify=True,
+            direct_tool="marketplace_monitor",
+            created_by="mainagent",
+        )
+        agent_id = self.sa_registry.add(agent_def)
+
+        log.info(
+            "TW-Auktions-Monitor '%s' erstellt – country=%s, city=%s, interval=%ds",
+            agent_name, country, city, interval_sec,
+        )
+
+        if self.sa_runner:
+            await self.sa_runner.start_agent(agent_id)
+            return (
+                f"✅ Troostwijk-Auktions-Monitor gestartet!\n"
+                f"📍 Region: {location_str}\n"
+                f"⏱️ Intervall: {interval_str}\n"
+                f"🏛️ Neue Auktionsereignisse → Telegram\n"
+                f"Agent-ID: {agent_id}"
+            )
+        return f"Agent '{agent_name}' erstellt (ID: {agent_id}), Runner nicht bereit."
+
     def _detect_monitor_intent(self, text: str) -> dict | None:
         """Erkennt natürliche Monitoring-Anfragen wie 'Sag mir wenn ein Pi 5 auftaucht'."""
 
@@ -1279,7 +1461,14 @@ class Agent:
             log.info("Netzwerk-Monitor-Intent erkannt, interval=%ds", _interval)
             return await self._create_network_monitor_agent(_interval)
 
-        # Monitoring-Intent: "Überwache X auf eBay", "Sag mir wenn..." → Sub-Agent erstellen
+        # Troostwijk Auktions-Monitor: "Überwache neue Auktionen in Deutschland"
+        # Muss VOR _detect_monitor_intent geprüft werden (kein Artikel-Query nötig)
+        tw_auction_params = self._detect_tw_auction_monitor_intent(user_input)
+        if tw_auction_params:
+            log.info("TW-Auktions-Monitor-Intent erkannt: %s", tw_auction_params)
+            return await self._create_tw_auction_monitor(tw_auction_params)
+
+        # Monitoring-Intent: „Überwache X auf eBay", „Sag mir wenn…" → Sub-Agent erstellen
         monitor_kwargs = self._detect_monitor_intent(user_input)
         if monitor_kwargs:
             log.info("Monitor intent detected: %s", monitor_kwargs)

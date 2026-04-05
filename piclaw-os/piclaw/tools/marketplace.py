@@ -826,6 +826,130 @@ async def _search_troostwijk(
     log.info("Troostwijk: %d Lots für '%s'", len(results), query)
     return results
 
+
+async def _search_troostwijk_auctions(
+    session: aiohttp.ClientSession,
+    country: str = "de",
+    city_filter: str | None = None,
+    max_results: int = 24,
+) -> list[dict]:
+    """
+    Sucht auf troostwijkauctions.com nach Auktions-Events (nicht einzelne Lose).
+
+    Anders als _search_troostwijk() (die nach Artikeln sucht) überwacht diese
+    Funktion ganze Auktionsveranstaltungen und meldet neue Events.
+
+    API: /_next/data/{buildId}/de/auctions.json?countries={country}&page={page}
+    Rückgabe: Auktionen mit Name, Losmenge, Start/Ende, URL.
+
+    Stadt-Filter: Kein API-seitiger Stadtfilter verfügbar – Matching per
+    Teilstring im Auktionsnamen (z.B. "Hamburg" in "D | Maschinen Hamburg").
+    """
+    build_id = await _tw_get_build_id(session)
+    if not build_id:
+        log.warning("Troostwijk Auctions: BuildId nicht verfügbar")
+        return []
+
+    country_lc = (country or "de").lower()
+    results: list[dict] = []
+    page = 1
+
+    while len(results) < max_results:
+        api_url = (
+            f"{_TW_BASE}/_next/data/{build_id}/de/auctions.json"
+            f"?countries={country_lc}&page={page}"
+        )
+        try:
+            async with session.get(
+                api_url,
+                headers=_TW_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                if resp.status == 404:
+                    _TW_BUILD_ID_CACHE.clear()
+                    log.warning("Troostwijk Auctions: BuildId veraltet (404) – Cache geleert")
+                    break
+                if resp.status != 200:
+                    log.warning("Troostwijk Auctions: HTTP %s Seite %d", resp.status, page)
+                    break
+                data = await resp.json(content_type=None)
+        except Exception as exc:
+            log.warning("Troostwijk Auctions Fetch Fehler Seite %d: %s", page, exc)
+            break
+
+        page_props = data.get("pageProps", {})
+        list_data = page_props.get("listData") or {}
+
+        # listData kann dict (keyed by UUID) oder list sein
+        if isinstance(list_data, dict):
+            auctions = list(list_data.values())
+        elif isinstance(list_data, list):
+            auctions = list_data
+        else:
+            auctions = []
+
+        total = page_props.get("totalSize", 0)
+
+        if not auctions:
+            log.debug("Troostwijk Auctions: Keine Auktionen auf Seite %d", page)
+            break
+
+        for auction in auctions:
+            if len(results) >= max_results:
+                break
+
+            name = (auction.get("name") or "").strip()
+
+            # Stadtfilter: Matching im Auktionsnamen (keine API-seitige Filterung)
+            if city_filter and city_filter.lower() not in name.lower():
+                continue
+
+            display_id = auction.get("displayId", "")
+            url_slug = auction.get("urlSlug", "")
+            auction_url = f"{_TW_BASE}/de/a/{url_slug}" if url_slug else ""
+
+            start_ts = auction.get("startDate")
+            end_ts = auction.get("endDate") or auction.get("minEndDate")
+            from datetime import datetime as _dt
+            start_str = _dt.fromtimestamp(start_ts).strftime("%d.%m.%Y") if start_ts else ""
+            end_str   = _dt.fromtimestamp(end_ts).strftime("%d.%m.%Y %H:%M") if end_ts else ""
+
+            lot_count = auction.get("lotCount", 0)
+            status    = auction.get("biddingStatus", "")
+
+            location_str = city_filter if city_filter else country.upper()
+
+            results.append({
+                "id":         display_id,
+                "platform":   "troostwijk_auctions",
+                "title":      name[:120],
+                "price":      None,
+                "price_text": f"{lot_count} Lose" if lot_count else "",
+                "location":   location_str,
+                "url":        auction_url,
+                "start_date": start_str,
+                "end_date":   end_str,
+                "status":     status,
+                "lot_count":  lot_count,
+            })
+
+        log.debug(
+            "Troostwijk Auctions Seite %d: %d Auktionen (gesamt: %d, gefiltert: %d)",
+            page, len(auctions), total, len(results),
+        )
+
+        # Letzte Seite oder genug Ergebnisse
+        if len(auctions) < 24 or (total and len(results) >= total):
+            break
+        page += 1
+
+    log.info(
+        "Troostwijk Auctions: %d Auktionen gefunden (Land=%s, Stadt=%s)",
+        len(results), country, city_filter or "alle",
+    )
+    return results
+
+
 # ── Willhaben Standort-Mapping (areaId) ──────────────────────────────────────
 # Willhaben nutzt interne areaIds für den Standortfilter im webapi-Endpoint.
 # Bundesland-IDs: 100er-Schritte. Bezirks/Stadt-IDs: Bundesland + 2 Ziffern.
@@ -1187,6 +1311,7 @@ async def marketplace_search(
     max_results: int = 10,
     notify_all: bool = True,
     radius_km: int | None = None,
+    country: str = "de",
 ) -> dict:
     """
     Durchsucht Marktplätze nach neuen Inseraten.
@@ -1195,9 +1320,10 @@ async def marketplace_search(
         query:       Suchbegriff (z.B. "Raspberry Pi 5")
         platforms:   ["kleinanzeigen", "ebay", "web"] – default: alle
         max_price:   Maximaler Preis in Euro
-        location:    Ort/PLZ für Kleinanzeigen
+        location:    Ort/PLZ für Kleinanzeigen; bei troostwijk_auctions: Stadtname-Filter
         max_results: Max. Ergebnisse pro Plattform
         notify_all:  True = alle melden, False = nur neue (Standard)
+        country:     ISO-Ländercode für troostwijk_auctions (z.B. "de", "nl", "be")
 
     Returns:
         {"new": [...], "total": int, "platforms_searched": [...]}
@@ -1215,7 +1341,11 @@ async def marketplace_search(
     # Intern bereinigen um Rauschen in der eigentlichen Suche zu vermeiden
     query = _clean_query(query)
 
-    if not query or len(query) < 2:
+    # troostwijk_auctions braucht keine Text-Query (sucht nach Auktions-Events, nicht Artikeln)
+    _query_optional = platforms is not None and all(
+        p == "troostwijk_auctions" for p in platforms
+    )
+    if (not query or len(query) < 2) and not _query_optional:
         return {
             "new": [],
             "total_found": 0,
@@ -1242,6 +1372,8 @@ async def marketplace_search(
             tasks.append(_search_willhaben(session, query, max_price, max_results, location, radius_km))
         if "troostwijk" in platforms:
             tasks.append(_search_troostwijk(session, query, location or "", "DE", max_price, max_results))
+        if "troostwijk_auctions" in platforms:
+            tasks.append(_search_troostwijk_auctions(session, country or "de", location or None, max_results))
         if "web" in platforms:
             tasks.append(_search_web(session, query, min(max_results, 5)))
 
@@ -1292,8 +1424,8 @@ def format_results(results: dict, mode: str = "text") -> str:
     header += "─" * 50 + "\n"
 
     lines = [header]
-    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben", "egun": "eGun", "troostwijk": "Troostwijk"}
-    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨"}
+    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben", "egun": "eGun", "troostwijk": "Troostwijk", "troostwijk_auctions": "TW-Auktion"}
+    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️"}
 
     for i, item in enumerate(new[:10], 1):
         emoji = platform_emoji.get(item["platform"], "🔗")
@@ -1347,7 +1479,7 @@ def format_results_telegram(results: dict) -> str:
         lines[0] += f"(max. {results['max_price']:.0f} €)"
 
     for item in new[:10]:  # Max 10 pro Nachricht
-        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨"}.get(
+        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️"}.get(
             item["platform"], "🔗"
         )
         # Markdown-Titel bereinigen (Klammern eskapen)
