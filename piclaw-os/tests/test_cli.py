@@ -15,7 +15,7 @@ def test_cmd_doctor_happy_path(capsys):
          patch("socket.gethostname") as mock_hostname, \
          patch("platform.python_version", return_value="3.11.2"), \
          patch("platform.platform", return_value="Linux-Pi5"), \
-         patch("builtins.open") as mock_open, \
+         patch("piclaw.hardware.pi_info.current_temp") as mock_temp, \
          patch("piclaw.soul.get_path") as mock_soul_path, \
          patch("piclaw.agents.sa_registry.SubAgentRegistry") as mock_registry:
 
@@ -46,11 +46,7 @@ def test_cmd_doctor_happy_path(capsys):
         mock_hostname.return_value = "raspberrypi"
 
         # Mock CPU temp
-        # Python 3 built-in open() returns a context manager but also read() directly
-        mock_file = MagicMock()
-        mock_file.read.return_value = "45000"
-        mock_open.return_value = mock_file
-        mock_open.return_value.__enter__.return_value = mock_file
+        mock_temp.return_value = 45.0
 
         # Mock Soul
         mock_soul = MagicMock()
@@ -99,7 +95,7 @@ def test_cmd_doctor_llm_failure(capsys):
          patch("socket.gethostname") as mock_hostname, \
          patch("platform.python_version", return_value="3.11.2"), \
          patch("platform.platform", return_value="Linux-Pi5"), \
-         patch("builtins.open") as mock_open, \
+         patch("piclaw.hardware.pi_info.current_temp") as mock_temp, \
          patch("piclaw.soul.get_path") as mock_soul_path, \
          patch("piclaw.agents.sa_registry.SubAgentRegistry") as mock_registry:
 
@@ -128,10 +124,7 @@ def test_cmd_doctor_llm_failure(capsys):
 
         mock_hostname.return_value = "raspberrypi"
 
-        mock_file = MagicMock()
-        mock_file.read.return_value = "45000"
-        mock_open.return_value = mock_file
-        mock_open.return_value.__enter__.return_value = mock_file
+        mock_temp.return_value = 45.0
 
         mock_soul = MagicMock()
         mock_soul.exists.return_value = True
@@ -161,7 +154,7 @@ def test_cmd_doctor_local_llm_missing(capsys):
          patch("socket.gethostname") as mock_hostname, \
          patch("platform.python_version", return_value="3.11.2"), \
          patch("platform.platform", return_value="Linux-Pi5"), \
-         patch("builtins.open") as mock_open, \
+         patch("piclaw.hardware.pi_info.current_temp") as mock_temp, \
          patch("piclaw.soul.get_path") as mock_soul_path, \
          patch("piclaw.agents.sa_registry.SubAgentRegistry") as mock_registry:
 
@@ -190,10 +183,7 @@ def test_cmd_doctor_local_llm_missing(capsys):
 
         mock_hostname.return_value = "raspberrypi"
 
-        mock_file = MagicMock()
-        mock_file.read.return_value = "45000"
-        mock_open.return_value = mock_file
-        mock_open.return_value.__enter__.return_value = mock_file
+        mock_temp.return_value = 45.0
 
         mock_soul = MagicMock()
         mock_soul.exists.return_value = False
