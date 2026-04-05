@@ -54,6 +54,25 @@ from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
 from piclaw import soul as soul_mod
 from piclaw.tools import homeassistant as ha_mod
 
+# HA Shortcut pre-compiled regexes
+_RE_HA_CMD = re.compile(r"\b(schalte|mach|mache|stell|stelle|knips|dreh|licht|lampe|leuchte|steckdose|schalter)\b", re.IGNORECASE)
+_RE_HA_ON = re.compile(r"\b(ein|an|on|einschalten|anmachen|anschalten|einmachen)\b", re.IGNORECASE)
+_RE_HA_OFF = re.compile(r"\b(aus|off|ausschalten|ausmachen|ausknipsen|löschen)\b", re.IGNORECASE)
+_RE_HA_TOGGLE = re.compile(r"\b(toggle|umschalten|wechseln)\b", re.IGNORECASE)
+
+# HA Shortcut word filters (frozenset for O(1) lookups)
+_HA_STOP_WORDS = frozenset({
+    "das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
+    "mal", "doch", "jetzt", "sofort", "kurz", "einmal"
+})
+_HA_FILTER_WORDS = frozenset({
+    "ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen",
+    "aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen",
+    "toggle", "umschalten", "wechseln",
+    "schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
+    "licht", "lampe", "leuchte", "steckdose", "schalter", "bitte"
+})
+
 log = logging.getLogger("piclaw.agent")
 
 
@@ -728,39 +747,26 @@ class Agent:
         if not client:
             return None
 
-        # Intent erkennen
-        on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
-        off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
-        toggle_kw = ("toggle", "umschalten", "wechseln")
-        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter")
-
-        # Muss mindestens ein Befehlswort enthalten
-        if not any(k in t for k in cmd_kw):
+        # Intent erkennen mit Regex für exakte Isolation von Kommandos und Richtungen
+        if not _RE_HA_CMD.search(t):
             return None
 
         # Richtung bestimmen
         action = None
-        if any(k in t for k in on_kw):
+        if _RE_HA_ON.search(t):
             action = "on"
-        elif any(k in t for k in off_kw):
+        elif _RE_HA_OFF.search(t):
             action = "off"
-        elif any(k in t for k in toggle_kw):
+        elif _RE_HA_TOGGLE.search(t):
             action = "toggle"
         else:
             return None  # Kein klarer On/Off Intent
 
         # Raum/Gerät extrahieren – alles zwischen Befehlswort und Richtungswort
         # Stopwörter entfernen
-        stop = {"das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
-                "bitte", "mal", "doch", "jetzt", "sofort", "kurz", "einmal"}
-        words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
-        # Raum-Keywords suchen
-        area_words = [w for w in words if w not in
-                      on_kw + off_kw + toggle_kw +
-                      ["schalte", "mach", "mache", "stell", "stelle",
-                       "knips", "dreh", "licht", "lampe", "leuchte",
-                       "steckdose", "schalter", "bitte"]]
+        words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in _HA_STOP_WORDS]
+        # Raum-Keywords suchen (O(1) Lookup mit frozenset)
+        area_words = [w for w in words if w not in _HA_FILTER_WORDS]
         area = " ".join(area_words).strip() if area_words else ""
 
         # Entität suchen
