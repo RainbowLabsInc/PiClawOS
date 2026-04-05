@@ -27,7 +27,7 @@ from fastapi import (
     Request,
     Depends,
 )
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware  # noqa: F401 – behalten für ggf. externe Nutzung
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 
@@ -135,12 +135,85 @@ from piclaw import __version__
 
 app = FastAPI(title="PiClaw OS", version=__version__, docs_url=None, lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+def _is_local_origin(origin: str) -> bool:
+    """Prüft ob ein CORS-Origin aus dem lokalen Netzwerk stammt.
+
+    Erlaubt: localhost, piclaw.local, RFC-1918 Adressen (192.168.x.x,
+    10.x.x.x, 172.16-31.x.x) – blockiert alles andere.
+
+    SEC-4 Fix: 'allow_origins=[\"*\"]' würde jeder Website erlauben,
+    API-Calls im Namen des Nutzers zu machen wenn der Pi erreichbar ist.
+    """
+    from urllib.parse import urlparse
+    try:
+        host = urlparse(origin).hostname or ""
+    except Exception:
+        return False
+    if host in ("localhost", "127.0.0.1", "::1", "piclaw.local"):
+        return True
+    if host.startswith("192.168.") or host.startswith("10."):
+        return True
+    # 172.16.0.0 – 172.31.255.255
+    parts = host.split(".")
+    if len(parts) == 4 and parts[0] == "172":
+        try:
+            return 16 <= int(parts[1]) <= 31
+        except ValueError:
+            pass
+    return False
+
+
+class LocalNetworkCORSMiddleware:
+    """CORS-Middleware die nur lokale Netzwerk-Origins zulässt.
+
+    Ersetzt allow_origins=['*'] – verhindert Cross-Origin-Anfragen von
+    externen Websites auch wenn der Pi irrtümlich im Internet erreichbar ist.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            origin = headers.get(b"origin", b"").decode()
+
+            async def send_with_cors(response):
+                if response["type"] == "http.response.start" and origin:
+                    cors_headers = []
+                    if _is_local_origin(origin):
+                        cors_headers = [
+                            (b"access-control-allow-origin", origin.encode()),
+                            (b"access-control-allow-credentials", b"true"),
+                            (b"access-control-allow-methods", b"GET, POST, PUT, PATCH, DELETE, OPTIONS"),
+                            (b"access-control-allow-headers", b"Authorization, Content-Type"),
+                        ]
+                    else:
+                        log.debug("CORS: Origin abgelehnt: %s", origin)
+                    response = dict(response)
+                    response["headers"] = list(response.get("headers", [])) + cors_headers
+                await send(response)
+
+            # OPTIONS preflight direkt beantworten
+            if scope["method"] == "OPTIONS" and origin:
+                if _is_local_origin(origin):
+                    response_headers = [
+                        (b"access-control-allow-origin", origin.encode()),
+                        (b"access-control-allow-credentials", b"true"),
+                        (b"access-control-allow-methods", b"GET, POST, PUT, PATCH, DELETE, OPTIONS"),
+                        (b"access-control-allow-headers", b"Authorization, Content-Type"),
+                        (b"content-length", b"0"),
+                    ]
+                    await send({"type": "http.response.start", "status": 204, "headers": response_headers})
+                    await send({"type": "http.response.body", "body": b""})
+                    return
+            await self.app(scope, receive, send_with_cors)
+        else:
+            await self.app(scope, receive, send)
+
+
+app.add_middleware(LocalNetworkCORSMiddleware)
 
 
 # ── Public endpoints (no auth) ────────────────────────────────────
@@ -153,18 +226,33 @@ async def health():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def root():
-    """Serve web UI with token injected as JS variable."""
+async def root(request: Request):
+    """Serve web UI with token injected as JS variable.
+
+    SEC-5 Mitigation: Sicherheits-Header verhindern Clickjacking und
+    MIME-Sniffing. Token-Injection nur für lokale Netzwerk-Zugriffe.
+    """
     html_path = Path(__file__).parent / "web" / "index.html"
     if not html_path.exists():
         return HTMLResponse("<h1>PiClaw OS</h1><p>Web UI not found.</p>")
     html = html_path.read_text(encoding="utf-8")
-    # Inject token so the dashboard can authenticate API calls.
-    # The token is only embedded in the HTML if the server is serving it –
-    # i.e. you must have network access to the Pi to receive it.
-    token_script = f'<script>window.PICLAW_TOKEN = "{get_token()}";</script>'
-    html = html.replace("</head>", f"{token_script}\n</head>", 1)
-    return HTMLResponse(html)
+
+    # Token nur einbetten wenn Anfrage aus lokalem Netzwerk kommt.
+    # Verhindert Token-Diebstahl falls der Port versehentlich extern erreichbar ist.
+    client_host = request.client.host if request.client else ""
+    if _is_local_origin(f"http://{client_host}") or client_host in ("", "127.0.0.1", "::1"):
+        token_script = f'<script>window.PICLAW_TOKEN = "{get_token()}";</script>'
+        html = html.replace("</head>", f"{token_script}\n</head>", 1)
+    else:
+        log.warning("Externer Zugriff auf Web-UI von %s – Token wird NICHT eingebettet", client_host)
+
+    headers = {
+        "X-Frame-Options": "SAMEORIGIN",           # Kein Clickjacking via iframe
+        "X-Content-Type-Options": "nosniff",        # Kein MIME-Sniffing
+        "Referrer-Policy": "strict-origin",         # Kein Token in Referrer-Header
+        "Cache-Control": "no-store",                # Kein Caching des Token-haltigen HTML
+    }
+    return HTMLResponse(html, headers=headers)
 
 
 # ── Webhook endpoints (own auth, exempt from Bearer) ──────────────

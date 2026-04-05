@@ -88,48 +88,45 @@ konfiguriert statt in die URL eingebettet. Keine Tokens mehr in Prozessargumente
 
 ---
 
-### 🟡 Mittel – Bekannt, Mitigation vorhanden
+### 🟡 Mittel – Behoben in v0.15.5
 
-#### SEC-4: CORS `allow_origins=["*"]` auf HTTP
-**Beschreibung:** Die FastAPI-App erlaubt Cross-Origin-Requests von beliebigen Domains.
+#### SEC-4: CORS `allow_origins=["*"]` auf HTTP ✅ BEHOBEN
+**Beschreibung:** Die FastAPI-App erlaubte Cross-Origin-Requests von beliebigen Domains.
 Kombiniert mit HTTP (kein TLS) könnte eine Malicious-Website im Browser des Nutzers
 API-Calls absetzen, wenn Port 7842 erreichbar ist.
 
-**Mitigation:** Port 7842 ist durch SEC-2 auf LAN-IPs eingeschränkt. Browser blockieren
-Cross-Origin-Requests standardmäßig auch bei `allow_origins=["*"]` wenn keine
-CORS-preflight-Response kommt – das greift hier da der Port auf LAN beschränkt ist.
+**Impact:** Cross-Site-Request-Forgery gegen API bei erreichbarem Port.
 
-**Empfehlung:** Vor Public Release auf konkrete Origins einschränken:
-`allow_origins=["http://piclaw.local:7842", "http://localhost:7842"]`
-
-**Status:** Ausstehend – niedriges Risiko im aktuellen Scope.
+**Fix (Commit folgt):** `LocalNetworkCORSMiddleware` ersetzt `allow_origins=["*"]`.
+Erlaubt nur RFC-1918 IPs, `localhost`, `127.0.0.1`, `piclaw.local`.
+Externe Origins werden abgelehnt – unabhängig vom UFW-Status.
 
 ---
 
-#### SEC-5: Bearer Token im HTML über HTTP
-**Beschreibung:** Die `/`-Route injiziert `window.PICLAW_TOKEN = "..."` in den HTML-Response.
-Da kein TLS vorhanden, kann das Token durch passives Abhören im LAN erbeutet werden.
+#### SEC-5: Bearer Token im HTML über HTTP ✅ TEILWEISE BEHOBEN
+**Beschreibung:** Die `/`-Route injizierte `window.PICLAW_TOKEN = "..."` in den HTML-Response.
+Da kein TLS vorhanden, konnte das Token durch passives Abhören im LAN erbeutet werden.
 
-**Mitigation:** Durch SEC-2 ist nur das LAN berechtigt. Wer sich im LAN befindet,
-hat in einem Heimnetzwerk typischerweise ohnehin physischen Zugang.
+**Impact:** Token-Diebstahl bei passivem Angreifer im selben LAN.
 
-**Empfehlung:** Langfristig HTTPS via nginx-Reverse-Proxy oder Caddy.
+**Fix (Commit folgt):** Zwei Verbesserungen:
+1. **Token-Injection nur für lokale IPs:** Externe Clients (z.B. bei versehentlich offenem Port) erhalten das Token nicht mehr
+2. **Security-Header hinzugefügt:** `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin`, `Cache-Control: no-store`
 
-**Status:** Architekturelle Einschränkung – akzeptiertes Risiko für Heimnetz-Deployment.
+**Verbleibendes Risiko:** Innerhalb des LANs ist passives Abhören weiterhin möglich (HTTP, kein TLS).
+Vollständige Lösung: nginx + Let's Encrypt als Reverse Proxy (siehe Deployment-Empfehlungen).
 
 ---
 
-#### SEC-6: Shell-Tool allowlist umgehbar via Command Chaining
-**Beschreibung:** `_is_allowed()` prüft nur das erste Wort des Shell-Befehls gegen die
-Allowlist. `ls && rm -rf /opt/piclaw` würde die Prüfung bestehen wenn `ls` erlaubt ist.
+#### SEC-6: Shell-Tool allowlist umgehbar via Command Chaining ✅ BEHOBEN
+**Beschreibung:** `_is_allowed()` prüfte nur das erste Wort des Shell-Befehls gegen die
+Allowlist. `ls && rm -rf /opt/piclaw` bestand die Prüfung weil `ls` erlaubt ist.
 
-**Mitigation:** Shell-Tool ist standardmäßig auf sehr enge Allowlist (`ls`, `cat`, `echo`, etc.)
-beschränkt. Subagenten haben keinen Shell-Zugang (Tier 1 BLOCKED_ALWAYS). Nur der
-Haupt-Agent (Dameon) kann shell aufrufen.
+**Impact:** Privilegien-Eskalation durch Command-Chaining wenn Shell-Tool aktiv.
 
-**Empfehlung:** Blocklist um `&&`, `||`, `;`, `|`, `$(`, `` ` `` ergänzen.
-
-**Status:** Ausstehend – mittel.
+**Fix (Commit folgt):** Explizite Blocklist für Shell-Metacharakter **vor** der allowlist-Prüfung:
+`&&`, `||`, `;`, `|`, `$(`, `` ` ``, `${`, `>`, `>>`, `<`
+Jeder Befehl mit diesen Zeichen wird pauschal abgelehnt – unabhängig vom ersten Wort.
 
 ---
 
@@ -207,6 +204,9 @@ Wir verpflichten uns zu:
 | v0.15.5 | SEC-1: WhatsApp Auth-Bypass | `1fe2ff7` |
 | v0.15.5 | SEC-2: UFW LAN-Einschränkung | `1fe2ff7` |
 | v0.15.5 | SEC-3: Git Token/Injection | `1fe2ff7` |
+| v0.15.5 | SEC-4: CORS LAN-only Middleware | `aktuelle Session` |
+| v0.15.5 | SEC-5: Security-Header + Token nur für lokale IPs | `aktuelle Session` |
+| v0.15.5 | SEC-6: Shell Metacharakter-Blocklist | `aktuelle Session` |
 | v0.15.5 | Bug: `os.fsync()` blockierte Event-Loop | `576c44b` |
 | v0.15.5 | Bug: WebSocket Session-Leak | `1fe2ff7` |
 | v0.15.5 | Bug: Infinite Recursion LLM Router | `1fe2ff7` |
