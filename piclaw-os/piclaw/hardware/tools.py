@@ -279,14 +279,13 @@ async def _system_report() -> str:
     Wird als direct_tool für CronJob-Agenten genutzt um Groq/NIM Token zu sparen.
     Ersetzt den LLM-basierten Systembericht (vorher: ~3-5 LLM-Calls/Tag).
     """
-    import asyncio
     from datetime import datetime
 
     lines = [f"🖥️ *Systembericht* – {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"]
 
     # Temperatur
     try:
-        temp_text = await asyncio.to_thread(_thermal_status)
+        temp_text = await _thermal_status()
         # Erste Zeile extrahieren (enthält Status + Temperatur)
         temp_line = temp_text.splitlines()[0] if temp_text else "–"
         lines.append(f"🌡️ {temp_line}")
@@ -295,12 +294,12 @@ async def _system_report() -> str:
 
     # System-Info
     try:
-        info_text = await asyncio.to_thread(_pi_info)
+        info_text = await _pi_info()
         # Relevante Zeilen aus pi_info extrahieren
         for line in info_text.splitlines():
-            l = line.strip()
-            if any(k in l.lower() for k in ("cpu", "ram", "disk", "speicher", "uptime", "load", "memory")):
-                lines.append(f"  {l}")
+            line_str = line.strip()
+            if any(k in line_str.lower() for k in ("cpu", "ram", "disk", "speicher", "uptime", "load", "memory")):
+                lines.append(f"  {line_str}")
     except Exception as e:
         lines.append(f"  System-Info: Fehler ({e})")
 
