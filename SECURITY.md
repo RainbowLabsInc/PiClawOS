@@ -204,9 +204,9 @@ Wir verpflichten uns zu:
 | v0.15.5 | SEC-1: WhatsApp Auth-Bypass | `1fe2ff7` |
 | v0.15.5 | SEC-2: UFW LAN-Einschränkung | `1fe2ff7` |
 | v0.15.5 | SEC-3: Git Token/Injection | `1fe2ff7` |
-| v0.15.5 | SEC-4: CORS LAN-only Middleware | `aktuelle Session` |
-| v0.15.5 | SEC-5: Security-Header + Token nur für lokale IPs | `aktuelle Session` |
-| v0.15.5 | SEC-6: Shell Metacharakter-Blocklist | `aktuelle Session` |
+| v0.15.5 | SEC-4: CORS LAN-only Middleware | `ec1af4d` |
+| v0.15.5 | SEC-5: Security-Header + Token nur für lokale IPs | `ec1af4d` |
+| v0.15.5 | SEC-6: Shell Metacharakter-Blocklist | `ec1af4d` |
 | v0.15.5 | Bug: `os.fsync()` blockierte Event-Loop | `576c44b` |
 | v0.15.5 | Bug: WebSocket Session-Leak | `1fe2ff7` |
 | v0.15.5 | Bug: Infinite Recursion LLM Router | `1fe2ff7` |

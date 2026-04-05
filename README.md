@@ -1,239 +1,226 @@
+<div align="center">
+
 # 🐾 PiClaw OS
 
-**An AI Operating System for Raspberry Pi 5**  
-*v0.15.5 · April 2026*
+**Dein autonomer KI-Assistent für den Raspberry Pi**
 
-PiClaw OS turns a Raspberry Pi into an always-on autonomous AI assistant. The agent runs 24/7, handles messages across multiple channels, monitors marketplaces and auction platforms for new listings, controls smart home devices, and manages hardware — all from a small, low-power device that can run entirely offline if needed.
+[![Version](https://img.shields.io/badge/version-0.16.0-blue?style=flat-square)](https://github.com/RainbowLabsInc/PiClawOS/releases)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python)](https://python.org)
+[![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%205-red?style=flat-square)](https://www.raspberrypi.com)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Security](https://img.shields.io/badge/security-audited-brightgreen?style=flat-square)](SECURITY.md)
 
----
+*Läuft 24/7 · Kein Abo · Vollständig offline-fähig · Kostenlose LLM-APIs*
 
-## ✨ Features
-
-| Feature | Description |
-|---------|-------------|
-| 🧠 **Multi-LLM Routing** | Groq (Llama 3.3, Kimi K2), NVIDIA NIM, Anthropic Claude, OpenAI, OpenRouter, Ollama, local Qwen3 — with automatic fallback chain |
-| 🛒 **Marketplace Monitor** | Kleinanzeigen.de, eBay.de, eGun.de, willhaben.at, Troostwijk — monitors continuously, reports **only new listings** via Telegram |
-| 🏛️ **Auction Event Monitor** | **NEW:** Troostwijk — monitor for new auction *events* by country or city, not just individual lots |
-| 🤖 **Natural Language Monitoring** | *"Watch eGun for a Sauer 505"* or *"Monitor Troostwijk for new auctions in Germany"* → creates a scheduled agent automatically |
-| 💬 **Messaging Hub** | Telegram, WhatsApp, Threema, MQTT |
-| 🏠 **Home Assistant** | REST + WebSocket, 11 tools, real-time push events |
-| 🧠 **Hybrid Memory** | BM25 + vector search (QMD), persistent facts across conversations |
-| 👁️ **Sub-Agent System** | Tokenless scheduled agents (marketplace monitors run **without any LLM calls**) |
-| 🔒 **Watchdog** | Service monitoring, heartbeat check, hardware alerts |
-| 🌐 **Web Dashboard** | 8 tabs: Dashboard · Memory · Agents · Soul · Hardware · Metrics · Camera · Chat |
-| 📷 **Camera** | Pi Camera v2/v3 + USB webcams, AI-powered image description |
-| 🌡️ **Thermal Routing** | Switches to cloud API backends when Pi runs hot |
-| 🔧 **Self-Update** | `piclaw update` — git pull + service restart |
+</div>
 
 ---
 
-## 🚀 Quick Start
+PiClaw OS verwandelt einen Raspberry Pi in einen intelligenten Assistenten, der rund um die Uhr für dich arbeitet: Marktplätze überwachen, Smart Home steuern, Netzwerk im Blick behalten – alles per Telegram oder Browser-Dashboard.
 
-### Requirements
-- Raspberry Pi 5 (recommended) or Pi 4
+---
+
+## ✨ Was kann PiClaw OS?
+
+| | Feature | Beschreibung |
+|---|---|---|
+| 🧠 | **Multi-LLM-Routing** | Groq, NVIDIA NIM, OpenRouter, Anthropic, Ollama, lokales Qwen3 – mit automatischer Fallback-Kette |
+| 🛒 | **Marktplatz-Monitor** | Kleinanzeigen, eBay, eGun, willhaben, Troostwijk – meldet **nur neue** Inserate per Telegram |
+| 🏛️ | **Auktions-Monitor** | Troostwijk: neue Auktions-Events nach Land oder Stadt überwachen |
+| 🤖 | **Natürliche Sprache** | *„Überwache eGun auf Sauer 505"* → erstellt automatisch einen stündlichen Monitor |
+| 💬 | **Messaging Hub** | Telegram, WhatsApp, Threema, MQTT |
+| 🏠 | **Home Assistant** | REST + WebSocket, 11 Tools, Echtzeit-Push bei Bewegung/Alarm |
+| 🌐 | **Web-Dashboard** | Agents · Memory · Soul · Hardware · Metriken · Kamera · Chat |
+| 🔒 | **Tokenlos** | Marktplatz-Monitore laufen **ohne LLM-Aufrufe** – null API-Kosten im Betrieb |
+| 🔧 | **Self-Update** | `piclaw update` – Git-Pull + Neustart in einem Befehl |
+| 📴 | **Offline-Fallback** | Qwen3-1.7B läuft lokal auf dem Pi – kein Internet nötig |
+
+---
+
+## 🆓 Kostenlos betreiben
+
+PiClaw OS funktioniert vollständig mit kostenlosen API-Tiers:
+
+| Anbieter | Free Tier | URL | Format |
+|---|---|---|---|
+| **Groq** ⭐ | Unbegrenzt (rate-limited) | [console.groq.com](https://console.groq.com) | `gsk_...` |
+| **NVIDIA NIM** | 1.000 Calls/Monat | [build.nvidia.com](https://build.nvidia.com) | `nvapi-...` |
+| **OpenRouter** | Viele Modelle gratis | [openrouter.ai](https://openrouter.ai) | `sk-or-...` |
+| **Telegram Bot** | Komplett kostenlos | [@BotFather](https://t.me/BotFather) | `123:ABC...` |
+| **Lokal (Qwen3)** | Kein Key nötig | Im Paket enthalten | — |
+
+> **Empfehlung:** Groq als Haupt-Backend + lokales Qwen3 als Offline-Fallback. Fertig.
+
+---
+
+## 🚀 Installation
+
+### Voraussetzungen
+- Raspberry Pi 5 (empfohlen) oder Pi 4
 - Raspberry Pi OS Lite 64-bit (Bookworm)
-- SD card ≥ 16 GB
-- An LLM API key (optional — local models work offline)
+- SD-Karte ≥ 16 GB
 
-### Installation
+### In 3 Schritten
 
-**1.** Clone the repo onto your Pi:
+**1. Repository klonen**
 ```bash
 git clone https://github.com/RainbowLabsInc/PiClawOS.git
 cd PiClawOS/piclaw-os
 sudo bash install.sh
+```
+
+**2. Einrichten**
+```bash
 piclaw setup
 ```
+Der Wizard führt durch: Agent-Name → LLM-Backend → Telegram → Home Assistant → Standort (für Zeitzone + Wetter)
 
-**2.** Open the web dashboard: **http://piclaw.local:7842**
-
----
-
-## 🆓 Free API Keys — Where to Get Them
-
-PiClaw OS runs entirely on free API tiers. No credit card required for the recommended setup.
-
-| Provider | Free Tier | URL | Key Format |
-|----------|-----------|-----|------------|
-| **Groq** ⭐ | Unlimited (rate-limited) | [console.groq.com](https://console.groq.com) | `gsk_...` |
-| **NVIDIA NIM** | 1,000 API calls/month | [build.nvidia.com](https://build.nvidia.com) | `nvapi-...` |
-| **OpenRouter** | Many free models | [openrouter.ai](https://openrouter.ai) | `sk-or-...` |
-| **Telegram Bot** | Completely free | [@BotFather](https://t.me/BotFather) | `1234:ABC...` |
-| **Local (Qwen3)** | No key needed | bundled | — |
-
-**Recommended free setup (priority order):**
+**3. Dashboard öffnen**
 ```
-[10] Groq  – llama-3.3-70b-versatile   → main backend, fast
-[ 9] Groq  – kimi-k2-instruct          → fallback, tool-calling
-[ 6] NVIDIA NIM – llama-4-maverick     → cloud fallback
-[local] Qwen3-1.7B Q4_K_M             → offline, no internet needed
+http://piclaw.local:7842
 ```
 
 ---
 
-## 🛒 Marketplace Search & Monitoring
+## 🛒 Marktplatz-Monitor
 
-### Supported Platforms
+### Unterstützte Plattformen
 
-| Platform | Type | Country | Filter |
-|----------|------|---------|--------|
-| 📌 Kleinanzeigen.de | Classifieds | 🇩🇪 | PLZ + radius + price |
-| 🛍️ eBay.de | Marketplace | 🇩🇪 | PLZ + price |
-| 🎯 eGun.de | Weapons/Outdoor | 🇩🇪 | Price |
-| 🇦🇹 Willhaben.at | Classifieds | 🇦🇹 | Province/city |
-| 🔨 Troostwijk (lots) | Industrial auctions | 🌍 EU | Text search + country |
-| 🏛️ Troostwijk (events) | Auction events | 🌍 EU | **Country + city** |
-| 🌐 Web | DuckDuckGo fallback | Global | — |
+| Plattform | Typ | Land | Filter |
+|---|---|---|---|
+| 📌 Kleinanzeigen.de | Kleinanzeigen | 🇩🇪 | PLZ + Umkreis + Preis |
+| 🛍️ eBay.de | Marktplatz | 🇩🇪 | PLZ + Preis |
+| 🎯 eGun.de | Jagd / Outdoor | 🇩🇪 | Preis |
+| 🇦🇹 willhaben.at | Kleinanzeigen | 🇦🇹 | Bundesland / Stadt |
+| 🔨 Troostwijk (Lose) | Industrie-Auktionen | 🌍 EU | Textsuche + Land |
+| 🏛️ Troostwijk (Events) | Auktions-Events | 🌍 EU | Land + Stadt |
+| 🌐 Websuche | DuckDuckGo-Fallback | Global | — |
 
-### One-time search
-```
-> Search Kleinanzeigen for a Raspberry Pi 5 under €80 in Hamburg
-> Search eGun for Sauer 505
-> Search Troostwijk for forklifts in Germany
-```
-
-### Automatic monitoring
-Speak naturally — PiClaw creates a tokenless scheduled agent automatically:
-```
-> Watch Kleinanzeigen for Gartentisch in 21224, 20km radius
-> Monitor eGun for Sauer 505
-> Monitor Troostwijk for new auctions in Germany
-> Monitor Troostwijk for new auctions in Hamburg
-> Monitor Troostwijk for new auctions in the Netherlands
-```
-
-All marketplace monitors run **100% tokenless** — no LLM calls, no API costs, every hour.
-
-### Troostwijk Auction Event Monitor (new in v0.15.5)
-
-Unlike the standard lot search, the **auction event monitor** watches for entire new auction events being published on Troostwijk.
+### Beispiele
 
 ```
-> Monitor Troostwijk for new auctions in Germany     → country-level
-> Monitor Troostwijk for new auctions in Hamburg     → city-level (name filter)
-> Monitor Troostwijk for new auctions in Belgium
-> Monitor Troostwijk for new auctions in Netherlands
-```
+# Einmalige Suche
+> Suche auf Kleinanzeigen nach Gartentisch in 21224, 20km
 
-**Supported countries:** Germany, Netherlands, Belgium, France, Austria, Italy, Spain, Sweden, Denmark, Poland, Czech Republic, Hungary, Croatia, Portugal, Finland, Estonia, Greece, Romania and more.
-
-> **Note on city filter:** Troostwijk's API does not provide a city-level filter. City matching is done by searching the auction name for the city keyword (e.g. `"D | Machines Hamburg"` matches "Hamburg"). Country-level filtering is exact.
-
----
-
-## 🤖 Sub-Agent System
-
-PiClaw creates autonomous sub-agents that run on a schedule. Marketplace monitors use `direct_tool` mode — **no LLM involved**, pure Python:
-
-| Agent | Platform | Schedule | Tokens |
-|-------|----------|----------|--------|
-| Monitor_Netzwerk | LAN scan | every 5 min | 0 (protected) |
-| Monitor_Gartentisch | Kleinanzeigen | hourly | 0 |
-| Monitor_Sonnenschirm | Kleinanzeigen | hourly | 0 |
-| Monitor_Sauer505 | eGun | hourly | 0 |
-| Monitor_TW_Deutschland | Troostwijk (events) | hourly | 0 |
-| CronJob_0715 | — | daily 07:15 | ~500 |
-
-**Mission JSON format for custom agents:**
-```json
-// Article monitor
-{"query":"Sauer 505","platforms":["egun"],"location":null,"radius_km":null,"max_price":null}
-
-// Troostwijk auction event monitor
-{"query":"","platforms":["troostwijk_auctions"],"location":null,"country":"de","max_results":24}
+# Automatischer Monitor (stündlich, tokenlos)
+> Überwache eGun auf Sauer 505
+> Überwache Kleinanzeigen auf Sonnenschirm in 21224, 20km Umkreis
+> Überwache Troostwijk auf neue Auktionen in Deutschland
+> Überwache Troostwijk auf neue Auktionen in Hamburg
 ```
 
 ---
 
-## 🏠 Home Assistant Integration
+## 🤖 Sub-Agenten
 
-```
-> Turn off the living room lights
-> Set the bedroom thermostat to 20°C
-> What devices are currently on?
-```
+Alle Marktplatz-Monitore laufen als **tokenlose Sub-Agenten** – kein LLM, keine API-Kosten:
 
-Push events (motion, doors, alarms, smoke, flood) are sent automatically via Telegram.
-
----
-
-## 🤖 Supported LLM Backends
-
-| Provider | Key Format | Free | Notes |
-|----------|-----------|------|-------|
-| **Groq** | `gsk_...` | ✅ | Recommended, fastest free backend |
-| NVIDIA NIM | `nvapi-...` | ✅ | 1,000 calls/month free |
-| OpenRouter | `sk-or-...` | ✅ | Many free models |
-| Anthropic Claude | `sk-ant-...` | ❌ | Pay-per-token, high quality |
-| OpenAI | `sk-...` | ❌ | Pay-per-token |
-| **Ollama** | no key | ✅ | Local server |
-| **Qwen3 Q4 (local)** | no key | ✅ | Offline fallback, bundled |
+| Agent | Plattform | Intervall | Token-Kosten |
+|---|---|---|---|
+| Monitor_Netzwerk | LAN-Scan | alle 5 Min | 0 (geschützt) |
+| Monitor_Gartentisch | Kleinanzeigen | stündlich | 0 |
+| Monitor_Sonnenschirm | Kleinanzeigen | stündlich | 0 |
+| Monitor_Sauer505 | eGun | stündlich | 0 |
+| Monitor_TW_Deutschland | Troostwijk Events | stündlich | 0 |
+| CronJob_0715 | Tagesbriefing | tägl. 07:15 | ~500 |
 
 ---
 
-## 🖥️ System Services
+## 🏠 Home Assistant
 
-| Service | Function |
-|---------|----------|
-| `piclaw-api` | REST API + Web Dashboard (port 7842) |
-| `piclaw-agent` | Main AI agent daemon |
-| `piclaw-watchdog` | Hardware & service monitoring |
+```
+> Schalte das Licht im Fernsehzimmer an
+> Wie warm ist es im Schlafzimmer?
+> Was läuft gerade im Wohnzimmer?
+```
+
+Push-Benachrichtigungen bei Bewegung, geöffneten Türen, Rauchmeldern und mehr.
+
+---
+
+## 🤖 LLM-Backends
+
+| Anbieter | Format | Kostenlos | Empfehlung |
+|---|---|---|---|
+| **Groq** | `gsk_...` | ✅ | Haupt-Backend, schnellste Antworten |
+| NVIDIA NIM | `nvapi-...` | ✅ 1k/Monat | Fallback |
+| OpenRouter | `sk-or-...` | ✅ Viele | Aggregator |
+| Anthropic | `sk-ant-...` | ❌ | Premium-Alternative |
+| OpenAI | `sk-...` | ❌ | Pay-per-Token |
+| Ollama | kein Key | ✅ | Lokaler Server |
+| **Qwen3 Q4** | kein Key | ✅ | Offline-Fallback |
+
+---
+
+## 💻 CLI-Referenz
 
 ```bash
-piclaw start / stop / status    # Control all services
-piclaw doctor                   # Full health check
-piclaw update                   # Pull latest code + restart
+piclaw              # Chat starten
+piclaw setup        # Einrichtungs-Wizard
+piclaw update       # Aktualisieren (git pull + Neustart)
+piclaw doctor       # System-Status prüfen
+piclaw agent list   # Sub-Agenten anzeigen
+piclaw llm list     # LLM-Backends anzeigen
+piclaw soul edit    # Persönlichkeit bearbeiten
+piclaw backup       # Backup erstellen
 ```
 
 ---
 
-## 💻 CLI Reference
+## 🛡️ Sicherheit
 
-```bash
-piclaw                          # Start chat with Dameon
-piclaw setup                    # Interactive setup wizard
-piclaw update                   # Self-update via git pull
-piclaw doctor                   # System health check
-piclaw soul show / edit / reset # Agent personality
-piclaw model download [id]      # Download local LLM
-piclaw llm list                 # Show LLM registry
-piclaw llm add --name ...       # Register new backend
-piclaw agent list               # Show sub-agents
-piclaw briefing send morning    # Send morning briefing
-piclaw backup / restore         # Backup & restore
-piclaw camera snapshot          # Take a photo + AI description
-```
+PiClaw OS wurde vor dem Release einem vollständigen Security-Audit unterzogen. Alle kritischen Schwachstellen wurden behoben:
 
----
+- ✅ WhatsApp Webhook Auth-Bypass geschlossen
+- ✅ Firewall auf LAN-IPs eingeschränkt (nicht internet-weit)
+- ✅ GitHub-Token aus Prozessliste entfernt
+- ✅ CORS auf lokales Netzwerk beschränkt
+- ✅ Shell Command-Injection geblockt
+- ✅ Security-Header (X-Frame-Options, CSRF-Schutz)
 
-## 🛠️ Troubleshooting
-
-| Problem | Solution |
-|---------|---------|
-| `LLM health: UNREACHABLE` | Check API key in `/etc/piclaw/config.toml` |
-| `piclaw update` hangs | Add `github_token` to `/etc/piclaw/config.toml` |
-| Troostwijk returns 404 | BuildId expired, auto-renews on next run |
-| `piclaw.local` not found | Use IP: `ssh -t pi@192.168.X.X` |
-| High CPU after restart | QMD runs once on first boot — normal, resolves in ~2 min |
-| Sub-agent not starting | Check `piclaw agent list`, inspect mission JSON |
+Mehr Details: [SECURITY.md](SECURITY.md)
 
 ---
 
 ## 🗺️ Roadmap
 
-- **v0.16** — Troostwijk: Stadtfilter via API sobald verfügbar
-- **v0.17** — Security tools (fail2ban, IP blocking)
-- **v0.18** — HA doctor fix (retry logic on startup)
-- **v0.20** — Willhaben: Preishistorie
+- **v0.16** ← *Aktuell* — Security-Audit, Troostwijk Auktionen, Zeitzone-Autosetup
+- **v0.17** — Emergency Shutdown via Smart Plug
+- **v0.18** — IPC-Reload (kein Neustart bei neuem Sub-Agent)
+- **v0.19** — Marketplace: Query-Extraktion verbessern, Willhaben Kategorie-Filter
+- **v1.0** — Frische Installation < 10 Minuten, alle Tests grün
 
 ---
 
-## 📄 License
+## 🛠️ Troubleshooting
 
-MIT License
+| Problem | Lösung |
+|---|---|
+| `piclaw update` hängt | `github_token` in `/etc/piclaw/config.toml` eintragen |
+| `git pull: insufficient permission` | `sudo chown -R piclaw:piclaw /opt/piclaw/.git` |
+| Zeitzone falsch | `sudo timedatectl set-timezone Europe/Berlin` |
+| Troostwijk 404 | BuildId veraltet – erneuert sich automatisch |
+| Sub-Agent startet nicht | `piclaw agent list` + mission-JSON prüfen |
+| Dameon antwortet nicht | `piclaw doctor` ausführen |
 
 ---
 
-## 🙏 Built With
+## 📄 Lizenz
 
-[FastAPI](https://fastapi.tiangolo.com) · [QMD](https://github.com/tobilu/qmd) · [python-telegram-bot](https://python-telegram-bot.org) · [Scrapling](https://github.com/D4Vinci/Scrapling) · [llama-cpp-python](https://github.com/abetlen/llama-cpp-python) · [aiohttp](https://docs.aiohttp.org)
+MIT License – frei nutzbar, modifizierbar und verteilbar.
+
+---
+
+## 🙏 Gebaut mit
+
+[FastAPI](https://fastapi.tiangolo.com) · [aiohttp](https://docs.aiohttp.org) · [QMD](https://github.com/tobilu/qmd) · [python-telegram-bot](https://python-telegram-bot.org) · [Scrapling](https://github.com/D4Vinci/Scrapling) · [timezonefinder](https://github.com/jannikmi/timezonefinder) · [croniter](https://github.com/kiorky/croniter) · [llama-cpp-python](https://github.com/abetlen/llama-cpp-python)
+
+---
+
+<div align="center">
+
+**Made with ❤️ for the Raspberry Pi community**
+
+[Dokumentation](piclaw-os/README.md) · [Sicherheit](SECURITY.md) · [Changelog](piclaw-os/CHANGELOG.md) · [Roadmap](piclaw-os/ROADMAP.md)
+
+</div>
