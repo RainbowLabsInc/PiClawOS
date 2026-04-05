@@ -889,3 +889,30 @@ ACTIVE_LLM_BACKENDS:
   [ 8] nemotron-nvidia llama-4-maverick-17b    NVIDIA NIM free tier
   [ 7] openai-default  llama-3.3-70b-instruct  NVIDIA NIM Fallback
   local gemma-2b-q4                            llama.cpp  letzter Fallback
+
+---
+## SESSION_9_2026-04-05
+
+TROOSTWIJK_AUKTIONS_MONITOR:
+  NEU: _search_troostwijk_auctions() in marketplace.py
+  API: troostwijkauctions.com/_next/data/{buildId}/de/auctions.json?countries={country}
+  UNTERSCHIED zu _search_troostwijk():
+    _search_troostwijk()        → Einzelne Lose (Artikel), API: /de/search.json?searchTerm=X
+    _search_troostwijk_auctions() → Auktions-Events, API: /de/auctions.json?countries=de
+  STADTFILTER: KEIN API-seitiger Stadtfilter → Substring-Matching im Auktionsnamen
+  LÄNDERFILTER: ISO-2-Code (de/nl/be/fr/at/...) als ?countries= Parameter
+
+INV_025: marketplace_search() hat neuen country-Parameter
+  SIGNATURE: marketplace_search(query, platforms, ..., country: str = "de")
+  RUNNER: _run_marketplace_monitor → params.get("country", "de") an marketplace_search
+
+INV_026: troostwijk_auctions darf leere Query haben
+  _query_optional = all(p == "troostwijk_auctions" for p in platforms)
+  → überspringt len(query) < 2 Check
+
+INV_027: _detect_tw_auction_monitor_intent() MUSS VOR _detect_monitor_intent() kommen
+  Sonst: "Neue Auktionen in Hamburg" → no query → LLM → Tokens
+
+ACTIVE_SUB_AGENTS_SESSION_9:
+  Monitor_TW_Deutschland  interval:3600  direct_tool=marketplace_monitor
+  mission: {"query":"","platforms":["troostwijk_auctions"],"location":null,"country":"de","max_results":24}
