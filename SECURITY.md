@@ -190,10 +190,12 @@ Dann `api.py` auf `host = "127.0.0.1"` umstellen (nur localhost).
 Sicherheitslücken bitte als **private Issue** melden oder direkt an den Maintainer.
 Bitte keinen öffentlichen Issue erstellen bevor ein Fix verfügbar ist.
 
-Wir verpflichten uns zu:
+Wir bemühen uns zu:
 - Bestätigung des Eingangs innerhalb 48h
 - Einschätzung der Schwere innerhalb 7 Tagen
 - Fix oder Workaround innerhalb 30 Tagen für kritische Issues
+
+Achtung: Diese Software wird aktuell von einem Micro-Team in ihrer Freizeit entwickelt. 
 
 ---
 
