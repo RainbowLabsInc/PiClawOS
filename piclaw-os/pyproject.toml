@@ -16,6 +16,8 @@ dependencies = [
     "tomli-w>=1.0",
     "psutil>=5.9",
     "croniter>=1.4",
+    # Timezone detection from coordinates (used in setup wizard)
+    "timezonefinder>=6.2",
     # Local LLM (CPU-only build for Pi 5 arm64)
     "llama-cpp-python>=0.2.90",
     # Messaging adapters

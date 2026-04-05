@@ -438,7 +438,14 @@ info "Services registriert und aktiviert"
 
 # ── Firewall (optional) ───────────────────────────────────────────
 if command -v ufw &>/dev/null; then
-    ufw allow 7842/tcp comment "PiClaw Web-UI" >/dev/null 2>&1 || true
+    # SECURITY: Port 7842 nur für lokales Netzwerk freigeben, NICHT für das Internet.
+    # Der Bearer-Token wird über HTTP (kein TLS) übertragen – ein offener Port wäre
+    # ein erhebliches Sicherheitsrisiko auf einem öffentlich erreichbaren System.
+    # Standard-Heimnetzwerke: 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12
+    ufw allow from 192.168.0.0/16 to any port 7842 comment "PiClaw Web-UI (LAN only)" >/dev/null 2>&1 || true
+    ufw allow from 10.0.0.0/8     to any port 7842 comment "PiClaw Web-UI (LAN only)" >/dev/null 2>&1 || true
+    ufw allow from 172.16.0.0/12  to any port 7842 comment "PiClaw Web-UI (LAN only)" >/dev/null 2>&1 || true
+    ufw allow from 127.0.0.1      to any port 7842 comment "PiClaw Web-UI (localhost)" >/dev/null 2>&1 || true
     info "Firewall: Port 7842 geöffnet"
 fi
 

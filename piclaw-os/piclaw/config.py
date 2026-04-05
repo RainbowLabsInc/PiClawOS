@@ -179,6 +179,21 @@ class AgentMailConfig:
 
 
 @dataclass
+class LocationConfig:
+    """Geolocation des Pi – wird im Setup-Wizard aus Lat/Lon gesetzt.
+
+    Die Zeitzone wird automatisch via timezonefinder aus den Koordinaten
+    ermittelt und per timedatectl auf dem System gesetzt. Danach nutzen
+    alle datetime.now()-Aufrufe automatisch die korrekte Ortszeit
+    inklusive Sommer/Winterzeit (DST).
+    """
+    latitude: float | None = None
+    longitude: float | None = None
+    timezone: str = ""   # IANA-String, z.B. "Europe/Berlin" – leer = nicht gesetzt
+    city: str = ""       # optional, für Wetteranzeige/Briefing
+
+
+@dataclass
 class PiClawConfig:
     agent_name: str = "PiClaw"
     log_level: str = "INFO"
@@ -194,6 +209,7 @@ class PiClawConfig:
     threema: ThreemaConfig = field(default_factory=ThreemaConfig)
     whatsapp: WhatsAppConfig = field(default_factory=WhatsAppConfig)
     agentmail: AgentMailConfig = field(default_factory=AgentMailConfig)
+    location: LocationConfig = field(default_factory=LocationConfig)
 
 
 def ensure_dirs():
@@ -230,6 +246,7 @@ def load() -> PiClawConfig:
     cfg.threema = _load_section(ThreemaConfig, raw, "threema")
     cfg.whatsapp = _load_section(WhatsAppConfig, raw, "whatsapp")
     cfg.agentmail = _load_section(AgentMailConfig, raw, "agentmail")
+    cfg.location  = _load_section(LocationConfig,  raw, "location")
     cfg.agent_name = raw.get("agent_name", cfg.agent_name)
     cfg.log_level = raw.get("log_level", cfg.log_level)
     return cfg
@@ -252,6 +269,7 @@ def save(cfg: PiClawConfig):
         "threema": asdict(cfg.threema),
         "whatsapp": asdict(cfg.whatsapp),
         "agentmail": asdict(cfg.agentmail),
+        "location":  asdict(cfg.location),
     }
     with open(CONFIG_FILE, "wb") as f:
         tomli_w.dump(data, f)
