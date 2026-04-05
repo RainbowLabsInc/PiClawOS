@@ -3,7 +3,6 @@ PiClaw OS – Core Agent
 """
 
 import asyncio
-import json
 import logging
 import traceback
 from dataclasses import dataclass, field
@@ -21,38 +20,53 @@ _RE_MP_MARKET_KW = re.compile(
     re.IGNORECASE,
 )
 
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: E402
 
-from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
-from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall
-from piclaw.taskutils import create_background_task
+_HA_ON_KW = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
+_HA_OFF_KW = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
+_HA_TOGGLE_KW = ("toggle", "umschalten", "wechseln")
+_HA_CMD_KW = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
+              "licht", "lampe", "leuchte", "steckdose", "schalter")
+_HA_STOP_WORDS = frozenset({"das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
+                            "mal", "doch", "jetzt", "sofort", "kurz", "einmal"})
+_HA_SHORTCUT_IGNORE_WORDS = frozenset(
+    _HA_ON_KW + _HA_OFF_KW + _HA_TOGGLE_KW +
+    ("schalte", "mach", "mache", "stell", "stelle",
+     "knips", "dreh", "licht", "lampe", "leuchte",
+     "steckdose", "schalter", "bitte")
+)
+_RE_PUNCTUATION = re.compile(r"[^\w\s]")
 
-from piclaw.tools import shell as shell_mod
-from piclaw.tools import network as network_mod
-from piclaw.tools import gpio as gpio_mod
-from piclaw.tools import services as services_mod
-from piclaw.tools import updater as updater_mod
-from piclaw.tools.scheduler import Scheduler
+from piclaw.config import PiClawConfig, CRASH_DIR # noqa: E402
+from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall # noqa: E402
+from piclaw.taskutils import create_background_task # noqa: E402
 
-from piclaw.memory import QMDBackend, MemoryMiddleware
-from piclaw.memory.tools import TOOL_DEFS as MEMORY_TOOL_DEFS
-from piclaw.memory.tools import build_handlers as build_memory_handlers
-from piclaw.agents import heartbeat_loop
-from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS
-from piclaw.agents.orchestration import build_handlers as build_agent_handlers
-from piclaw.agents.sa_registry import (
+from piclaw.tools import shell as shell_mod # noqa: E402
+from piclaw.tools import network as network_mod # noqa: E402
+from piclaw.tools import gpio as gpio_mod # noqa: E402
+from piclaw.tools import services as services_mod # noqa: E402
+from piclaw.tools import updater as updater_mod # noqa: E402
+from piclaw.tools.scheduler import Scheduler # noqa: E402
+
+from piclaw.memory import QMDBackend, MemoryMiddleware # noqa: E402
+from piclaw.memory.tools import TOOL_DEFS as MEMORY_TOOL_DEFS # noqa: E402
+from piclaw.memory.tools import build_handlers as build_memory_handlers # noqa: E402
+from piclaw.agents import heartbeat_loop # noqa: E402
+from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS # noqa: E402
+from piclaw.agents.orchestration import build_handlers as build_agent_handlers # noqa: E402
+from piclaw.agents.sa_registry import ( # noqa: E402
     SubAgentRegistry,
     SubAgentDef,
     INSTALLER_MISSION_TEMPLATE,
 )
-from piclaw.agents.runner import SubAgentRunner
-from piclaw.agents.sa_tools import TOOL_DEFS as SA_TOOL_DEFS
-from piclaw.agents.sa_tools import build_handlers as build_sa_handlers
-from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS
-from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers
-from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
-from piclaw import soul as soul_mod
-from piclaw.tools import homeassistant as ha_mod
+from piclaw.agents.runner import SubAgentRunner # noqa: E402
+from piclaw.agents.sa_tools import TOOL_DEFS as SA_TOOL_DEFS # noqa: E402
+from piclaw.agents.sa_tools import build_handlers as build_sa_handlers # noqa: E402
+from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS # noqa: E402
+from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers # noqa: E402
+from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS # noqa: E402
+from piclaw import soul as soul_mod # noqa: E402
+from piclaw.tools import homeassistant as ha_mod # noqa: E402
 
 log = logging.getLogger("piclaw.agent")
 
@@ -618,7 +632,7 @@ class Agent:
             # Standard-Fallback: Systembericht via direct_tool (kein LLM nötig!)
             # Spart ~3-5 LLM-Calls/Tag und schont das Groq/NIM Token-Budget.
             tools = ["system_report", "thermal_status", "pi_info", "memory_log"]
-            mission = f"Direct tool mode: system_report"
+            mission = "Direct tool mode: system_report"
             # direct_tool wird weiter unten gesetzt
 
         # direct_tool für Systembericht-Tasks (kein LLM-Loop nötig)
@@ -729,38 +743,26 @@ class Agent:
             return None
 
         # Intent erkennen
-        on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
-        off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
-        toggle_kw = ("toggle", "umschalten", "wechseln")
-        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter")
-
         # Muss mindestens ein Befehlswort enthalten
-        if not any(k in t for k in cmd_kw):
+        if not any(k in t for k in _HA_CMD_KW):
             return None
 
         # Richtung bestimmen
         action = None
-        if any(k in t for k in on_kw):
+        if any(k in t for k in _HA_ON_KW):
             action = "on"
-        elif any(k in t for k in off_kw):
+        elif any(k in t for k in _HA_OFF_KW):
             action = "off"
-        elif any(k in t for k in toggle_kw):
+        elif any(k in t for k in _HA_TOGGLE_KW):
             action = "toggle"
         else:
             return None  # Kein klarer On/Off Intent
 
         # Raum/Gerät extrahieren – alles zwischen Befehlswort und Richtungswort
         # Stopwörter entfernen
-        stop = {"das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
-                "bitte", "mal", "doch", "jetzt", "sofort", "kurz", "einmal"}
-        words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
+        words = [w for w in _RE_PUNCTUATION.sub(" ", t).split() if w not in _HA_STOP_WORDS]
         # Raum-Keywords suchen
-        area_words = [w for w in words if w not in
-                      on_kw + off_kw + toggle_kw +
-                      ["schalte", "mach", "mache", "stell", "stelle",
-                       "knips", "dreh", "licht", "lampe", "leuchte",
-                       "steckdose", "schalter", "bitte"]]
+        area_words = [w for w in words if w not in _HA_SHORTCUT_IGNORE_WORDS]
         area = " ".join(area_words).strip() if area_words else ""
 
         # Entität suchen
