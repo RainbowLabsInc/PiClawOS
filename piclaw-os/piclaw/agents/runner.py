@@ -421,6 +421,7 @@ class SubAgentRunner:
                 radius_km=params.get("radius_km"),
                 max_price=params.get("max_price"),
                 max_results=params.get("max_results", 10),
+                country=params.get("country", "de"),
                 notify_all=False,
             )
             if asyncio.iscoroutine(result):
