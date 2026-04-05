@@ -106,6 +106,8 @@ class Scheduler:
         self._save()
         if interval_sec:
             self._start_interval(sid)
+        elif cron:
+            self._start_cron(sid)
         return f"Schedule '{name}' created (id: {sid})."
 
     def remove(self, id_or_name: str) -> str:
@@ -145,6 +147,8 @@ class Scheduler:
         for sid, s in self._schedules.items():
             if s.get("interval_sec"):
                 self._start_interval(sid)
+            elif s.get("cron"):
+                self._start_cron(sid)
 
     def _start_interval(self, sid: str):
         if sid in self._tasks:
@@ -159,6 +163,38 @@ class Scheduler:
             if not s:
                 break
             await asyncio.sleep(s["interval_sec"])
+            await self._run_task(sid)
+
+    def _start_cron(self, sid: str):
+        if sid in self._tasks:
+            self._tasks[sid].cancel()
+        self._tasks[sid] = create_background_task(
+            self._cron_loop(sid), name=f"sched-cron-{sid}"
+        )
+
+    async def _cron_loop(self, sid: str):
+        try:
+            from croniter import croniter
+        except ImportError:
+            log.error("croniter not installed - cron schedules disabled")
+            return
+
+        while True:
+            s = self._schedules.get(sid)
+            if not s or not s.get("cron"):
+                break
+
+            try:
+                cron = croniter(s["cron"], datetime.now())
+                next_run = cron.get_next(datetime)
+            except Exception as e:
+                log.error("[scheduler] Invalid cron expression '%s' for task '%s': %s", s["cron"], s.get("name"), e)
+                break
+
+            delay = (next_run - datetime.now()).total_seconds()
+            if delay > 0:
+                await asyncio.sleep(delay)
+
             await self._run_task(sid)
 
     async def _run_task(self, sid: str):
