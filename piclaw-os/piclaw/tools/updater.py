@@ -20,13 +20,43 @@ INSTALL_DIR = Path("/opt/piclaw")
 VENV_PIP = INSTALL_DIR / ".venv" / "bin" / "pip"
 
 
-def _git_remote_url(cfg: UpdaterConfig) -> str:
-    """Baut die Git-Remote-URL mit Token-Auth für private Repos."""
-    if cfg.github_token:
-        # https://x-access-token:<TOKEN>@github.com/org/repo.git
-        url = cfg.repo_url.replace("https://", f"https://x-access-token:{cfg.github_token}@")
-        return url
+def _git_remote_url(cfg: "UpdaterConfig") -> str:
+    """Gibt die Git-Remote-URL OHNE eingebetteten Token zurück.
+
+    SECURITY: Den Token NICHT in die URL einbetten die an git remote set-url
+    übergeben wird – das würde ihn in ps-aux-Prozesslisten sichtbar machen
+    und shell-injection via repo_url ermöglichen falls die URL Sonderzeichen
+    enthält. Stattdessen: git credential store (siehe _configure_git_credentials).
+    """
     return cfg.repo_url
+
+
+async def _configure_git_credentials(cfg: "UpdaterConfig") -> None:
+    """Konfiguriert GitHub-Token via git credential store (sicher, kein ps-leak).
+
+    Der Token wird in ~/.git-credentials des piclaw-Users gespeichert und
+    via git config credential.helper store aktiviert. Er erscheint NICHT
+    in Prozesslisten oder Shell-Argumenten.
+    """
+    if not cfg.github_token:
+        return
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(cfg.repo_url)
+        host = parsed.netloc or "github.com"
+        cred_line = f"https://x-access-token:{cfg.github_token}@{host}\n"
+        cred_file = Path.home() / ".git-credentials"
+        # Bestehende Zeile für diesen Host ersetzen oder neu anlegen
+        existing = cred_file.read_text() if cred_file.exists() else ""
+        lines = [l for l in existing.splitlines() if host not in l]
+        lines.append(cred_line.strip())
+        cred_file.write_text("\n".join(lines) + "\n")
+        cred_file.chmod(0o600)
+        # credential.helper aktivieren
+        await _run("git config --global credential.helper store")
+        log.debug("Git credentials für %s gesetzt (credential store)", host)
+    except Exception as e:
+        log.warning("Git credential store konnte nicht gesetzt werden: %s", e)
 
 TOOL_DEFS = [
     ToolDefinition(
@@ -69,10 +99,13 @@ async def _run(cmd: str, timeout: int = 120) -> tuple[int, str]:
 
 
 async def system_update(target: str, cfg: UpdaterConfig) -> str:
-    # Remote-URL mit Token aktualisieren (für private Repos)
-    _remote_url = _git_remote_url(cfg)
+    # Token sicher via credential store konfigurieren (kein ps-leak, kein shell-inject)
     if cfg.github_token:
-        await _run(f"cd {INSTALL_DIR} && git remote set-url origin '{_remote_url}' 2>&1")
+        await _configure_git_credentials(cfg)
+    _remote_url = _git_remote_url(cfg)
+    # Remote-URL nur setzen wenn sie sich geändert hat (ohne Token, sauber)
+    if cfg.repo_url:
+        await _run(f"cd {INSTALL_DIR} && git remote set-url origin {cfg.repo_url} 2>&1")
 
     if target == "check":
         rc, out = await _run(
@@ -90,23 +123,30 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
         log.info("PiClaw update via git pull...")
         results = []
 
-        # 0. .git/objects Permissions prüfen und ggf. reparieren
-        import os as _os
-        git_objects = INSTALL_DIR / ".git" / "objects"
-        if git_objects.exists():
-            try:
-                st = git_objects.stat()
-                if st.st_uid != _os.getuid():
-                    # getlogin() schlägt in nicht-interaktiven Contexts fehl → pwd nutzen
-                    import pwd as _pwd
-                    uname = _pwd.getpwuid(_os.getuid()).pw_name
-                    rc_chown, _ = await _run(
-                        f"sudo chown -R {uname}:{uname} {INSTALL_DIR}/.git 2>&1"
-                    )
-                    if rc_chown == 0:
-                        results.append("🔧 .git Rechte repariert")
-            except Exception as _e:
-                log.debug("git objects chown check: %s", _e)
+        # 0. .git Permissions vollständig reparieren (rekursiv)
+        # Ursache: "sudo git pull" / "sudo piclaw update" erstellt Objekte als
+        # root in .git/objects/. Beim nächsten Lauf als piclaw schlägt git pull
+        # mit "insufficient permission for adding an object" fehl.
+        # Fix: find spürt root-eigene Dateien irgendwo im .git-Baum auf.
+        import os as _os, pwd as _pwd
+        try:
+            uname = _pwd.getpwuid(_os.getuid()).pw_name
+            # -quit: beendet find nach erstem Treffer (schnell)
+            rc_find, found = await _run(
+                f"find {INSTALL_DIR}/.git -not -user {uname} -print -quit 2>/dev/null"
+            )
+            if found.strip():
+                log.info("git: Dateien mit falschen Rechten in .git – repariere")
+                rc_chown, chown_out = await _run(
+                    f"sudo chown -R {uname}:{uname} {INSTALL_DIR}/.git 2>&1"
+                )
+                if rc_chown == 0:
+                    results.append("🔧 .git Rechte repariert (root→piclaw)")
+                else:
+                    results.append(f"⚠️ .git Rechte-Reparatur fehlgeschlagen: {chown_out[:100]}")
+                    log.warning("chown .git fehlgeschlagen: %s", chown_out)
+        except Exception as _e:
+            log.debug("git permissions check: %s", _e)
 
         # 1. Lokale Änderungen stashen (verhindert 'overwritten by merge')
         rc_stash, out_stash = await _run(

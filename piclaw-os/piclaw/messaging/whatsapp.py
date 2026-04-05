@@ -137,9 +137,20 @@ class WhatsAppAdapter(MessagingAdapter):
         return None
 
     def verify_signature(self, payload: bytes, signature: str) -> bool:
-        """Verify X-Hub-Signature-256 header."""
+        """Verify X-Hub-Signature-256 header.
+
+        SECURITY: If no app_secret is configured, we DENY rather than allow.
+        Allowing unauthenticated webhooks would let anyone on the local network
+        send arbitrary commands to Dameon via /webhook/whatsapp.
+        """
         if not self.app_secret:
-            return True  # skip if no secret configured
+            # No secret = no way to verify = deny for safety.
+            # To use WhatsApp, set app_secret in config.toml [whatsapp].
+            log.warning(
+                "WhatsApp: Nachricht abgelehnt – kein app_secret konfiguriert. "
+                "Bitte [whatsapp] app_secret in config.toml setzen."
+            )
+            return False
         expected = (
             "sha256="
             + hmac.new(
