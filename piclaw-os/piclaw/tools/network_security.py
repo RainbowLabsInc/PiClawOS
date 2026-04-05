@@ -214,7 +214,7 @@ async def tarpit_ip(ip: str, port: int) -> str:
 
 async def generate_abuse_report(ip: str, evidence: str) -> str:
     whois = await whois_lookup(ip)
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M UTC")
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")  # lokale Pi-Zeit (Europe/Berlin)
     return (
         f"=== ABUSE REPORT ===\n"
         f"Datum: {ts}\n"

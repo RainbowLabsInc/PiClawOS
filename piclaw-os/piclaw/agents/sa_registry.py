@@ -156,11 +156,20 @@ class SubAgentRegistry:
         return [a for a in self.list_all() if a.enabled]
 
     def mark_run(self, id_or_name: str, status: str):
-        self.update(
-            id_or_name,
-            last_run=datetime.now().isoformat(),
-            last_status=status,
-        )
+        """Update last_run + last_status. Only persists terminal statuses
+        to avoid blocking os.fsync() on the event loop for 'running' transitions."""
+        agent = self.get(id_or_name)
+        if not agent:
+            return
+        agent.last_run = datetime.now().isoformat()
+        agent.last_status = status
+        # PERF: "running" is a transient state written every agent cycle.
+        # Persisting it would call os.fsync() on SD-card from the async event
+        # loop thread, potentially blocking 100-500ms per agent per hour.
+        # We only persist terminal states ("ok", "error", "timeout") – those
+        # matter for crash-recovery and status display.
+        if status != "running":
+            self._save()
 
     # ── Status summary ────────────────────────────────────────────
 
@@ -190,4 +199,3 @@ class SubAgentRegistry:
                 f"       {a.description}\n"
                 f"       Zeitplan: {a.schedule}  |  Letzter Lauf: {last_run_str}"
             )
-        return "\n\n".join(lines)

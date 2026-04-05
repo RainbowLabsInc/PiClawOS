@@ -165,10 +165,11 @@ class MultiLLMRouter(LLMBackend):
 
     def _get_instance(self, cfg: BackendConfig) -> LLMBackend:
         """Get or create a backend instance. Invalidates cache if registry changed."""
-        # Wenn Registry neu geladen wurde, alte Instanzen verwerfen
+        # Wenn Backend nicht mehr in Registry (gelöscht) → Cache bereinigen, kein rekursiver Aufruf
         if cfg.name not in self.registry._backends:
             self._instances.pop(cfg.name, None)
-            return self._get_instance(cfg)
+            # Kein rekursiver Aufruf – cfg ist veraltet, Caller muss neues cfg holen
+            raise ValueError(f"Backend '{cfg.name}' ist nicht mehr in der Registry")
         if cfg.name in self._instances:
             # Prüfen ob Config noch aktuell ist (Priorität/Model könnte sich geändert haben)
             cached_cfg = self.registry._backends.get(cfg.name)
@@ -386,59 +387,57 @@ class MultiLLMRouter(LLMBackend):
         classification: ClassificationResult,
         tried: set | None = None,
     ) -> LLMResponse:
-        # tried=None statt set() als Default – mutable default args sind ein Anti-Pattern
+        """Try primary backend, then iterate through fallbacks – no recursion."""
         if tried is None:
             tried = set()
-        tried.add(primary.name)
 
-        instance = self._get_instance(primary)
-        t_start = time.time()
+        # Build ordered candidate list: primary first, then remaining by tag match
+        candidates_by_tag = self.registry.find_by_tags(classification.tags)
+        # Deduplicate, primary first
+        ordered = [primary] + [b for b in candidates_by_tag if b.name != primary.name]
 
-        try:
-            resp = await instance.chat(messages, tools=tools)
-            self._health.setdefault(
-                primary.name, BackendHealth(primary.name)
-            ).record_success((time.time() - t_start) * 1000)
-            log.info(
-                "Response from '%s' (%sms)",
-                primary.name,
-                int((time.time() - t_start) * 1000),
-            )
-            # Erfolg an Health Monitor melden
-            self._report_to_monitor("success", primary.name)
-            return resp
+        last_exc: Exception | None = None
+        for cfg in ordered:
+            if cfg.name in tried:
+                continue
+            # Skip rate-limited backends
+            _monitor_health = self._get_monitor_health(cfg.name)
+            if _monitor_health and _monitor_health.get("rate_limited"):
+                log.debug("Skipping rate-limited backend '%s'", cfg.name)
+                tried.add(cfg.name)
+                continue
 
-        except Exception as e:
-            self._health.setdefault(
-                primary.name, BackendHealth(primary.name)
-            ).record_failure()
-            log.warning("Backend '%s' failed: %s", primary.name, e)
+            tried.add(cfg.name)
+            t_start = time.time()
+            try:
+                instance = self._get_instance(cfg)
+            except ValueError as e:
+                log.warning("Backend '%s' not available: %s", cfg.name, e)
+                last_exc = e
+                continue
 
-            # Fehler in Echtzeit an Health Monitor melden
-            error_code = self._extract_error_code(e)
-            self._report_to_monitor("error", primary.name, error_code, str(e))
+            try:
+                resp = await instance.chat(messages, tools=tools)
+                self._health.setdefault(cfg.name, BackendHealth(cfg.name)).record_success(
+                    (time.time() - t_start) * 1000
+                )
+                log.info("Response from '%s' (%sms)", cfg.name, int((time.time() - t_start) * 1000))
+                self._report_to_monitor("success", cfg.name)
+                return resp
+            except Exception as e:
+                self._health.setdefault(cfg.name, BackendHealth(cfg.name)).record_failure()
+                log.warning("Backend '%s' failed: %s", cfg.name, e)
+                self._report_to_monitor("error", cfg.name, self._extract_error_code(e), str(e))
+                last_exc = e
 
-            # Try next best backend
-            candidates = self.registry.find_by_tags(classification.tags)
-            for next_cfg in candidates:
-                if next_cfg.name not in tried:
-                    # Skip rate-limited backends
-                    _monitor_health = self._get_monitor_health(next_cfg.name)
-                    if _monitor_health and _monitor_health.get("rate_limited"):
-                        log.debug("Skipping rate-limited backend '%s'", next_cfg.name)
-                        tried.add(next_cfg.name)
-                        continue
-                    log.info("Falling back to '%s'", next_cfg.name)
-                    return await self._call_with_fallback(
-                        next_cfg, messages, tools, classification, tried
-                    )
+        # All API backends exhausted → local fallback
+        if primary.provider != "local":
+            log.warning("All API backends failed, using local model.")
+            return await self._local.chat(messages, tools=tools)
 
-            # All APIs failed → local fallback (only if not already on local)
-            if primary.provider != "local":
-                log.warning("All API backends failed, using local model.")
-                return await self._local.chat(messages, tools=tools)
-
-            raise e
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("No LLM backends available.")
 
     def _extract_error_code(self, error: Exception) -> int:
         """Extrahiert HTTP Status-Code aus Exception."""

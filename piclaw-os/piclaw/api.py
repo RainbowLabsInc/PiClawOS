@@ -436,7 +436,10 @@ async def llm_health(_: str = Depends(require_auth)):
 
 @app.get("/api/stats")
 async def stats(_: str = Depends(require_auth)):
-    cpu_pct = psutil.cpu_percent(interval=0.2)
+    # interval=None: non-blocking, returns last measured value immediately.
+    # interval=0.2 would block the entire event loop thread for 200ms on every
+    # /api/stats call. Trigger a background measurement instead.
+    cpu_pct = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
     boot_ts = psutil.boot_time()
@@ -769,7 +772,9 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
                 await _manager.send(websocket, {"type": "token", "text": token})
 
             # Keepalive-Task: sendet alle 10s ein "thinking" damit der
-            # WebSocket bei langen Operationen (Marketplace, LLM) nicht abbricht
+            # WebSocket bei langen Operationen (Marketplace, LLM) nicht abbricht.
+            # create_background_task() statt bare create_task() – verhindert
+            # stilles GC-Killen des Tasks während eines langen LLM-Streams.
             async def _keepalive():
                 try:
                     while True:
@@ -778,7 +783,7 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
                 except asyncio.CancelledError:
                     pass
 
-            ka_task = asyncio.create_task(_keepalive())
+            ka_task = create_background_task(_keepalive(), name="ws-keepalive")
             history = _sessions.get(session_id, [])
             try:
                 reply = await _agent.run(user_text, history=history, on_token=on_token)
@@ -796,8 +801,14 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
         _sessions.pop(session_id, None)
         log.info("WebSocket disconnected: %s", session_id)
     except Exception as e:
-        log.error("WebSocket error: %s", e, exc_info=True)
-        await _manager.send(websocket, {"type": "error", "text": str(e)})
+        # FIX: Cleanup on non-disconnect exceptions to prevent session/connection leaks
+        _manager.disconnect(websocket)
+        _sessions.pop(session_id, None)
+        log.error("WebSocket error (session %s): %s", session_id, e, exc_info=True)
+        try:
+            await _manager.send(websocket, {"type": "error", "text": str(e)})
+        except Exception:
+            pass
 
 
 # ── Entrypoint ────────────────────────────────────────────────────
