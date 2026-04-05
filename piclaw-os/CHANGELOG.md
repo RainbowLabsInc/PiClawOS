@@ -236,3 +236,56 @@
   Explizite SOUL.md-Direktive: "Antworte immer in der Sprache des Nutzers"
 - **Sprachen:** Deutsch (primär), English, Español
 - **Aufwand:** ~2 Sessions nach Release
+
+
+## v0.16.0 – 2026-04-05 🔐🛒🌍
+
+### Highlights
+- **Security-Audit abgeschlossen** – 6 Schwachstellen behoben (SEC-1 bis SEC-6)
+- **Troostwijk Auktions-Monitor** – neue Auktions-Events nach Land/Stadt überwachen
+- **Automatische Zeitzonenerkennung** – LocationConfig für TZ-Setup aus Koordinaten
+- **Stabilitäts-Debugrunde** – 16 Bugs behoben (Event-Loop, WebSocket, LLM-Router)
+
+### Security
+- **SEC-1 KRITISCH:** WhatsApp Webhook Auth-Bypass geschlossen (`verify_signature` → `return False` wenn kein `app_secret`)
+- **SEC-2 KRITISCH:** UFW-Regel auf RFC-1918 LAN beschränkt (war internet-weit offen)
+- **SEC-3 KRITISCH:** GitHub-Token aus Prozessliste entfernt → `git credential store`
+- **SEC-4:** CORS `allow_origins=["*"]` → `LocalNetworkCORSMiddleware` (nur LAN)
+- **SEC-5:** Security-Header (X-Frame-Options, CSP, no-store) + Token nur für lokale IPs
+- **SEC-6:** Shell Command-Chaining via Metacharakter geblockt (`&&`, `||`, `;`, `|`, `$(` etc.)
+- **SECURITY.md** mit vollständiger Audit-Dokumentation erstellt
+
+### Neue Features
+- **Troostwijk Auktions-Monitor:** `_search_troostwijk_auctions()` – API `/de/auctions.json?countries=de`
+  - Länderfilter: 20+ Länder (DE, NL, BE, FR, AT, IT, ES, SE, ...)
+  - Stadtfilter: Substring-Matching im Auktionsnamen
+  - `marketplace_search()` um `country`-Parameter erweitert
+  - `_detect_tw_auction_monitor_intent()` in Agent-Intent-Erkennung
+- **LocationConfig:** `latitude`, `longitude`, `timezone`, `city` in config.py
+  - Vorbereitung für automatische TZ-Erkennung aus Koordinaten
+  - `timezonefinder>=6.2` als neue Dependency
+- **Cron-Scheduler:** `_start_cron()` + `_cron_loop()` im Scheduler-Tool
+- **Sub-Agent API:** PATCH-Endpoint für Live-Updates ohne Delete+Recreate
+
+### Stabilität & Performance
+- **`sa_registry.mark_run()`:** `os.fsync()` nur noch bei terminalen Stati (ok/error/timeout) – verhindert 100–500ms Event-Loop-Blockierung bei SD-Karte
+- **`api.py`:** `cpu_percent(interval=None)` statt `interval=0.2` (war 200ms Blocking-Sleep)
+- **WebSocket:** Session-Leak bei Exception geschlossen, `create_background_task` für Keepalive
+- **`multirouter.py`:** Infinite Recursion in `_get_instance()` behoben; `_call_with_fallback()` iterativ statt rekursiv
+- **`runner.py`:** Doppelte Heartbeat-Logik konsolidiert; `_SILENT_TOKENS` vor erstem Gebrauch definiert; Tasks aus `_tasks` aufgeräumt
+- **`marketplace.py`:** asyncio.Lock für BuildId-Cache (Race Condition bei parallelen Monitoren); robusteres `listData`-Parsing
+- **`daemon.py`:** `create_background_task` früh importiert (UnboundLocalError-Zeitbombe)
+- **`datetime.utcnow()`:** Ersetzt durch `datetime.now(timezone.utc)` (Python 3.12+ deprecated)
+
+### PRs gemergt
+- #117 🛡️ Fix command injection in `wifi_disconnect` (nmcli als Argument-Liste)
+- #114 🛡️ Kill zombie processes on camera/shell timeout
+- #110 🛡️ Path traversal in camera snapshot (resolve + is_relative_to)
+- #105 ⚙️ Cron-Support im Scheduler (Cron-Loop)
+- #119 Fix async execution in system_report
+- #106/#108 briefing.py/CLI nutzen `current_temp()` helper
+
+### Git-Maintenance
+- `piclaw update` repariert root-eigene `.git`-Dateien automatisch (`find .git -not -user`)
+- GitHub-Token via credential store statt URL-Einbettung
+

@@ -1,113 +1,108 @@
 # PiClaw OS — Roadmap
 
-## Status: v0.15.5 (April 2026)
+## Status: v0.16.0 (April 2026) 🟢 Release Candidate
 
 Dameon läuft stabil auf Raspberry Pi 5.
-- 5 Sub-Agenten aktiv (3x marketplace_monitor, Netzwerk, CronJob)
-- marketplace_monitor Refactor: neustart-sicher via JSON-Params in mission
-- Qwen3-1.7B als lokales Offline-Fallback-Modell (Agent Score 0.96)
-- LLM Routing: groq-actions (10) → groq-fallback (9) → groq-gptoss (8) → nvidia (6)
-- Kleinanzeigen Radius-Suche: korrekte Location-ID URL
+- **Security-Audit abgeschlossen** – alle 6 Schwachstellen behoben
+- 6 aktive Sub-Agenten (tokenlos: Netzwerk + 4× Marktplatz + Auktionen)
+- LLM-Routing: Groq (10/9/8) → NVIDIA NIM (6) → Qwen3 lokal
+- Alle kritischen Bugs aus 3 Debug-Runden behoben
 
 ---
 
 ## ✅ Abgeschlossen
 
-### v0.15.5 — marketplace_monitor Refactor + Stabilisierung (April 2026)
-- [x] marketplace_monitor: Parameter als JSON in mission – neustart-sicher
-- [x] Qwen3-1.7B Q4_K_M als Offline-Fallback (ersetzt Gemma 2B)
-- [x] groq-gptoss (openai/gpt-oss-120b) auf Prio 8 eingetragen
-- [x] Monitor_Gartentisch, Monitor_Sonnenschirm, Monitor_Sauer505 aktiv
-- [x] Kleinanzeigen Radius-Suche: Location-ID via s-ort-empfehlungen.json API
-- [x] PATCH /api/subagents/{name}: Live-Update ohne Delete+Recreate
-- [x] LLM Health Monitor: Cross-Prozess Status via JSON-Datei
-- [x] metrics.py: CONFIG_DIR Fix (AttributeError)
-- [x] AGENTS.md: Architektur-Dokumentation für Sub-Agent-System
+### v0.16.0 — Security-Audit + Stabilisierung (April 2026)
+- [x] SEC-1: WhatsApp Auth-Bypass geschlossen
+- [x] SEC-2: UFW auf LAN-IPs eingeschränkt
+- [x] SEC-3: GitHub-Token aus Prozessliste entfernt
+- [x] SEC-4: CORS auf lokales Netzwerk beschränkt
+- [x] SEC-5: Security-Header + Token nur für lokale IPs
+- [x] SEC-6: Shell Command-Chaining geblockt
+- [x] Troostwijk Auktions-Monitor (Stadt/Land, tokenlos)
+- [x] LocationConfig für automatische Zeitzonenerkennung
+- [x] 16 Stabilität- & Performance-Bugs behoben
+- [x] 7 PRs gemergt (Security + Quality)
+- [x] SECURITY.md vollständig dokumentiert
 
-### v0.15.4 — Home Assistant + Smart Routing + Selbstheilung (März–April 2026)
-- [x] Home Assistant Integration (11 Tools, HA-Wizard, Fuzzy-Suche)
-- [x] HA-Shortcut: Licht/Schalter ohne LLM (~0ms, 0 Token)
-- [x] Smart LLM Routing: Regex Stage 0 → Pattern Stage 1 → LLM Stage 2
-- [x] LLM Health Monitor: automatische Selbstheilung (404→Replacement, 429→Deprio)
-- [x] Monitor_Netzwerk: direct_tool, Dreifach-Schutzarchitektur (0 LLM-Calls)
-- [x] direct_check Action-Typ für tokenlose Routinen
+### v0.15.5 — marketplace_monitor Refactor (April 2026)
+- [x] marketplace_monitor: JSON-Params in mission – neustart-sicher
+- [x] Qwen3-1.7B Q4_K_M als Offline-Fallback
+- [x] Monitor_Gartentisch, Monitor_Sonnenschirm, Monitor_Sauer505
+- [x] Kleinanzeigen Radius-Suche: Location-ID via API
+- [x] PATCH /api/subagents/{name}: Live-Update
 
-### v0.15.3 — Stabilisierung Sub-Agenten (März 2026)
-- [x] Telegram: parse_mode Fallback, MarkdownV1-Fix
-- [x] Direct Tool Mode: Monitor_Netzwerk ohne LLM
-- [x] ClawHub Integration
-- [x] IPC Zwei-Prozess-Architektur
-
-### v0.15.2 — Release Candidate Basis (März 2026)
-- [x] Groq / Kimi K2 als Primary-LLM
-- [x] Network Security Tools
-- [x] piclaw doctor erweitert
+### v0.15.4 — Home Assistant + Smart Routing (März 2026)
+- [x] Home Assistant Integration (11 Tools, Fuzzy-Suche)
+- [x] HA-Shortcut: Licht ohne LLM (~0ms, 0 Token)
+- [x] Smart LLM Routing: Regex → Pattern → LLM
+- [x] LLM Health Monitor: Selbstheilung (404/429/500)
+- [x] Monitor_Netzwerk: direct_tool, Dreifach-Schutz
 
 ---
 
-## 🚧 Vor Release (Pflicht)
+## 🚧 Vor v1.0 (Pflicht)
 
-- [x] `/api/shell` Endpoint entfernen
-- [ ] Credentials rotieren (API-Token + GitHub PAT nach jeder Dev-Session)
-- [ ] Sub-Agent via API → Daemon-Neustart vermeiden (→ v0.18)
-- [ ] Query-Extraktion: Ortsnamen nicht in Query aufnehmen
-- [ ] Neuinstallationstest auf frischem Pi
-- [ ] Home Assistant Verbindung in piclaw doctor prüfen
+- [ ] **Zeitzone-Autosetup:** `timezonefinder` im Wizard → `timedatectl` setzen
+- [ ] **Neuinstallationstest** auf frischem Pi (< 10 Minuten)
+- [ ] **HA doctor-Fix:** Retry-Logik beim Neustart (5s Timeout → mehrfach versuchen)
+- [ ] **Query-Extraktion:** Ortsnamen nicht in die Artikel-Query aufnehmen
+- [ ] **Credentials-Rotation** nach Dev-Sessions dokumentieren/automatisieren
 
 ---
 
 ## 📋 Geplant
 
-### v0.16 — LLM Autonomie & Selbstverbesserung 🧠
-- [ ] Qwen3-1.7B: lokales Tool Calling vollständig integrieren
-- [ ] Dameon recherchiert neue LLM-Backends selbst bei hoher Last
-- [ ] Bewertet Modelle (Latenz, TPM, Tool-Call-Support, Kosten)
-- [ ] Schlägt neue Backends vor → Nutzer bestätigt → auto-install
-- [ ] Cerebras als weiterer Provider (Llama 3.3, 60+ Token/s, kostenlos)
+### v0.17 — Zeitzone-Wizard + HA-Erweiterungen
+- [ ] Automatische TZ-Erkennung aus Koordinaten im Setup-Wizard
+- [ ] `timedatectl set-timezone` aus Wizard heraus aufrufen
+- [ ] HA doctor: Retry-Logik mit 30s Timeout
+- [ ] Emergency Shutdown via schaltbare Steckdose
 
-### v0.17 — Emergency Shutdown
-- [ ] Schaltbare Steckdose am Modem via HA
-- [ ] emergency_network_off() mit Telegram-Bestätigung
-
-### v0.18 — Queue System + IPC-Reload
+### v0.18 — IPC-Reload + Queue
 - [ ] Registry-Reload via IPC (kein Daemon-Neustart bei neuem Sub-Agent)
 - [ ] Queue für parallele Sub-Agent-Ausführung
+- [ ] Sub-Agent-Status in Echtzeit via WebSocket
 
 ### v0.19 — Marketplace Erweiterungen
-- [ ] Willhaben Kategorie-Filter
-- [ ] Troostwijk vollständig getestet
-- [ ] Query-Extraktion: Ortsnamen sauber aus Query entfernen
+- [ ] Willhaben: Kategorie-Filter
+- [ ] Troostwijk: Stadtfilter via API (wenn verfügbar)
+- [ ] Query-Extraktion: Ortsnamen sauber entfernen
 
-### v0.20 — Kamera-Tools
+### v0.20 — Kamera & Sensoren
 - [ ] ESP32-CAM / ESPHome vollständig
+- [ ] Pond-Camera-Integration
 
-### v0.21 — Self-Improving Memory
-- [ ] Tiered Memory: HOT / WARM / COLD
-
-### v0.22 — Opus 4.6 Integration (optional)
-- [ ] Schweres Geschütz für interne Optimierungen / ClawHub
-- [ ] ~$1-5/Monat bei sporadischer Nutzung
+### v1.0 — Stable Release
+- [ ] Frische Installation < 10 Minuten
+- [ ] `piclaw doctor` alles grün (inkl. HA)
+- [ ] Mind. 3 Cloud-LLM-Anbieter aktiv
+- [ ] Alle Marktplatz-Plattformen vollständig getestet
+- [ ] Vollständige Testabdeckung kritischer Pfade
 
 ---
 
 ## 🎯 Release-Kriterien v1.0
 
-- [ ] Frische Installation unter 10 Minuten
-- [ ] piclaw doctor alles grün (inkl. HA)
-- [ ] Mind. 3 Cloud-LLM-Anbieter aktiv
-- [ ] LLM Health Monitor läuft
-- [x] /api/shell entfernt
-- [ ] marketplace_monitor: alle Plattformen getestet
-- [ ] Alle kritischen Tests grün
+| Kriterium | Status |
+|---|---|
+| Frische Installation < 10 Min | 🔲 Offen |
+| `piclaw doctor` alles grün | 🔲 Offen |
+| Security-Audit bestanden | ✅ v0.16.0 |
+| marketplace_monitor stabil | ✅ v0.15.5 |
+| `/api/shell` entfernt | ✅ v0.15.3 |
+| Alle kritischen Bugs behoben | ✅ v0.16.0 |
+| SECURITY.md vollständig | ✅ v0.16.0 |
+| LLM Health Monitor aktiv | ✅ v0.15.4 |
 
 ---
 
 ## 🔧 Technical Debt
 
-| # | Problem | Priorität |
-|---|---------|-----------|
-| TD-01 | /api/shell entfernen | ✅ Erledigt |
-| TD-02 | Credentials nach Dev-Session rotieren | 🔴 Kritisch |
-| TD-03 | Daemon-Neustart bei neuem Sub-Agent nötig | 🟡 Mittel → v0.18 |
-| TD-04 | Query-Extraktion nimmt Ortsnamen auf | 🟡 Mittel → v0.19 |
-| TD-05 | Home Assistant doctor zeigt ⬜ nach Neustart | 🟡 Mittel (Timing) |
+| # | Problem | Priorität | Version |
+|---|---|---|---|
+| TD-01 | /api/shell entfernt | ✅ Erledigt | v0.15.3 |
+| TD-02 | Zeitzone-Autosetup im Wizard | 🟡 Mittel | → v0.17 |
+| TD-03 | Daemon-Neustart bei neuem Sub-Agent | 🟡 Mittel | → v0.18 |
+| TD-04 | Query-Extraktion nimmt Ortsnamen auf | 🟡 Mittel | → v0.19 |
+| TD-05 | HA doctor Timing (5s Timeout) | 🟢 Klein | → v0.17 |

@@ -1,100 +1,68 @@
-# PiClaw OS – Offene Punkte für nächste Session
-# Letzte Aktualisierung: 2026-04-05 (Session 9)
-# Version: v0.15.5
+# PiClaw OS – Nächste Session
+**Letzte Aktualisierung:** 2026-04-05 (Session 9 – Release Prep)
+**Version:** v0.16.0 🟢
 
 ---
 
-## ⚠️ SOFORT ERLEDIGEN
+## ✅ Diese Session abgeschlossen
 
-### 1. Credentials rotieren (nach jeder Dev-Session!)
-- API-Token: `piclaw config token` → neues Token generieren
-- GitHub PAT: https://github.com/settings/tokens → rotieren
-- Alte Werte aus dieser Session sind kompromittiert.
+- Security-Audit (SEC-1 bis SEC-6 alle behoben)
+- 16 Stabilität/Performance-Bugs behoben (3 Debug-Runden)
+- Troostwijk Auktions-Monitor implementiert und deployed
+- 7 PRs gemergt, 9 geschlossen
+- README, CHANGELOG, ROADMAP, SECURITY.md vollständig aktualisiert
+- Version auf v0.16.0 gebumpt
 
-### 2. Home Assistant prüfen
-Falls piclaw doctor ⬜ zeigt:
+---
+
+## 🚨 Sofort (nach dieser Session)
+
+### 1. Credentials rotieren!
 ```bash
-curl -s http://homeassistant:8123/api/ -H "Authorization: Bearer $(grep token /etc/piclaw/config.toml | tail -1 | cut -d'"' -f2)"
+piclaw config token   # Neuen API-Token generieren
 ```
-Falls 200 → nur Timing-Problem, alles ok.
+GitHub PAT rotieren: https://github.com/settings/tokens/3962689543
 
-### 3. gpt-oss-120b Status prüfen
-Falls noch nicht registriert (Telegram-Bestätigung abwarten):
+### 2. Pi updaten
+```bash
+sudo chown -R piclaw:piclaw /opt/piclaw/.git
+piclaw update
 ```
-llm_list → prüfen ob groq-gptoss mit Prio 8 da ist
-llm_test name="groq-gptoss"
+
+### 3. Zeitzone prüfen
+```bash
+timedatectl status
+# Erwartung: Time zone: Europe/Berlin (CEST, +0200)
+# Falls nicht: sudo timedatectl set-timezone Europe/Berlin
 ```
 
 ---
 
-## 🔧 Bekannte Issues / Nächste Features
+## 🔧 Offene Tasks (nächste Session)
 
-### Query-Extraktion verbessern
-Dameon nimmt Ortsnamen in die Query auf: "Gartentisch Rosengarten" statt "Gartentisch"
-Datei: piclaw-os/piclaw/agent.py → _detect_marketplace_intent()
-Fix: Stadtname/PLZ nach Extraktion aus clean_text entfernen
+### Zeitzone-Autosetup im Wizard (v0.17)
+`config.py` hat `LocationConfig` bereit. Im Wizard:
+```python
+from timezonefinder import TimezoneFinder
+tf = TimezoneFinder()
+tz = tf.timezone_at(lat=lat, lng=lon)  # z.B. "Europe/Berlin"
+subprocess.run(["sudo", "timedatectl", "set-timezone", tz])
+```
+Datei: `piclaw-os/piclaw/wizard.py` → Bereich `# Standort fuer Wetterdaten` (Zeile ~1381)
 
-### Troostwijk Auktions-Monitor – Update deployen
-Nach `piclaw update` läuft `Monitor_TW_Deutschland` mit neuem Code.
-Danach via Dameon weitere Monitore anlegen:
-- `"Überwache Troostwijk auf neue Auktionen in Hamburg"`
-- `"Überwache Troostwijk auf neue Auktionen in den Niederlanden"`
+### HA Doctor Fix (v0.17)
+`cli.py` doctor macht HTTP-Request mit 5s Timeout direkt nach Neustart.
+Fix: Retry-Logik (3× versuchen mit 10s Pause).
+Datei: `piclaw-os/piclaw/cli.py` → `doctor`-Funktion
 
-### Home Assistant doctor fix
-Doctor macht HTTP-Request mit 5s Timeout kurz nach Neustart.
-Fix: Retry-Logik oder längerer Timeout in cli.py
-
----
-
-## ✅ Session 9 Zusammenfassung
-
-### Troostwijk Auktions-Monitor (Commit a4d222f)
-- `_search_troostwijk_auctions()`: neuer API-Endpoint `/de/auctions.json?countries=de`
-  überwacht Auktions-Events (nicht einzelne Lose), Länderfilter per ISO-Code
-- Stadtfilter: Substring-Matching im Auktionsnamen (kein API-seitiger Stadtfilter)
-- `marketplace_search()`: neues `country`-Parameter, `troostwijk_auctions` Platform
-  ohne Pflicht-Query (kein LLM, tokenlos)
-- `agent.py`: `_detect_tw_auction_monitor_intent()` erkennt Stadt + Land,
-  `_create_tw_auction_monitor()` erstellt Sub-Agenten direkt
-  Länder-Mapping: 20+ Länder (DE/NL/BE/FR/AT/IT/ES/SE/DK/PL/...)
-- `runner.py`: `country` aus mission-JSON weitergeleitet
-- `Monitor_TW_Deutschland` manuell via API erstellt (ID: 5d2fbf85)
-  → wartet auf `piclaw update` für neuen Code
-
-### GitHub Token
-- Classic Token `FullAccesToken Github` (ghp_...) rotiert – altes Token entsorgen
-- Neuer Token in `/etc/piclaw/config.toml` eintragen falls nötig
+### Query-Extraktion Ortsnamen (v0.19)
+Dameon nimmt Ortsnamen in die Query auf: "Gartentisch Rosengarten" statt "Gartentisch".
+Fix: Stadtname nach location-Extraktion aus `clean_text` entfernen.
+Datei: `piclaw-os/piclaw/agent.py` → `_detect_marketplace_intent()`
 
 ---
 
-## ✅ Session 8B Zusammenfassung
-
-### marketplace_monitor Refactor (b1fe021)
-- direct_tool = "marketplace_monitor" (generisch für alle Plattformen)
-- Parameter als JSON in mission-Feld → neustart-sicher
-- Entfernt: Closures, marketplace_monitors.json, mp-restore
-
-### Neue Monitore
-- Monitor_Gartentisch: Kleinanzeigen, "Gartentisch", 21224, 20km
-- Monitor_Sonnenschirm: Kleinanzeigen, "Sonnenschirm", 21224, 20km
-- Monitor_Sauer505: eGun, "Sauer 505"
-
-### LLM Backends (aktuell)
-- [10] groq-actions: llama-3.3-70b-versatile
-- [ 9] groq-fallback: kimi-k2-instruct
-- [ 8] groq-gptoss: openai/gpt-oss-120b ← NEU
-- [ 6] nemotron-nvidia: llama-4-maverick
-- [ 5] openai-default: llama-3.3-70b@nvidia
-- lokal: qwen3-1.7b-q4_k_m ← NEU (Offline-Fallback)
-
-### Dokumentation
-- AGENTS.md: Agent-Architektur, Syntax, Kaskadierung
-- ROADMAP.md: bereinigt, aktuell
-- CLAUDE_REBUILD.md: INV_035–037, CHANGES_SESSION_8B
-
----
-
-## 🤖 Sub-Agents (aktuell)
+## 🤖 Sub-Agenten (aktuell)
 
 | Name | Plattform | Query | Intervall |
 |---|---|---|---|
@@ -102,7 +70,7 @@ Fix: Retry-Logik oder längerer Timeout in cli.py
 | Monitor_Gartentisch | Kleinanzeigen | Gartentisch, 21224, 20km | 1h |
 | Monitor_Sonnenschirm | Kleinanzeigen | Sonnenschirm, 21224, 20km | 1h |
 | Monitor_Sauer505 | eGun | Sauer 505 | 1h |
-| Monitor_TW_Deutschland | Troostwijk Auktionen | Land=DE, Stadt=alle | 1h |
+| Monitor_TW_Deutschland | Troostwijk Events | Land=DE, alle Städte | 1h |
 | CronJob_0715 | – | Tagesbericht | täglich 07:15 |
 
 ## 🏠 HA-Entities
@@ -113,4 +81,13 @@ switch.licht_kuche_switch_0, switch.fernseher, switch.aquarium_licht
 cover.shellyplus2pm_d48afc41a22c (Rolladen Büro)
 cover.shellyplus2pm_c82e180c7a1c (Rolladen Schlafzimmer)
 cover.rolladen_kuche, cover.rollladen_kinderzimmer
+```
+
+## 🔑 LLM Backends (aktuell)
+```
+[10] groq-actions:   llama-3.3-70b-versatile
+[ 9] groq-fallback:  kimi-k2-instruct
+[ 8] groq-gptoss:    openai/gpt-oss-120b
+[ 6] nvidia-nim:     llama-4-maverick
+lokal: qwen3-1.7b-q4_k_m (Offline-Fallback)
 ```
