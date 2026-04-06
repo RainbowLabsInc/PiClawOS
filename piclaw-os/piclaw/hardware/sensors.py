@@ -194,19 +194,19 @@ async def read_sensor(sensor: SensorDef) -> SensorReading:
         elif sensor.type == TYPE_BMP280:
             return await loop.run_in_executor(None, lambda: _read_bmp280(sensor))
         elif sensor.type == TYPE_SHT40:
-            return await loop.run_in_executor(None, lambda: _read_sht40(sensor))
+            return await _read_sht40(sensor)
         elif sensor.type == TYPE_BH1750:
-            return await loop.run_in_executor(None, lambda: _read_bh1750(sensor))
+            return await _read_bh1750(sensor)
         elif sensor.type == TYPE_ADS1115:
-            return await loop.run_in_executor(None, lambda: _read_ads1115(sensor))
+            return await _read_ads1115(sensor)
         elif sensor.type == TYPE_INA219:
             return await loop.run_in_executor(None, lambda: _read_ina219(sensor))
         elif sensor.type == TYPE_PIR:
-            return await loop.run_in_executor(None, lambda: _read_pir(sensor))
+            return await _read_pir(sensor)
         elif sensor.type == TYPE_ULTRASONIC:
             return await _read_ultrasonic(sensor)
         elif sensor.type == TYPE_GPIO_INPUT:
-            return await loop.run_in_executor(None, lambda: _read_gpio_input(sensor))
+            return await _read_gpio_input(sensor)
         else:
             return SensorReading(
                 sensor_name=sensor.name,
@@ -360,17 +360,16 @@ def _read_bmp280(sensor: SensorDef) -> SensorReading:
 # ── SHT40 / SHT31 ─────────────────────────────────────────────────
 
 
-def _read_sht40(sensor: SensorDef) -> SensorReading:
+async def _read_sht40(sensor: SensorDef) -> SensorReading:
     bus_num = sensor.config.get("i2c_bus", 1)
     address = sensor.config.get("address", 0x44)
     try:
         import smbus2
-        import time
 
         bus = smbus2.SMBus(bus_num)
         # SHT40: send measure command 0xFD (high precision)
         bus.write_byte(address, 0xFD)
-        time.sleep(0.01)
+        await asyncio.sleep(0.01)
         data = bus.read_i2c_block_data(address, 0, 6)
         # Temperature: bytes 0-1, humidity: bytes 3-4
         t_raw = (data[0] << 8) | data[1]
@@ -392,17 +391,16 @@ def _read_sht40(sensor: SensorDef) -> SensorReading:
 # ── BH1750 Light sensor ───────────────────────────────────────────
 
 
-def _read_bh1750(sensor: SensorDef) -> SensorReading:
+async def _read_bh1750(sensor: SensorDef) -> SensorReading:
     bus_num = sensor.config.get("i2c_bus", 1)
     address = sensor.config.get("address", 0x23)
     try:
         import smbus2
-        import time
 
         bus = smbus2.SMBus(bus_num)
         # One-time high resolution mode
         bus.write_byte(address, 0x20)
-        time.sleep(0.18)
+        await asyncio.sleep(0.18)
         data = bus.read_i2c_block_data(address, 0x20, 2)
         lux = ((data[0] << 8) | data[1]) / 1.2
         return SensorReading(sensor_name=sensor.name, values={"lux": round(lux, 1)})
@@ -417,14 +415,13 @@ def _read_bh1750(sensor: SensorDef) -> SensorReading:
 # ── ADS1115 ADC ───────────────────────────────────────────────────
 
 
-def _read_ads1115(sensor: SensorDef) -> SensorReading:
+async def _read_ads1115(sensor: SensorDef) -> SensorReading:
     bus_num = sensor.config.get("i2c_bus", 1)
     address = sensor.config.get("address", 0x48)
     channel = sensor.config.get("channel", 0)  # 0–3
     gain = sensor.config.get("gain", 1)  # 1=±4.096V, 2=±2.048V
     try:
         import smbus2
-        import time
 
         bus = smbus2.SMBus(bus_num)
         # Config register: single-shot, selected channel, PGA gain
@@ -433,7 +430,7 @@ def _read_ads1115(sensor: SensorDef) -> SensorReading:
         config = (0x80 << 8) | (mux << 12) | (pga << 9) | 0x0183
         hi, lo = (config >> 8) & 0xFF, config & 0xFF
         bus.write_i2c_block_data(address, 0x01, [hi, lo])
-        time.sleep(0.01)
+        await asyncio.sleep(0.01)
         result = bus.read_i2c_block_data(address, 0x00, 2)
         raw = (result[0] << 8) | result[1]
         if raw > 0x7FFF:
@@ -490,15 +487,14 @@ def _read_ina219(sensor: SensorDef) -> SensorReading:
 # ── PIR Motion Sensor ─────────────────────────────────────────────
 
 
-def _read_pir(sensor: SensorDef) -> SensorReading:
+async def _read_pir(sensor: SensorDef) -> SensorReading:
     pin = sensor.config.get("pin", 17)
     try:
         from gpiozero import MotionSensor
 
         pir = MotionSensor(pin)
-        import time
 
-        time.sleep(0.01)
+        await asyncio.sleep(0.01)
         motion = pir.motion_detected
         pir.close()
         return SensorReading(
@@ -543,16 +539,15 @@ async def _read_ultrasonic(sensor: SensorDef) -> SensorReading:
 # ── Generic GPIO Input ────────────────────────────────────────────
 
 
-def _read_gpio_input(sensor: SensorDef) -> SensorReading:
+async def _read_gpio_input(sensor: SensorDef) -> SensorReading:
     pin = sensor.config.get("pin", 22)
     pull_up = sensor.config.get("pull_up", True)
     try:
         from gpiozero import Button
 
         btn = Button(pin, pull_up=pull_up)
-        import time
 
-        time.sleep(0.005)
+        await asyncio.sleep(0.005)
         state = btn.is_pressed
         btn.close()
         return SensorReading(
