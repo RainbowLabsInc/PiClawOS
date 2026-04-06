@@ -1493,7 +1493,7 @@ class Agent:
             # Direkt ausführen wenn: query + (location/radius ODER spezifische Plattform genannt)
             _specific_platform = any(
                 p in user_input.lower()
-                for p in ["willhaben", "kleinanzeigen", "ebay", "egun", "troostwijk"]
+                for p in ("willhaben", "kleinanzeigen", "ebay", "egun", "troostwijk")
             )
             if mp_kwargs.get("query") and (
                 mp_kwargs.get("location") or mp_kwargs.get("radius_km") or _specific_platform
