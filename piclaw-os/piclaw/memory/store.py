@@ -94,7 +94,9 @@ def save_session(session_id: str, messages: list[dict]) -> Path:
 def write_workspace_file(filename: str, content: str) -> str:
     """Write an arbitrary file to the workspace collection."""
     ensure_dirs()
-    path = WORKSPACE_DIR / filename
+    path = (WORKSPACE_DIR / filename).resolve()
+    if not path.is_relative_to(WORKSPACE_DIR.resolve()):
+        raise ValueError("Invalid path: Workspace path must be within WORKSPACE_DIR")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
     return f"Workspace file saved: {path}"
