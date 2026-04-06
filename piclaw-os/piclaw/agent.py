@@ -21,6 +21,15 @@ _RE_MP_MARKET_KW = re.compile(
     re.IGNORECASE,
 )
 
+_HA_ON_KW  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
+_HA_OFF_KW = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
+_HA_TOGGLE_KW = ("toggle", "umschalten", "wechseln")
+_HA_CMD_KW = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
+              "licht", "lampe", "leuchte", "steckdose", "schalter")
+_HA_STOP_WORDS = frozenset(("das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
+                            "mal", "doch", "jetzt", "sofort", "kurz", "einmal"))
+_HA_EXCLUDE_WORDS = frozenset(_HA_ON_KW + _HA_OFF_KW + _HA_TOGGLE_KW + _HA_CMD_KW + ("bitte",))
+
 from collections.abc import Callable
 
 from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
@@ -728,39 +737,25 @@ class Agent:
         if not client:
             return None
 
-        # Intent erkennen
-        on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
-        off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
-        toggle_kw = ("toggle", "umschalten", "wechseln")
-        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter")
-
         # Muss mindestens ein Befehlswort enthalten
-        if not any(k in t for k in cmd_kw):
+        if not any(k in t for k in _HA_CMD_KW):
             return None
 
         # Richtung bestimmen
         action = None
-        if any(k in t for k in on_kw):
+        if any(k in t for k in _HA_ON_KW):
             action = "on"
-        elif any(k in t for k in off_kw):
+        elif any(k in t for k in _HA_OFF_KW):
             action = "off"
-        elif any(k in t for k in toggle_kw):
+        elif any(k in t for k in _HA_TOGGLE_KW):
             action = "toggle"
         else:
             return None  # Kein klarer On/Off Intent
 
         # Raum/Gerät extrahieren – alles zwischen Befehlswort und Richtungswort
-        # Stopwörter entfernen
-        stop = {"das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
-                "bitte", "mal", "doch", "jetzt", "sofort", "kurz", "einmal"}
-        words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
+        words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in _HA_STOP_WORDS]
         # Raum-Keywords suchen
-        area_words = [w for w in words if w not in
-                      on_kw + off_kw + toggle_kw +
-                      ["schalte", "mach", "mache", "stell", "stelle",
-                       "knips", "dreh", "licht", "lampe", "leuchte",
-                       "steckdose", "schalter", "bitte"]]
+        area_words = [w for w in words if w not in _HA_EXCLUDE_WORDS]
         area = " ".join(area_words).strip() if area_words else ""
 
         # Entität suchen
