@@ -281,19 +281,28 @@ def cmd_doctor():
             if _ha_url and _ha_token:
                 import aiohttp as _aio
                 async with _aio.ClientSession() as _ses:
-                    async with _ses.get(
-                        f"{_ha_url.rstrip('/')}/api/",
-                        headers={"Authorization": f"Bearer {_ha_token}"},
-                        timeout=_aio.ClientTimeout(total=5),
-                        ssl=False
-                    ) as _r:
-                        if _r.status == 200:
-                            _data = await _r.json()
-                            _ver = _data.get("version") or _data.get("ha_version") or ""
-                            _ver_str = f" – HA {_ver}" if _ver else ""
-                            print(f"  Home Assist : ✅ verbunden ({_ha_url}){_ver_str}")
-                        else:
-                            print(f"  Home Assist : ❌ HTTP {_r.status} – Token ungültig?")
+                    for _attempt in range(3):
+                        try:
+                            async with _ses.get(
+                                f"{_ha_url.rstrip('/')}/api/",
+                                headers={"Authorization": f"Bearer {_ha_token}"},
+                                timeout=_aio.ClientTimeout(total=5),
+                                ssl=False
+                            ) as _r:
+                                if _r.status == 200:
+                                    _data = await _r.json()
+                                    _ver = _data.get("version") or _data.get("ha_version") or ""
+                                    _ver_str = f" – HA {_ver}" if _ver else ""
+                                    print(f"  Home Assist : ✅ verbunden ({_ha_url}){_ver_str}")
+                                    break
+                                else:
+                                    print(f"  Home Assist : ❌ HTTP {_r.status} – Token ungültig?")
+                                    break
+                        except Exception as _err:
+                            if _attempt < 2:
+                                await asyncio.sleep(10)
+                            else:
+                                print(f"  Home Assist : ❌ Fehler: {_err}")
             else:
                 print("  Home Assist : ⬜ nicht konfiguriert (piclaw setup)")
         except Exception as _e:

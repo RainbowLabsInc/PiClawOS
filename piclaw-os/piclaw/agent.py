@@ -3,7 +3,6 @@ PiClaw OS – Core Agent
 """
 
 import asyncio
-import json
 import logging
 import traceback
 from dataclasses import dataclass, field
@@ -23,7 +22,7 @@ _RE_MP_MARKET_KW = re.compile(
 
 from collections.abc import Callable
 
-from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
+from piclaw.config import PiClawConfig, CRASH_DIR
 from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall
 from piclaw.taskutils import create_background_task
 
@@ -618,7 +617,7 @@ class Agent:
             # Standard-Fallback: Systembericht via direct_tool (kein LLM nötig!)
             # Spart ~3-5 LLM-Calls/Tag und schont das Groq/NIM Token-Budget.
             tools = ["system_report", "thermal_status", "pi_info", "memory_log"]
-            mission = f"Direct tool mode: system_report"
+            mission = "Direct tool mode: system_report"
             # direct_tool wird weiter unten gesetzt
 
         # direct_tool für Systembericht-Tasks (kein LLM-Loop nötig)
@@ -1241,7 +1240,7 @@ class Agent:
             query = query.replace(plz_match.group(1), " ")
         if location and not (plz_match and location == plz_match.group(1)):
             # Stadtname entfernen (war kein PLZ)
-            query = re.sub(r"(?i)\b" + re.escape(location) + r"\b", " ", query)
+            query = re.sub(r"(?i)(?<![\w])" + re.escape(location) + r"(?![\w])", " ", query)
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
         query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
         # Stoppwörter entfernen

@@ -1388,6 +1388,18 @@ def step_proactive(state: WizardState, step: int, total: int) -> None:
             try:
                 lat = float(lat_str)
                 lon = float(lon_str)
+
+                try:
+                    import subprocess
+                    from timezonefinder import TimezoneFinder
+                    tf = TimezoneFinder()
+                    tz = tf.timezone_at(lat=lat, lng=lon)
+                    if tz:
+                        subprocess.run(["sudo", "timedatectl", "set-timezone", tz], check=False)
+                        _ok(f"Zeitzone automatisch gesetzt: {tz}")
+                except Exception as e:
+                    _warn(f"Konnte Zeitzone nicht automatisch setzen: {e}")
+
             except ValueError:
                 _warn("Ungueltige Koordinaten -- Wetter wird deaktiviert")
 
