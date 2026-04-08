@@ -173,6 +173,14 @@ async def _run_command(*args: str) -> str:
         return f"[ERROR] {e}"
 
 
+def _is_valid_ip(ip: str) -> bool:
+    """Gibt True zurück wenn die IP eine gültige IPv4/IPv6 Adresse ist."""
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
+        return False
+
 def _is_local_ip(ip: str) -> bool:
     """Gibt True zurück wenn die IP eine lokale/private Adresse ist."""
     try:
@@ -184,6 +192,8 @@ def _is_local_ip(ip: str) -> bool:
 # ── Tool-Implementierungen ───────────────────────────────────────────────────
 
 async def whois_lookup(ip: str) -> str:
+    if not _is_valid_ip(ip):
+        return f"❌ Invalid IP address format: {ip}"
     result = await _run_command("whois", ip)
     if len(result) > 2000:
         result = result[:2000] + "\n...[TRUNCATED]"
@@ -191,6 +201,8 @@ async def whois_lookup(ip: str) -> str:
 
 
 async def block_ip(ip: str) -> str:
+    if not _is_valid_ip(ip):
+        return f"❌ Invalid IP address format: {ip}"
     if _is_local_ip(ip):
         return f"⚠️ {ip} ist eine lokale IP – Blockierung abgebrochen (Schutzmaßnahme)."
     result = await _run_command("sudo", "iptables", "-A", "INPUT", "-s", ip, "-j", "DROP")
@@ -200,6 +212,8 @@ async def block_ip(ip: str) -> str:
 
 
 async def tarpit_ip(ip: str, port: int) -> str:
+    if not _is_valid_ip(ip):
+        return f"❌ Invalid IP address format: {ip}"
     if _is_local_ip(ip):
         return f"⚠️ {ip} ist eine lokale IP – Tarpit abgebrochen (Schutzmaßnahme)."
     result = await _run_command(
@@ -218,6 +232,8 @@ async def tarpit_ip(ip: str, port: int) -> str:
 
 
 async def generate_abuse_report(ip: str, evidence: str) -> str:
+    if not _is_valid_ip(ip):
+        return f"❌ Invalid IP address format: {ip}"
     whois = await whois_lookup(ip)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")  # lokale Pi-Zeit (Europe/Berlin)
     return (

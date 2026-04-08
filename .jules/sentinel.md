@@ -17,3 +17,8 @@
 **Vulnerability:** Command injection vulnerability in `piclaw-os/piclaw/tools/network.py` within the `wifi_disconnect` function. The tool used an f-string to construct a shell command: `f"nmcli dev disconnect {dev.strip()}"` and executed it via `_run()` which falls back to `asyncio.create_subprocess_shell` when passed a string.
 **Learning:** Constructing commands via string concatenation and executing them using a shell executor exposes the system to command injection, even when part of the input seems harmless or originates from other tools. All arguments should be sanitized or passed individually.
 **Prevention:** Pass commands as a list of arguments (e.g. `["nmcli", "dev", "disconnect", dev.strip()]`) rather than strings. This ensures they are safely executed via `asyncio.create_subprocess_exec` without shell expansion.
+
+## 2024-05-24 - Validate Tool Arguments For Subprocess Exec
+**Vulnerability:** Argument injection vulnerability in `piclaw/tools/network_security.py` where untrusted user input was passed as an argument to `asyncio.create_subprocess_exec` in commands like `whois <ip>` and `sudo iptables -A INPUT -s <ip> -j DROP`.
+**Learning:** Even though `create_subprocess_exec` protects against *shell* injection, it does not protect against *argument* injection. If an unvalidated `ip` string starts with a dash (e.g. `-h` or `--help`), the underlying binary (`whois` or `iptables`) might interpret it as an unintended command-line flag instead of a positional argument.
+**Prevention:** Strictly validate arguments passed to external tools to ensure they match the expected format (e.g. using `ipaddress.ip_address` for IP strings) before executing the subprocess.
