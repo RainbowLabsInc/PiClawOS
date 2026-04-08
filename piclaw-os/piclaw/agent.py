@@ -54,6 +54,17 @@ from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
 from piclaw import soul as soul_mod
 from piclaw.tools import homeassistant as ha_mod
 
+# HA Shortcut keywords and regexes
+_HA_CMD_KW = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh", "licht", "lampe", "leuchte", "steckdose", "schalter")
+_HA_ON_KW = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
+_HA_OFF_KW = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
+_HA_TOGGLE_KW = ("toggle", "umschalten", "wechseln")
+
+_RE_HA_CMD = re.compile(r"(" + "|".join(sorted(_HA_CMD_KW, key=len, reverse=True)) + r")", re.IGNORECASE)
+_RE_HA_ON = re.compile(r"(" + "|".join(sorted(_HA_ON_KW, key=len, reverse=True)) + r")", re.IGNORECASE)
+_RE_HA_OFF = re.compile(r"(" + "|".join(sorted(_HA_OFF_KW, key=len, reverse=True)) + r")", re.IGNORECASE)
+_RE_HA_TOGGLE = re.compile(r"(" + "|".join(sorted(_HA_TOGGLE_KW, key=len, reverse=True)) + r")", re.IGNORECASE)
+
 log = logging.getLogger("piclaw.agent")
 
 
@@ -729,23 +740,17 @@ class Agent:
             return None
 
         # Intent erkennen
-        on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
-        off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
-        toggle_kw = ("toggle", "umschalten", "wechseln")
-        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter")
-
         # Muss mindestens ein Befehlswort enthalten
-        if not any(k in t for k in cmd_kw):
+        if not _RE_HA_CMD.search(t):
             return None
 
         # Richtung bestimmen
         action = None
-        if any(k in t for k in on_kw):
+        if _RE_HA_ON.search(t):
             action = "on"
-        elif any(k in t for k in off_kw):
+        elif _RE_HA_OFF.search(t):
             action = "off"
-        elif any(k in t for k in toggle_kw):
+        elif _RE_HA_TOGGLE.search(t):
             action = "toggle"
         else:
             return None  # Kein klarer On/Off Intent
@@ -757,10 +762,7 @@ class Agent:
         words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
         # Raum-Keywords suchen
         area_words = [w for w in words if w not in
-                      on_kw + off_kw + toggle_kw +
-                      ["schalte", "mach", "mache", "stell", "stelle",
-                       "knips", "dreh", "licht", "lampe", "leuchte",
-                       "steckdose", "schalter", "bitte"]]
+                      _HA_ON_KW + _HA_OFF_KW + _HA_TOGGLE_KW + _HA_CMD_KW + ("bitte",)]
         area = " ".join(area_words).strip() if area_words else ""
 
         # Entität suchen
