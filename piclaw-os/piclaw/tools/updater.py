@@ -105,7 +105,9 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
     _remote_url = _git_remote_url(cfg)
     # Remote-URL nur setzen wenn sie sich geändert hat (ohne Token, sauber)
     if cfg.repo_url:
-        await _run(f"cd {INSTALL_DIR} && git remote set-url origin {cfg.repo_url} 2>&1")
+        import shlex
+        safe_url = shlex.quote(cfg.repo_url)
+        await _run(f"cd {INSTALL_DIR} && git remote set-url origin {safe_url} 2>&1")
 
     if target == "check":
         rc, out = await _run(
