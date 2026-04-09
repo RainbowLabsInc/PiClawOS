@@ -17,3 +17,8 @@
 **Vulnerability:** Command injection vulnerability in `piclaw-os/piclaw/tools/network.py` within the `wifi_disconnect` function. The tool used an f-string to construct a shell command: `f"nmcli dev disconnect {dev.strip()}"` and executed it via `_run()` which falls back to `asyncio.create_subprocess_shell` when passed a string.
 **Learning:** Constructing commands via string concatenation and executing them using a shell executor exposes the system to command injection, even when part of the input seems harmless or originates from other tools. All arguments should be sanitized or passed individually.
 **Prevention:** Pass commands as a list of arguments (e.g. `["nmcli", "dev", "disconnect", dev.strip()]`) rather than strings. This ensures they are safely executed via `asyncio.create_subprocess_exec` without shell expansion.
+
+## 2024-05-24 - Command Injection in Updater Tool
+**Vulnerability:** The `updater.py` tool suffered from a command injection vulnerability where `cfg.repo_url` was passed directly to `asyncio.create_subprocess_shell` without sanitization.
+**Learning:** Even internal parameters like `repo_url` in configuration tools can act as attack vectors if not properly escaped.
+**Prevention:** Always use `shlex.quote` or `asyncio.create_subprocess_exec` instead of `create_subprocess_shell` for executing commands with external inputs.
