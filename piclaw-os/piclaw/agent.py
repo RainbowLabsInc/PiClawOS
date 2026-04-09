@@ -3,7 +3,6 @@ PiClaw OS – Core Agent
 """
 
 import asyncio
-import json
 import logging
 import traceback
 from dataclasses import dataclass, field
@@ -21,38 +20,73 @@ _RE_MP_MARKET_KW = re.compile(
     re.IGNORECASE,
 )
 
-from collections.abc import Callable
+_RE_MP_MONITOR_PHRASES = re.compile(
+    r"(?i)\b(" + "|".join(map(re.escape, sorted([
+        "beobachte ob es", "beobachte ob", "schau ob es", "schau ob",
+        "sag mir wenn", "sag bescheid wenn", "benachrichtige mich",
+        "informiere mich", "überwache", "beobachte", "monitor",
+        "halte ausschau", "check regelmäßig", "automatisch",
+        "stündlich", "regelmäßig", "neue gibt", "neue auftauchen",
+        "neue inserate", "neue angebote", "neues gibt", "gibt es neue",
+        "gibt es", "ob es", "ob neue", "neue für", "nach neuen",
+        "jede stunde", "jede halbe stunde", "alle stunde"
+    ], key=len, reverse=True))) + r")\b"
+)
 
-from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
-from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall
-from piclaw.taskutils import create_background_task
+_RE_MP_PLATFORM_PHRASES = re.compile(
+    r"(?i)\b(" + "|".join(map(re.escape, sorted([
+        "kleinanzeigen.de", "ebay.de", "willhaben.at", "kleinanzeigen",
+        "ebay", "willhaben", "zeige mir", "zeig mir", "was kostet",
+        "preis für", "gibt es", "auf"
+    ], key=len, reverse=True))) + r")\b"
+)
 
-from piclaw.tools import shell as shell_mod
-from piclaw.tools import network as network_mod
-from piclaw.tools import gpio as gpio_mod
-from piclaw.tools import services as services_mod
-from piclaw.tools import updater as updater_mod
-from piclaw.tools.scheduler import Scheduler
+_RE_MP_STOPWORDS = re.compile(
+    r"(?i)(?<![\w])(" + "|".join(map(re.escape, sorted([
+        "auf", "im", "in", "um", "von", "bis", "bitte", "suche", "finde", "such",
+        "durchsuche", "liste", "umkreis", "radius", "einen", "eine", "ein", "mir",
+        "dem", "der", "die", "das", "schnäppchen", "angebot", "angebote", "nach",
+        "einem", "einer", "nähe", "nähe von", "in der", "nach einem",
+        "ob es neue anzeigen zu", "ob es neue inserate zu", "ob es neue",
+        "neue anzeigen zu", "neue inserate zu", "neue angebote zu", "anzeigen zu",
+        "inserate zu", "ob es", "neue", "anzeigen", "inserate", "gibt", "ob", "es",
+        "zu", "für", "über", "wegen"
+    ], key=len, reverse=True))) + r")(?![\w])"
+)
 
-from piclaw.memory import QMDBackend, MemoryMiddleware
-from piclaw.memory.tools import TOOL_DEFS as MEMORY_TOOL_DEFS
-from piclaw.memory.tools import build_handlers as build_memory_handlers
-from piclaw.agents import heartbeat_loop
-from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS
-from piclaw.agents.orchestration import build_handlers as build_agent_handlers
-from piclaw.agents.sa_registry import (
+
+from collections.abc import Callable  # noqa: E402
+
+from piclaw.config import PiClawConfig, CRASH_DIR  # noqa: E402
+from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall  # noqa: E402
+from piclaw.taskutils import create_background_task  # noqa: E402
+
+from piclaw.tools import shell as shell_mod  # noqa: E402
+from piclaw.tools import network as network_mod  # noqa: E402
+from piclaw.tools import gpio as gpio_mod  # noqa: E402
+from piclaw.tools import services as services_mod  # noqa: E402
+from piclaw.tools import updater as updater_mod  # noqa: E402
+from piclaw.tools.scheduler import Scheduler  # noqa: E402
+
+from piclaw.memory import QMDBackend, MemoryMiddleware  # noqa: E402
+from piclaw.memory.tools import TOOL_DEFS as MEMORY_TOOL_DEFS  # noqa: E402
+from piclaw.memory.tools import build_handlers as build_memory_handlers  # noqa: E402
+from piclaw.agents import heartbeat_loop  # noqa: E402
+from piclaw.agents.orchestration import TOOL_DEFS as AGENT_TOOL_DEFS  # noqa: E402
+from piclaw.agents.orchestration import build_handlers as build_agent_handlers  # noqa: E402
+from piclaw.agents.sa_registry import (  # noqa: E402
     SubAgentRegistry,
     SubAgentDef,
     INSTALLER_MISSION_TEMPLATE,
 )
-from piclaw.agents.runner import SubAgentRunner
-from piclaw.agents.sa_tools import TOOL_DEFS as SA_TOOL_DEFS
-from piclaw.agents.sa_tools import build_handlers as build_sa_handlers
-from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS
-from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers
-from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
-from piclaw import soul as soul_mod
-from piclaw.tools import homeassistant as ha_mod
+from piclaw.agents.runner import SubAgentRunner  # noqa: E402
+from piclaw.agents.sa_tools import TOOL_DEFS as SA_TOOL_DEFS  # noqa: E402
+from piclaw.agents.sa_tools import build_handlers as build_sa_handlers  # noqa: E402
+from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS  # noqa: E402
+from piclaw.llm.mgmt_tools import build_handlers as build_llm_mgmt_handlers  # noqa: E402
+from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS  # noqa: E402
+from piclaw import soul as soul_mod  # noqa: E402
+from piclaw.tools import homeassistant as ha_mod  # noqa: E402
 
 log = logging.getLogger("piclaw.agent")
 
@@ -618,7 +652,7 @@ class Agent:
             # Standard-Fallback: Systembericht via direct_tool (kein LLM nötig!)
             # Spart ~3-5 LLM-Calls/Tag und schont das Groq/NIM Token-Budget.
             tools = ["system_report", "thermal_status", "pi_info", "memory_log"]
-            mission = f"Direct tool mode: system_report"
+            mission = "Direct tool mode: system_report"
             # direct_tool wird weiter unten gesetzt
 
         # direct_tool für Systembericht-Tasks (kein LLM-Loop nötig)
@@ -1049,17 +1083,7 @@ class Agent:
 
         # Query: Monitoring-Keywords + Rauschen VOR _detect_marketplace_intent entfernen
         clean_text = text
-        for phrase in [
-            "beobachte ob es", "beobachte ob", "schau ob es", "schau ob",
-            "sag mir wenn", "sag bescheid wenn", "benachrichtige mich",
-            "informiere mich", "überwache", "beobachte", "monitor",
-            "halte ausschau", "check regelmäßig", "automatisch",
-            "stündlich", "regelmäßig", "neue gibt", "neue auftauchen",
-            "neue inserate", "neue angebote", "neues gibt", "gibt es neue",
-            "gibt es", "ob es", "ob neue", "neue für", "nach neuen",
-            "jede stunde", "jede halbe stunde", "alle stunde",
-        ]:
-            clean_text = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", clean_text)
+        clean_text = _RE_MP_MONITOR_PHRASES.sub(" ", clean_text)
         # Regex-Patterns (z.B. "alle 30 Minuten", "jede 2 Stunden")
         clean_text = re.sub(r"(?i)(?:alle|jede)\s+\d+\s*(?:min(?:uten)?|stund(?:en?)?)", " ", clean_text)
         clean_text = re.sub(r"\s+", " ", clean_text).strip()
@@ -1219,21 +1243,7 @@ class Agent:
         # Query bereinigen
         query = text_clean
         # Plattform-Phrasen entfernen
-        for phrase in [
-            "kleinanzeigen.de",
-            "ebay.de",
-            "willhaben.at",
-            "kleinanzeigen",
-            "ebay",
-            "willhaben",
-            "zeige mir",
-            "zeig mir",
-            "was kostet",
-            "preis für",
-            "gibt es",
-            "auf",
-        ]:
-            query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
+        query = _RE_MP_PLATFORM_PHRASES.sub(" ", query)
         # .at und .de Domain-Suffixe entfernen
         query = re.sub(r"\.(at|de)\b", " ", query, flags=re.IGNORECASE)
         # PLZ + Stadtname aus Query entfernen
@@ -1245,64 +1255,7 @@ class Agent:
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
         query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
         # Stoppwörter entfernen
-        stopwords = [
-            "auf",
-            "im",
-            "in",
-            "um",
-            "von",
-            "bis",
-            "bitte",
-            "suche",
-            "finde",
-            "such",
-            "durchsuche",
-            "liste",
-            "umkreis",
-            "radius",
-            "einen",
-            "eine",
-            "ein",
-            "mir",
-            "dem",
-            "der",
-            "die",
-            "das",
-            # Städtenamen werden jetzt als location extrahiert (siehe oben)
-            # und aus dem Query via location-Removal entfernt
-            "schnäppchen",
-            "angebot",
-            "angebote",
-            "nach",
-            "einem",
-            "einer",
-            "nähe",
-            "nähe von",
-            "in der",
-            "nach einem",
-            # Query-Rauschen bei Formulierungen wie "ob es neue Anzeigen zu X gibt"
-            "ob es neue anzeigen zu",
-            "ob es neue inserate zu",
-            "ob es neue",
-            "neue anzeigen zu",
-            "neue inserate zu",
-            "neue angebote zu",
-            "anzeigen zu",
-            "inserate zu",
-            "ob es",
-            "neue",
-            "anzeigen",
-            "inserate",
-            "gibt",
-            "ob",
-            "es",
-            "zu",
-            "für",
-            "über",
-            "wegen",
-        ]
-        for w in stopwords:
-            query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
+        query = _RE_MP_STOPWORDS.sub(" ", query)
         # .de Suffix entfernen
         query = re.sub(r"\.de\b", " ", query, flags=re.IGNORECASE)
         # Mehrfache Leerzeichen

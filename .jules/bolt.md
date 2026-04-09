@@ -1,3 +1,8 @@
 ## 2025-03-05 - Precompiled Regex for Multiple Substring Checks
 **Learning:** For optimal performance on resource-constrained devices like the Raspberry Pi, pre-compiled regex searches (`re.compile`) are approximately 2x faster than generator expressions using `any()` with list or tuple iteration when checking if any of a set of keywords exists in a string. This is especially true when there's no match (which is the most common path) or when the target text is long.
 **Action:** When performing substring matching against a set of multiple keywords (e.g. `any(kw in text for kw in keywords)`), replace it with a module-level pre-compiled regex. Combine the array of keywords into a single optimized regex (e.g. `(?:word1|word2)`), making sure to sort the keywords by length descending so the engine doesn't eagerly consume partial matches.
+
+
+## 2026-04-09 - Module-level Pre-compiled Regular Expressions for Substring Operations
+**Learning:** In highly recurrent loops (like intent intent classification via `_detect_marketplace_intent` in `piclaw/agent.py`), iterating over lists of substrings and calling `re.sub()` for each string sequentially incurs significant overhead from repetitive regex compilation and O(N*M) matching passes. Python's bytecode does not optimize out these looped regex constructions.
+**Action:** Replace sequential substring replacements loops with a single, module-level pre-compiled regex joined by the pipe `|` operator (e.g., `"(phrase1|phrase2)"`). Ensure the target phrases are sorted by length descending (`sorted(phrases, key=len, reverse=True)`) before joining to guarantee longer multi-word phrases match before their substrings. Then call `.sub(" ", text)` in a single pass to achieve O(N) linear time processing.
