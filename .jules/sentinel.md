@@ -30,3 +30,7 @@
 **Vulnerability:** The `updater.py` tool suffered from a command injection vulnerability where `cfg.repo_url` was passed directly to `asyncio.create_subprocess_shell` without sanitization.
 **Learning:** Even internal parameters like `repo_url` in configuration tools can act as attack vectors if not properly escaped.
 **Prevention:** Always use `shlex.quote` or `asyncio.create_subprocess_exec` instead of `create_subprocess_shell` for executing commands with external inputs.
+## 2024-04-10 - Refactored OS Network Tools to Prevent Command Injection
+**Vulnerability:** Command injection risk in `piclaw-os/piclaw/tools/network.py`. The `_run` utility accepted arbitrary strings and executed them directly via `asyncio.create_subprocess_shell`.
+**Learning:** Shell utilities like `nmcli` often use pipes (`|`) and string manipulation (e.g., `grep`, `head`, `cut`) in bash. Developers tend to default to `create_subprocess_shell` so these features continue working. This introduces the risk of shell metacharacter injection if user input ever flows into those strings.
+**Prevention:** Always use `asyncio.create_subprocess_exec` passing a list of arguments (`list[str]`) for OS-level tool execution. Implement shell pipeline features natively in Python (e.g., string splitting instead of `cut`, list slicing instead of `head`, iteration instead of `grep`).
