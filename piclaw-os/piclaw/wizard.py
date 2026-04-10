@@ -1388,6 +1388,25 @@ def step_proactive(state: WizardState, step: int, total: int) -> None:
             try:
                 lat = float(lat_str)
                 lon = float(lon_str)
+
+                # Zeitzone-Autosetup
+                try:
+                    from timezonefinder import TimezoneFinder
+                    tf = TimezoneFinder()
+                    tz = tf.timezone_at(lat=lat, lng=lon)
+                    if tz:
+                        import platform
+                        if platform.system() == "Linux":
+                            # Safe approach: check if timedatectl is available
+                            if shutil.which("timedatectl"):
+                                subprocess.run(["timedatectl", "set-timezone", tz], check=False)
+                                _ok(f"Zeitzone automatisch gesetzt: {tz}")
+                            else:
+                                _info(f"Konnte Zeitzone '{tz}' nicht setzen: timedatectl nicht gefunden")
+                        else:
+                            _info(f"Zeitzone erkannt: {tz}")
+                except Exception as tz_e:
+                    log.debug("Zeitzone-Autosetup fehlgeschlagen: %s", tz_e)
             except ValueError:
                 _warn("Ungueltige Koordinaten -- Wetter wird deaktiviert")
 

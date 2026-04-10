@@ -1239,9 +1239,11 @@ class Agent:
         # PLZ + Stadtname aus Query entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
-        if location and not (plz_match and location == plz_match.group(1)):
-            # Stadtname entfernen (war kein PLZ)
-            query = re.sub(r"(?i)\b" + re.escape(location) + r"\b", " ", query)
+
+        # Alle erkannten Städte aus dem Query entfernen
+        for city in _KNOWN_CITIES:
+            query = re.sub(r"(?i)\b" + re.escape(city) + r"\b", " ", query)
+
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
         query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
         # Stoppwörter entfernen
