@@ -850,9 +850,12 @@ class Agent:
         Erkennt Troostwijk-Auktions-Monitoring-Anfragen wie:
           'Überwache Troostwijk auf neue Auktionen in Deutschland'
           'Neue Auktionen in Hamburg auf Troostwijk – sag mir Bescheid'
-          'Benachrichtige mich über neue Troostwijk Auktionen in Belgien'
+          'Troostwijk Auktionen im Umkreis von 50km um 21224'
+          'Überwache Troostwijk PLZ 21224, 100km Radius'
 
-        Gibt zurück: {"country": "de", "city": "Hamburg"|None, "interval_sec": 3600}
+        Gibt zurück: {"country": "de", "city": "Hamburg"|None,
+                      "plz": "21224"|None, "radius_km": 50|None,
+                      "interval_sec": 3600}
         """
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
@@ -881,6 +884,27 @@ class Agent:
                 country = code
                 break
 
+        # ── PLZ + Radius erkennen ─────────────────────────────────────
+        # Muster: "21224 50km", "PLZ 21224, 100km Radius", "um 21224 im Umkreis von 50 km"
+        plz = None
+        radius_km = None
+
+        plz_match = re.search(r"(?:plz\s*)?(?<![\d])(\d{5})(?![\d])", t)
+        if plz_match:
+            plz = plz_match.group(1)
+
+        # Radius: "50km", "50 km", "Umkreis von 50km", "Radius 100km", "im Umkreis 30 km"
+        radius_match = re.search(
+            r"(?:umkreis|radius|entfernung)?\s*(?:von\s+)?(\d+)\s*km",
+            t,
+        )
+        if radius_match:
+            radius_km = int(radius_match.group(1))
+
+        # PLZ ohne expliziten Radius → Default 50km
+        if plz and not radius_km:
+            radius_km = 50
+
         # Stadt erkennen (bekannte Städte aus allen TW-Ländern)
         _TW_CITIES = [
             # Deutschland
@@ -905,9 +929,15 @@ class Agent:
                 city = c
                 break
 
+        # Stadt als PLZ-Ersatz: Wenn Stadt erkannt aber keine PLZ,
+        # nutze Stadt als location (für Nominatim-Geocoding)
+        # PLZ hat aber Priorität wenn beides vorhanden
+
         return {
             "country": country,
             "city": city,
+            "plz": plz,
+            "radius_km": radius_km,
             "interval_sec": interval_sec,
         }
 
@@ -916,11 +946,18 @@ class Agent:
         Erstellt einen Troostwijk-Auktions-Monitor Sub-Agenten.
         Nutzt direct_tool='marketplace_monitor' mit platforms=['troostwijk_auctions'].
         Kein LLM in der Monitor-Schleife – rein tokenlos.
+
+        Unterstützte Modi:
+          1. Land-Filter:    country="de" (default)
+          2. Stadt-Filter:   city="Hamburg"
+          3. PLZ + Radius:   plz="21224", radius_km=50
         """
         import json as _json
 
         country      = params.get("country", "de")
-        city         = params.get("city")       # optional
+        city         = params.get("city")          # optional
+        plz          = params.get("plz")           # optional (5-stellige PLZ)
+        radius_km    = params.get("radius_km")     # optional (km)
         interval_sec = params.get("interval_sec", 3600)
 
         # Ländercode → lesbarer Name für Agent-Description
@@ -933,10 +970,18 @@ class Agent:
             "ee": "Estland", "gr": "Griechenland", "ro": "Rumänien",
         }
         country_name = _country_names.get(country, country.upper())
-        location_str = city if city else country_name
 
-        # Agentname: z.B. Monitor_TW_DE oder Monitor_TW_Hamburg
-        safe_loc = re.sub(r"[^a-zA-Z0-9]", "", location_str)[:15]
+        # Location-String + Agentname je nach Modus
+        if plz and radius_km:
+            location_str = f"PLZ {plz}, {radius_km}km"
+            safe_loc = f"PLZ{plz}_{radius_km}km"
+        elif city:
+            location_str = city
+            safe_loc = re.sub(r"[^a-zA-Z0-9]", "", city)[:15]
+        else:
+            location_str = country_name
+            safe_loc = re.sub(r"[^a-zA-Z0-9]", "", country_name)[:15]
+
         agent_name = f"Monitor_TW_{safe_loc}"
 
         existing = self.sa_registry.get(agent_name)
@@ -953,13 +998,16 @@ class Agent:
         else:
             interval_str = f"alle {interval_sec // 3600} Stunden"
 
+        # mission_params: PLZ geht als location (wird in marketplace.py als PLZ erkannt)
+        # Stadt geht ebenfalls als location (wird als city_filter erkannt)
+        mission_location = plz if plz else city
         mission_params = {
-            "query":    "",                         # troostwijk_auctions braucht keine Query
-            "platforms": ["troostwijk_auctions"],
-            "location": city,                       # Stadtname-Filter (None = alle Städte)
-            "country":  country,                    # ISO-Code für Länder-API-Filter
-            "radius_km": None,
-            "max_price": None,
+            "query":      "",                         # troostwijk_auctions braucht keine Query
+            "platforms":  ["troostwijk_auctions"],
+            "location":   mission_location,           # PLZ oder Stadtname
+            "country":    country,                    # ISO-Code für Länder-API-Filter
+            "radius_km":  radius_km,                  # None oder int (km)
+            "max_price":  None,
             "max_results": 24,
         }
 
@@ -979,15 +1027,16 @@ class Agent:
         agent_id = self.sa_registry.add(agent_def)
 
         log.info(
-            "TW-Auktions-Monitor '%s' erstellt – country=%s, city=%s, interval=%ds",
-            agent_name, country, city, interval_sec,
+            "TW-Auktions-Monitor '%s' erstellt – country=%s, city=%s, plz=%s, radius=%s, interval=%ds",
+            agent_name, country, city, plz, radius_km, interval_sec,
         )
 
         if self.sa_runner:
             await self.sa_runner.start_agent(agent_id)
+            radius_info = f"\n📏 Umkreis: {radius_km} km um PLZ {plz}" if plz and radius_km else ""
             return (
                 f"✅ Troostwijk-Auktions-Monitor gestartet!\n"
-                f"📍 Region: {location_str}\n"
+                f"📍 Region: {location_str}{radius_info}\n"
                 f"⏱️ Intervall: {interval_str}\n"
                 f"🏛️ Neue Auktionsereignisse → Telegram\n"
                 f"Agent-ID: {agent_id}"
