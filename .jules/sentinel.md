@@ -26,3 +26,7 @@
 **Vulnerability:** Argument injection vulnerability in `piclaw/tools/network_security.py` where untrusted user input was passed as an argument to `asyncio.create_subprocess_exec` in commands like `whois <ip>` and `sudo iptables -A INPUT -s <ip> -j DROP`.
 **Learning:** Even though `create_subprocess_exec` protects against *shell* injection, it does not protect against *argument* injection. If an unvalidated `ip` string starts with a dash (e.g. `-h` or `--help`), the underlying binary (`whois` or `iptables`) might interpret it as an unintended command-line flag instead of a positional argument.
 **Prevention:** Strictly validate arguments passed to external tools to ensure they match the expected format (e.g. using `ipaddress.ip_address` for IP strings) before executing the subprocess.
+## 2024-05-24 - Command Injection in Updater Tool
+**Vulnerability:** The `updater.py` tool suffered from a command injection vulnerability where `cfg.repo_url` was passed directly to `asyncio.create_subprocess_shell` without sanitization.
+**Learning:** Even internal parameters like `repo_url` in configuration tools can act as attack vectors if not properly escaped.
+**Prevention:** Always use `shlex.quote` or `asyncio.create_subprocess_exec` instead of `create_subprocess_shell` for executing commands with external inputs.
