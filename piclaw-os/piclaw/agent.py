@@ -21,6 +21,38 @@ _RE_MP_MARKET_KW = re.compile(
     re.IGNORECASE,
 )
 
+_MONITOR_PHRASES = [
+    "beobachte ob es", "beobachte ob", "schau ob es", "schau ob",
+    "sag mir wenn", "sag bescheid wenn", "benachrichtige mich",
+    "informiere mich", "überwache", "beobachte", "monitor",
+    "halte ausschau", "check regelmäßig", "automatisch",
+    "stündlich", "regelmäßig", "neue gibt", "neue auftauchen",
+    "neue inserate", "neue angebote", "neues gibt", "gibt es neue",
+    "gibt es", "ob es", "ob neue", "neue für", "nach neuen",
+    "jede stunde", "jede halbe stunde", "alle stunde",
+]
+_RE_SCRUB_MONITOR = re.compile(
+    r"(?i)\b(" + "|".join(re.escape(p) for p in sorted(_MONITOR_PHRASES, key=len, reverse=True)) + r")\b"
+)
+
+_PLATFORM_PHRASES = [
+    "kleinanzeigen.de",
+    "ebay.de",
+    "willhaben.at",
+    "kleinanzeigen",
+    "ebay",
+    "willhaben",
+    "zeige mir",
+    "zeig mir",
+    "was kostet",
+    "preis für",
+    "gibt es",
+    "auf",
+]
+_RE_SCRUB_PLATFORMS = re.compile(
+    r"(?i)\b(" + "|".join(re.escape(p) for p in sorted(_PLATFORM_PHRASES, key=len, reverse=True)) + r")\b"
+)
+
 from collections.abc import Callable
 
 from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
@@ -1048,18 +1080,7 @@ class Agent:
             platforms = ["kleinanzeigen", "ebay"]
 
         # Query: Monitoring-Keywords + Rauschen VOR _detect_marketplace_intent entfernen
-        clean_text = text
-        for phrase in [
-            "beobachte ob es", "beobachte ob", "schau ob es", "schau ob",
-            "sag mir wenn", "sag bescheid wenn", "benachrichtige mich",
-            "informiere mich", "überwache", "beobachte", "monitor",
-            "halte ausschau", "check regelmäßig", "automatisch",
-            "stündlich", "regelmäßig", "neue gibt", "neue auftauchen",
-            "neue inserate", "neue angebote", "neues gibt", "gibt es neue",
-            "gibt es", "ob es", "ob neue", "neue für", "nach neuen",
-            "jede stunde", "jede halbe stunde", "alle stunde",
-        ]:
-            clean_text = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", clean_text)
+        clean_text = _RE_SCRUB_MONITOR.sub(" ", text)
         # Regex-Patterns (z.B. "alle 30 Minuten", "jede 2 Stunden")
         clean_text = re.sub(r"(?i)(?:alle|jede)\s+\d+\s*(?:min(?:uten)?|stund(?:en?)?)", " ", clean_text)
         clean_text = re.sub(r"\s+", " ", clean_text).strip()
@@ -1219,21 +1240,7 @@ class Agent:
         # Query bereinigen
         query = text_clean
         # Plattform-Phrasen entfernen
-        for phrase in [
-            "kleinanzeigen.de",
-            "ebay.de",
-            "willhaben.at",
-            "kleinanzeigen",
-            "ebay",
-            "willhaben",
-            "zeige mir",
-            "zeig mir",
-            "was kostet",
-            "preis für",
-            "gibt es",
-            "auf",
-        ]:
-            query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
+        query = _RE_SCRUB_PLATFORMS.sub(" ", query)
         # .at und .de Domain-Suffixe entfernen
         query = re.sub(r"\.(at|de)\b", " ", query, flags=re.IGNORECASE)
         # PLZ + Stadtname aus Query entfernen
