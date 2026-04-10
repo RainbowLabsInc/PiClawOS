@@ -17,3 +17,8 @@
 **Vulnerability:** Command injection vulnerability in `piclaw-os/piclaw/tools/network.py` within the `wifi_disconnect` function. The tool used an f-string to construct a shell command: `f"nmcli dev disconnect {dev.strip()}"` and executed it via `_run()` which falls back to `asyncio.create_subprocess_shell` when passed a string.
 **Learning:** Constructing commands via string concatenation and executing them using a shell executor exposes the system to command injection, even when part of the input seems harmless or originates from other tools. All arguments should be sanitized or passed individually.
 **Prevention:** Pass commands as a list of arguments (e.g. `["nmcli", "dev", "disconnect", dev.strip()]`) rather than strings. This ensures they are safely executed via `asyncio.create_subprocess_exec` without shell expansion.
+
+## 2024-04-10 - Refactored OS Network Tools to Prevent Command Injection
+**Vulnerability:** Command injection risk in `piclaw-os/piclaw/tools/network.py`. The `_run` utility accepted arbitrary strings and executed them directly via `asyncio.create_subprocess_shell`.
+**Learning:** Shell utilities like `nmcli` often use pipes (`|`) and string manipulation (e.g., `grep`, `head`, `cut`) in bash. Developers tend to default to `create_subprocess_shell` so these features continue working. This introduces the risk of shell metacharacter injection if user input ever flows into those strings.
+**Prevention:** Always use `asyncio.create_subprocess_exec` passing a list of arguments (`list[str]`) for OS-level tool execution. Implement shell pipeline features natively in Python (e.g., string splitting instead of `cut`, list slicing instead of `head`, iteration instead of `grep`).
