@@ -29,6 +29,25 @@ def mock_run_command():
         yield mock
 
 @pytest.mark.asyncio
+async def test_invalid_ip_validation(mock_run_command):
+    # Test that invalid IPs are rejected
+    res1 = await whois_lookup("invalid_ip")
+    assert "Invalid IP address format" in res1
+
+    res2 = await block_ip("-s")
+    assert "Invalid IP address format" in res2
+
+    res3 = await tarpit_ip("; ls", 22)
+    assert "Invalid IP address format" in res3
+
+    res4 = await generate_abuse_report("999.999.999.999", "evidence")
+    assert "Invalid IP address format" in res4
+
+    # Ensure run_command is not called
+    mock_run_command.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_whois_lookup(mock_run_command):
     mock_run_command.return_value = "WHOIS DATA for 8.8.8.8"
 
@@ -49,28 +68,28 @@ async def test_whois_lookup_truncation(mock_run_command):
 async def test_block_ip(mock_run_command):
     mock_run_command.return_value = ""
 
-    result = await block_ip("192.168.1.100")
-    mock_run_command.assert_called_once_with("sudo", "iptables", "-A", "INPUT", "-s", "192.168.1.100", "-j", "DROP")
+    result = await block_ip("8.8.8.8")
+    mock_run_command.assert_called_once_with("sudo", "iptables", "-A", "INPUT", "-s", "8.8.8.8", "-j", "DROP")
     assert "SUCCESS" in result
-    assert "192.168.1.100" in result
+    assert "8.8.8.8" in result
 
 @pytest.mark.asyncio
 async def test_block_ip_error(mock_run_command):
     mock_run_command.return_value = "[ERROR] Command failed: iptables v1.8.9"
 
-    result = await block_ip("192.168.1.100")
+    result = await block_ip("8.8.8.8")
     assert "Failed to block" in result
 
 @pytest.mark.asyncio
 async def test_tarpit_ip(mock_run_command):
     mock_run_command.return_value = ""
 
-    result = await tarpit_ip("10.0.0.5", 22)
+    result = await tarpit_ip("8.8.8.8", 22)
     mock_run_command.assert_called_once_with(
-        "sudo", "iptables", "-A", "INPUT", "-p", "tcp", "--dport", "22", "-s", "10.0.0.5", "-j", "DROP"
+        "sudo", "iptables", "-A", "INPUT", "-p", "tcp", "--dport", "22", "-s", "8.8.8.8", "-j", "DROP"
     )
     assert "Offensive Tarpit deployed" in result
-    assert "10.0.0.5" in result
+    assert "8.8.8.8" in result
     assert "22" in result
 
 @pytest.mark.asyncio
@@ -121,7 +140,7 @@ async def test_honey_trap_lifecycle():
     # Test listing traps
     list_res = await list_honey_traps()
     assert "Active Honey Traps" in list_res
-    assert "Port 9999" in list_res
+    assert "Port  9999" in list_res
     assert "rickroll" in list_res
 
     # Test duplicate trap
