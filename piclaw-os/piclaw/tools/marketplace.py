@@ -846,6 +846,8 @@ async def _search_troostwijk_auctions(
     country: str = "de",
     city_filter: str | None = None,
     max_results: int = 24,
+    plz: str | None = None,
+    radius_km: int | None = None,
 ) -> list[dict]:
     """
     Sucht auf troostwijkauctions.com nach Auktions-Events (nicht einzelne Lose).
@@ -856,8 +858,11 @@ async def _search_troostwijk_auctions(
     API: /_next/data/{buildId}/de/auctions.json?countries={country}&page={page}
     Rückgabe: Auktionen mit Name, Losmenge, Start/Ende, URL.
 
-    Stadt-Filter: Kein API-seitiger Stadtfilter verfügbar – Matching per
-    Teilstring im Auktionsnamen (z.B. "Hamburg" in "D | Maschinen Hamburg").
+    Standort-Filter (Priorität):
+      1. PLZ + Radius → Geocoding + Haversine-Distanzberechnung gegen
+         collectionDays[].city jeder Auktion.
+      2. city_filter → Teilstring-Matching im Auktionsnamen UND in
+         collectionDays[].city (Fallback ohne Geocoding).
     """
     build_id = await _tw_get_build_id(session)
     if not build_id:
@@ -868,7 +873,26 @@ async def _search_troostwijk_auctions(
     results: list[dict] = []
     page = 1
 
-    while len(results) < max_results:
+    # ── Radius-Modus: PLZ → Koordinaten auflösen ──────────────────────
+    origin_coords: tuple[float, float] | None = None
+    if plz and radius_km:
+        origin_coords = await _plz_to_coords(session, plz, country_lc)
+        if not origin_coords:
+            log.warning(
+                "Troostwijk Radius: PLZ %s/%s konnte nicht geocodiert werden – "
+                "Fallback auf city_filter",
+                country_lc, plz,
+            )
+        else:
+            log.info(
+                "Troostwijk Radius: PLZ %s → (%.4f, %.4f), Radius %d km",
+                plz, origin_coords[0], origin_coords[1], radius_km,
+            )
+
+    # Beim Radius-Modus mehr Seiten laden, da viele Auktionen ausgefiltert werden
+    max_pages = 10 if origin_coords else 5
+
+    while len(results) < max_results and page <= max_pages:
         api_url = (
             f"{_TW_BASE}/_next/data/{build_id}/de/auctions.json"
             f"?countries={country_lc}&page={page}"
@@ -913,11 +937,70 @@ async def _search_troostwijk_auctions(
                 break
 
             name = (auction.get("name") or "").strip()
+            collection_days = auction.get("collectionDays") or []
 
-            # Stadtfilter: Matching im Auktionsnamen (keine API-seitige Filterung)
-            if city_filter and city_filter.lower() not in name.lower():
-                continue
+            # ── Standort-Filterung ────────────────────────────────────
+            auction_city = ""
+            auction_cc = ""
+            distance_km: float | None = None
 
+            # Primär: Stadt aus collectionDays extrahieren
+            for cd in collection_days:
+                if cd.get("city"):
+                    auction_city = cd["city"]
+                    auction_cc = (cd.get("countryCode") or country_lc).upper()
+                    break
+
+            # MODUS 1: Radius-Filter (PLZ + Radius gegeben + Origin geocodiert)
+            if origin_coords and radius_km:
+                if not auction_city:
+                    # Keine Stadt in collectionDays → kann Entfernung nicht prüfen
+                    # Nur aufnehmen wenn auch city_filter matched (Name-Check)
+                    if city_filter and city_filter.lower() in name.lower():
+                        pass  # Name-Match als Fallback
+                    else:
+                        continue  # Keine Standortinfo → überspringen
+
+                if auction_city:
+                    # Stadt → Koordinaten auflösen
+                    auction_coords = await _city_to_coords(
+                        session, auction_city, auction_cc or country_lc
+                    )
+                    if auction_coords:
+                        distance_km = _haversine_km(
+                            origin_coords[0], origin_coords[1],
+                            auction_coords[0], auction_coords[1],
+                        )
+                        if distance_km > radius_km:
+                            log.debug(
+                                "Troostwijk Radius: '%s' in %s → %.0f km (> %d km) – gefiltert",
+                                name[:50], auction_city, distance_km, radius_km,
+                            )
+                            continue
+                        log.debug(
+                            "Troostwijk Radius: '%s' in %s → %.0f km ✓",
+                            name[:50], auction_city, distance_km,
+                        )
+                    else:
+                        # Stadt konnte nicht geocodiert werden → Name-Fallback
+                        log.debug(
+                            "Troostwijk Radius: '%s' – Stadt '%s' nicht geocodierbar",
+                            name[:50], auction_city,
+                        )
+                        continue
+
+            # MODUS 2: Stadt-Filter (string matching, bisheriges Verhalten)
+            elif city_filter:
+                city_lower = city_filter.lower()
+                name_match = city_lower in name.lower()
+                collection_match = any(
+                    city_lower in (cd.get("city") or "").lower()
+                    for cd in collection_days
+                )
+                if not name_match and not collection_match:
+                    continue
+
+            # ── Ergebnis aufbauen ─────────────────────────────────────
             display_id = auction.get("displayId", "")
             url_slug = auction.get("urlSlug", "")
             auction_url = f"{_TW_BASE}/de/a/{url_slug}" if url_slug else ""
@@ -931,7 +1014,17 @@ async def _search_troostwijk_auctions(
             lot_count = auction.get("lotCount", 0)
             status    = auction.get("biddingStatus", "")
 
-            location_str = city_filter if city_filter else country.upper()
+            # Standort-String für Anzeige
+            if auction_city:
+                location_str = f"{auction_city}, {auction_cc}" if auction_cc else auction_city
+            elif city_filter:
+                location_str = city_filter
+            else:
+                location_str = country.upper()
+
+            # Distanz anhängen wenn berechnet
+            if distance_km is not None:
+                location_str += f" ({distance_km:.0f} km)"
 
             results.append({
                 "id":         display_id,
@@ -1387,7 +1480,17 @@ async def marketplace_search(
         if "troostwijk" in platforms:
             tasks.append(_search_troostwijk(session, query, location or "", "DE", max_price, max_results))
         if "troostwijk_auctions" in platforms:
-            tasks.append(_search_troostwijk_auctions(session, country or "de", location or None, max_results))
+            # PLZ (5 Ziffern) vs. Stadtname unterscheiden
+            _tw_city = None
+            _tw_plz = None
+            if location and re.fullmatch(r"\d{4,5}", location.strip()):
+                _tw_plz = location.strip()
+            elif location:
+                _tw_city = location
+            tasks.append(_search_troostwijk_auctions(
+                session, country or "de", _tw_city, max_results,
+                plz=_tw_plz, radius_km=radius_km,
+            ))
         if "web" in platforms:
             tasks.append(_search_web(session, query, min(max_results, 5)))
 
