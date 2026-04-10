@@ -1,40 +1,62 @@
 # PiClaw OS – Nächste Session
-**Letzte Aktualisierung:** 2026-04-05 (Session 9 – Release Prep)
-**Version:** v0.16.0 🟢
+**Letzte Aktualisierung:** 2026-04-10 (Session 10 – Security Merges + Troostwijk Umkreissuche)
+**Version:** v0.16.1 🟢
 
 ---
 
 ## ✅ Diese Session abgeschlossen
 
-- Security-Audit (SEC-1 bis SEC-6 alle behoben)
-- 16 Stabilität/Performance-Bugs behoben (3 Debug-Runden)
-- Troostwijk Auktions-Monitor implementiert und deployed
-- 7 PRs gemergt, 9 geschlossen
-- README, CHANGELOG, ROADMAP, SECURITY.md vollständig aktualisiert
-- Version auf v0.16.0 gebumpt
+### PRs gemergt (7 Stück → main)
+- **PR #123** 🛡️ Path-Traversal-Fix in `write_workspace_file`
+- **PR #128** 🛡️ IP-Validierung in `network_security.py`
+- **PR #132** 🛡️ Command-Injection-Fix in `updater.py` (shlex.quote)
+- **PR #135** 🛡️ `network.py` komplett auf subprocess_exec umgestellt
+- **PR #125** ⚙️ Async-Sensors-Migration (native async statt thread pool)
+- **PR #133** ⚙️ Igor: Timezone-Setup, Doctor-Timeout, Query-Fixes
+- **PR #129** ⚙️ Location-Regex-Fix + City-Name-Leakage
+
+### Troostwijk Umkreissuche implementiert
+- `marketplace.py`: Geo-Utilities (Haversine, PLZ→Coords via zippopotam.us, Stadt→Coords via Nominatim)
+- `_search_troostwijk_auctions`: PLZ + Radius Parameter, filtert gegen `collectionDays[].city`
+- `agent.py`: Intent-Detection erkennt PLZ + Radius aus natürlicher Sprache
+- Live-validiert: PLZ 21224 (Rosengarten) → Hamburg 17km ✅, Pinneberg 39km ✅, Walsrode 65km ✅
 
 ---
 
 ## 🚨 Sofort (nach dieser Session)
 
-### 1. Credentials rotieren!
+### 1. Pi updaten!
+```bash
+piclaw update
+# Falls das nicht geht (alter Code ohne Token-Auth):
+cd /opt/piclaw && sudo git pull
+sudo systemctl restart piclaw-api piclaw-agent
+```
+
+### 2. Troostwijk Umkreis-Monitor testen
+Nach dem Update über Dameon:
+```
+Überwache Troostwijk Auktionen im Umkreis von 100km um 21224
+```
+Oder manuell via API:
+```bash
+curl -X POST http://localhost:7842/api/subagents \
+  -H "Authorization: Bearer $(cat /etc/piclaw/api_token)" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Monitor_TW_PLZ21224_100km",
+    "description": "Troostwijk Auktionen: PLZ 21224, 100km – stündlich",
+    "schedule": "interval:3600",
+    "direct_tool": "marketplace_monitor",
+    "mission": "{\"query\":\"\",\"platforms\":[\"troostwijk_auctions\"],\"location\":\"21224\",\"country\":\"de\",\"radius_km\":100,\"max_price\":null,\"max_results\":24}"
+  }'
+```
+
+### 3. Credentials rotieren
 ```bash
 piclaw config token   # Neuen API-Token generieren
 ```
-GitHub PAT rotieren: https://github.com/settings/tokens/3962689543
-
-### 2. Pi updaten
-```bash
-sudo chown -R piclaw:piclaw /opt/piclaw/.git
-piclaw update
-```
-
-### 3. Zeitzone prüfen
-```bash
-timedatectl status
-# Erwartung: Time zone: Europe/Berlin (CEST, +0200)
-# Falls nicht: sudo timedatectl set-timezone Europe/Berlin
-```
+GitHub PAT rotieren: https://github.com/settings/tokens
 
 ---
 
