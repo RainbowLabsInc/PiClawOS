@@ -26,7 +26,7 @@ PiClaw OS verwandelt einen Raspberry Pi in einen intelligenten Assistenten, der 
 | 🧠 | **Multi-LLM-Routing** | Groq, NVIDIA NIM, OpenRouter, Anthropic, Ollama, lokales Qwen3 – mit automatischer Fallback-Kette |
 | 🛒 | **Marktplatz-Monitor** | Kleinanzeigen, eBay, eGun, willhaben, Troostwijk – meldet **nur neue** Inserate per Telegram |
 | 🏛️ | **Auktions-Monitor** | Troostwijk: neue Auktions-Events nach Land oder Stadt überwachen |
-| 🤖 | **Natürliche Sprache** | *„Überwache eGun auf Sauer 505"* → erstellt automatisch einen stündlichen Monitor |
+| 🤖 | **Natürliche Sprache** | *„Überwache kleinanzeigen auf Gartentisch im Umkreis von 20km um PLZ"* → erstellt automatisch einen stündlichen Monitor |
 | 💬 | **Messaging Hub** | Telegram, WhatsApp, Threema, MQTT |
 | 🏠 | **Home Assistant** | REST + WebSocket, 11 Tools, Echtzeit-Push bei Bewegung/Alarm |
 | 🌐 | **Web-Dashboard** | Agents · Memory · Soul · Hardware · Metriken · Kamera · Chat |
