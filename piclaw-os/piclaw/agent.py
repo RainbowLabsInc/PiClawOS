@@ -1495,6 +1495,29 @@ class Agent:
             log.info("HA-Shortcut ausgeführt (kein LLM): %s", _ha_result[:50])
             return _ha_result
 
+        # ── LLM-Discover-Shortcut: Ohne LLM direkt ausführen ─────────
+        # Kritisch: Genau wenn alle Cloud-Backends down sind und man neue
+        # braucht, ist das lokale Modell zu schwach für Tool-Calling.
+        # Deshalb: Regex-basierter Shortcut → direkt llm_discover() aufrufen.
+        _t_llm = user_input.lower()
+        _llm_discover_patterns = (
+            "finde neue llm", "llm discover", "neue backends", "neue api",
+            "backends finden", "backends suchen", "backends entdecken",
+            "llm suchen", "llm finden", "api finden", "api suchen",
+            "neue modelle finden", "neue modelle suchen", "modelle entdecken",
+            "llm autonomie", "discover backends", "find new llm",
+            "neue llm", "freie api", "gratis api",
+        )
+        if any(k in _t_llm for k in _llm_discover_patterns):
+            log.info("LLM-Discover-Shortcut ausgeführt (kein LLM nötig)")
+            if "llm_discover" in self._handlers:
+                result = await self._handlers["llm_discover"]()
+                return result
+            # Fallback: direkt aus mgmt_tools
+            from piclaw.llm.mgmt_tools import build_handlers as _build_llm_h
+            _handlers = _build_llm_h(self.llm.registry, self.llm)
+            return await _handlers["llm_discover"]()
+
         # Cron-Agent-Intent: "Erstelle einen Agenten der täglich um X Uhr Y tut"
         _cron_intent = self._detect_cron_agent_intent(user_input)
         if _cron_intent:
