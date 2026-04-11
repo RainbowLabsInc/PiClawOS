@@ -116,3 +116,30 @@ def test_format_results_truncation():
     assert "10. 🛍️ [eBay] Item 9" in output
     assert "11." not in output
     assert "... und 2 weitere Inserate." in output
+
+
+def test_city_leakage_in_query():
+    from piclaw.agent import Agent
+    from piclaw.config import PiClawConfig
+    cfg = PiClawConfig()
+    agent = Agent(cfg)
+
+    # Test that city is extracted as location and removed from query
+    res = agent._detect_marketplace_intent("Suche Gartentisch Rosengarten eBay")
+    assert res is not None
+    assert res["location"] == "Rosengarten"
+    assert res["query"].lower() == "gartentisch"
+
+    # Test with PLZ
+    res2 = agent._detect_marketplace_intent("Suche Gartentisch 21224 eBay")
+    assert res2 is not None
+    assert res2["location"] == "21224"
+    assert res2["query"].lower() == "gartentisch"
+
+    # Multiple spaces and other words
+    res3 = agent._detect_marketplace_intent("Suche dringend einen Gartentisch in Rosengarten max 50 eBay")
+    assert res3 is not None
+    assert res3["location"] == "Rosengarten"
+    assert res3["max_price"] == 50.0
+    assert "rosengarten" not in res3["query"].lower()
+    assert "gartentisch" in res3["query"].lower()
