@@ -14,7 +14,7 @@ PiClaw OS verwandelt einen Raspberry Pi 5 in einen autonomen KI-Agenten namens *
 | 🤖 **KI-Agent „Dameon"** | Autonomer Agent mit persistenter Persönlichkeit (SOUL.md), Memory und natürlichsprachlicher Steuerung |
 | 🧠 **Multi-LLM-Router** | Groq, NVIDIA NIM, Anthropic, OpenAI, Gemini, Mistral, Fireworks, Ollama, lokales GGUF – mit automatischem Fallback |
 | 🌡️ **Thermisches Routing** | Wechselt bei Überhitzung automatisch auf sparsamere Cloud-Backends |
-| 🛒 **Marketplace-Suche** | Kleinanzeigen.de, eBay.de, willhaben.at mit PLZ, Stadtname, Radius und Preisfilter |
+| 🛒 **Marketplace-Suche** | Kleinanzeigen, eBay, eGun, willhaben, Troostwijk, Zoll-Auktion – mit PLZ, Stadtname, Radius und Preisfilter |
 | 👁️ **Sub-Agenten** | Autonome Hintergrund-Agenten mit Cron, Interval oder Continuous-Schedule |
 | ⚡ **Direct Tool Mode** | Sub-Agenten ohne LLM – 0 Token-Verbrauch bei Routine-Tasks (z.B. Netzwerk-Monitoring) |
 | 📦 **ClawHub Skills** | Skills von [clawhub.ai](https://clawhub.ai) mit einem Befehl installieren |

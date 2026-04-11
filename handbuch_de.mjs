@@ -208,7 +208,7 @@ const doc = new Document({
         ["Multi-LLM-Routing", "Groq (Llama 3.3, Kimi K2), NVIDIA NIM, Anthropic Claude, OpenAI, Ollama, Qwen3 lokal"],
         ["Messaging Hub", "Telegram, WhatsApp, Threema, MQTT"],
         ["Home Assistant", "REST + WebSocket, 11 Tools, Echtzeit-Push-Events"],
-        ["Marktplatz-Crawler", "Kleinanzeigen.de, eBay.de, eGun.de, Willhaben.at, Troostwijk-Auktionen \u2013 nur neue Inserate"],
+        ["Marktplatz-Crawler", "Kleinanzeigen.de, eBay.de, eGun.de, Willhaben.at, Troostwijk, Zoll-Auktion.de \u2013 nur neue Inserate"],
         ["Auktions-Monitor", "Troostwijk: ganze Auktions-Events nach Land/Stadt \u00FCberwachen (tokenlos)"],
         ["Netzwerk-Monitor", "LAN-Scan via nmap, neue Ger\u00E4te erkennen, Telegram-Alert"],
         ["Proaktiver Agent", "Morgenbriefing, Abendcheck, Schwellwert-Monitoring"],

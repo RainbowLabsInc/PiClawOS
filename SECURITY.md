@@ -203,6 +203,10 @@ Achtung: Diese Software wird aktuell von einem Micro-Team in ihrer Freizeit entw
 
 | Version | Fix | Commit |
 |---|---|---|
+| v0.17.0 | Path-Traversal in `write_workspace_file` (PR #123) | `2b7ac6b` |
+| v0.17.0 | IP-Validierung in `network_security.py` (PR #128) | `2ca758d` |
+| v0.17.0 | Command-Injection in `updater.py` via shlex.quote (PR #132) | `2838785` |
+| v0.17.0 | `network.py` komplett auf subprocess_exec (PR #135) | `1e81e45` |
 | v0.15.5 | SEC-1: WhatsApp Auth-Bypass | `1fe2ff7` |
 | v0.15.5 | SEC-2: UFW LAN-Einschränkung | `1fe2ff7` |
 | v0.15.5 | SEC-3: Git Token/Injection | `1fe2ff7` |

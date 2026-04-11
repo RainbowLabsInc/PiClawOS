@@ -252,9 +252,22 @@ def load() -> PiClawConfig:
     return cfg
 
 
+def _strip_none(d: dict) -> dict:
+    """Entfernt None-Werte rekursiv – TOML hat keinen Null-Typ."""
+    cleaned = {}
+    for k, v in d.items():
+        if v is None:
+            continue
+        if isinstance(v, dict):
+            cleaned[k] = _strip_none(v)
+        else:
+            cleaned[k] = v
+    return cleaned
+
+
 def save(cfg: PiClawConfig):
     ensure_dirs()
-    data = {
+    data = _strip_none({
         "agent_name": cfg.agent_name,
         "log_level": cfg.log_level,
         "llm": asdict(cfg.llm),
@@ -270,6 +283,6 @@ def save(cfg: PiClawConfig):
         "whatsapp": asdict(cfg.whatsapp),
         "agentmail": asdict(cfg.agentmail),
         "location":  asdict(cfg.location),
-    }
+    })
     with open(CONFIG_FILE, "wb") as f:
         tomli_w.dump(data, f)
