@@ -240,7 +240,7 @@ const doc = new Document({
       infoBox("Kernfunktionen", [
         "🤖  Dauerhafter KI-Agent mit persistentem Gedächtnis (QMD + MEMORY.md)",
         "📡  Erreichbar via Telegram, Discord, WhatsApp, Web-Dashboard",
-        "🔍  Marktplatzsuche: Kleinanzeigen, eBay, Web — neue Inserate als Alert",
+        "🔍  Marktplatzsuche: Kleinanzeigen, eBay, eGun, willhaben, Troostwijk, Zoll-Auktion — neue Inserate als Alert",
         "🌡  Thermisches LLM-Routing: cloud bei Überhitzung, lokal im Normalbetrieb",
         "🤖  Sub-Agenten: spezialisierte KI-Helfer für Suche, Installation, Monitoring",
         "🔌  Home Assistant Integration: Lichter, Thermostate, Szenen per Sprache",
@@ -434,7 +434,7 @@ const doc = new Document({
       spacer(),
       h2("7.2 Eingebaute Sub-Agenten"),
       twoColTable([
-        ["SearchAssistant", "Marktplatzsuche (Kleinanzeigen, eBay, Web)"],
+        ["SearchAssistant", "Marktplatzsuche (Kleinanzeigen, eBay, eGun, willhaben, Troostwijk, Zoll-Auktion)"],
         ["InstallerAgent", "Software installieren mit Bestätigungs-Workflow"],
         ["WebCrawler", "Webseiten crawlen, einmalig oder wiederkehrend"],
         ["Watchdog", "Systemüberwachung, eigener Linux-User, tamper-proof"],
@@ -454,12 +454,14 @@ const doc = new Document({
 
       // ── Kap 8: Marktplatzsuche ──
       h1("8. Marktplatzsuche"),
-      p("PiClaw sucht auf Kleinanzeigen.de, eBay.de und im Web nach Inseraten. Neue Inserate werden als Alert über Telegram gesendet."),
+      p("PiClaw sucht auf Kleinanzeigen.de, eBay.de, eGun.de, willhaben.at, Troostwijk und Zoll-Auktion.de nach Inseraten. Neue Inserate werden als Alert über Telegram gesendet. Troostwijk und Zoll-Auktion unterstützen PLZ + Umkreis-Suche."),
       spacer(),
       h2("8.1 Suche starten"),
       code("\"Suche Raspberry Pi 5 auf Kleinanzeigen in 22081 Umkreis 30km\""),
       code("\"Finde einen gebrauchten Monitor unter 100€ auf eBay in Hamburg\""),
       code("\"Durchsuche Kleinanzeigen und eBay nach Lego Technic\""),
+      code("\"Suche Land Rover auf der Zoll-Auktion\""),
+      code("\"Überwache Troostwijk Auktionen im Umkreis von 100km um 21224\""),
       spacer(),
       h2("8.2 Wiederholende Suche"),
       code("\"Überwache Kleinanzeigen für Raspberry Pi 5 und melde neue Inserate\""),
@@ -602,6 +604,7 @@ const doc = new Document({
       twoColTable([
         ["v0.15.0 (jetzt)", "Multi-LLM-Router, Marketplace-Fix, sauberer Installer, git-Update"],
         ["v0.16 — AgentMail", "E-Mail-Postfach für Dameon via agentmail.to"],
+        ["v0.17 — LLM Autonomie", "Dameon findet selbständig neue kostenlose LLM-Backends. Troostwijk Umkreissuche (PLZ + Radius). Zoll-Auktion.de als Plattform. 4 Security-PRs gemergt."],
         ["v0.17 — Emergency", "Notabschaltung via smarter Steckdose (Modem-Schnitt)"],
         ["v0.18 — Sicherheit", "fail2ban-Integration, IP-Blocking, Sicherheits-Reports"],
         ["v0.19 — Browser", "Tandem Browser: autonomes Surfen und Formular-Ausfüllen"],

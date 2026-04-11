@@ -175,7 +175,7 @@ const doc = new Document({
         ["Multi-LLM-Routing", "Kimi K2 (NVIDIA NIM), Nemotron, Anthropic Claude, OpenAI, Ollama, Gemma 2B lokal"],
         ["Messaging Hub", "Telegram, Discord, Threema, WhatsApp, MQTT"],
         ["Home Assistant", "REST + WebSocket, 11 Tools, Echtzeit-Push-Events"],
-        ["Marktplatz-Crawler", "Kleinanzeigen.de, eBay.de, Websuche – nur neue Inserate"],
+        ["Marktplatz-Crawler", "Kleinanzeigen, eBay, eGun, willhaben, Troostwijk, Zoll-Auktion – nur neue Inserate"],
         ["Netzwerk-Monitor", "LAN-Scan via nmap, neue Ger\u00E4te erkennen, Telegram-Alert"],
         ["Proaktiver Agent", "Morgenbriefing, Abendcheck, Schwellwert-Monitoring"],
         ["Hybrid Memory", "BM25 + Vektorsuche (QMD), persistente Fakten"],

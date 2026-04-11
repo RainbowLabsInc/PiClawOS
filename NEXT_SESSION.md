@@ -28,17 +28,31 @@
 - Intent-Detection: "zoll-auktion", "zollauktion" in allen Keyword-Listen
 - Emoji: ⚖️ für Text + Telegram Output
 
+### LLM Autonomie implementiert
+- `llm_discover` Tool: scannt Groq, NVIDIA, Cerebras, OpenRouter nach freien Modellen
+- Proaktive Discovery im Health Monitor (täglich automatisch)
+- Regex-Shortcut: funktioniert ohne LLM (Henne-Ei-Problem gelöst)
+- 24 Modelle in der Free-Tier-Whitelist
+
+### Bugfixes
+- Wizard-Crash bei `piclaw setup` gefixt (`None`-Werte in LocationConfig → TOML-Serialisierung)
+- LLM-Discover-Routing: Regex-Shortcut statt lokales Modell
+
+### Release v0.17.0 vorbereitet
+- README, ROADMAP, CHANGELOG, SECURITY.md, Handbücher aktualisiert
+- Credential-Audit: keine echten Keys im Code
+- Version auf 0.17.0 gebumpt
+
 ---
 
-## 🚨 Sofort (nach dieser Session)
+## 🚨 Sofort (nach Release)
 
-### 1. Pi updaten!
+### 1. Credentials rotieren!
 ```bash
-piclaw update
-# Falls das nicht geht (alter Code ohne Token-Auth):
-cd /opt/piclaw && sudo git pull
-sudo systemctl restart piclaw-api piclaw-agent
+piclaw config token   # Neuen API-Token generieren
 ```
+GitHub PAT rotieren: https://github.com/settings/tokens
+(Der Token `ghp_Sv5MC...` wurde in dieser Session verwendet und sollte ersetzt werden)
 
 ### 2. Troostwijk Umkreis-Monitor testen
 Nach dem Update über Dameon:

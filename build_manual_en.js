@@ -95,7 +95,7 @@ const doc = new Document({
       infoBox("Core Features", [
         "🤖  Persistent AI agent with long-term memory (QMD + MEMORY.md)",
         "📡  Reachable via Telegram, Discord, WhatsApp, Web Dashboard",
-        "🔍  Marketplace search: Kleinanzeigen, eBay, Web — new listing alerts",
+        "🔍  Marketplace search: Kleinanzeigen, eBay, eGun, willhaben, Troostwijk, Zoll-Auktion — new listing alerts",
         "🌡  Thermal LLM routing: cloud on overheating, local in normal operation",
         "🤖  Sub-agents: specialized AI helpers for search, install, monitoring",
         "🔌  Home Assistant integration: lights, thermostats, scenes by voice",
@@ -271,7 +271,7 @@ const doc = new Document({
       spacer(),
       h2("7.2 Built-in Sub-Agents"),
       twoCol([
-        ["SearchAssistant", "Marketplace search (Kleinanzeigen, eBay, Web)"],
+        ["SearchAssistant", "Marketplace search (Kleinanzeigen, eBay, eGun, willhaben, Troostwijk, Zoll-Auktion)"],
         ["InstallerAgent", "Install software with confirmation workflow"],
         ["WebCrawler", "Crawl websites, one-time or recurring"],
         ["Watchdog", "System monitoring, own Linux user, tamper-proof"],
@@ -290,11 +290,13 @@ const doc = new Document({
 
       // Ch 8: Marketplace
       h1("8. Marketplace Search"),
-      p("PiClaw searches Kleinanzeigen.de, eBay.de, and the web for listings. New listings are sent as alerts via Telegram."),
+      p("PiClaw searches Kleinanzeigen.de, eBay.de, eGun.de, willhaben.at, Troostwijk and Zoll-Auktion.de for listings. New listings are sent as alerts via Telegram. Troostwijk and Zoll-Auktion support postcode + radius search."),
       spacer(),
       code("\"Search Raspberry Pi 5 on Kleinanzeigen near 22081, 30km radius\""),
       code("\"Find a used monitor under €100 on eBay in Hamburg\""),
       code("\"Search Kleinanzeigen and eBay for Lego Technic\""),
+      code("\"Search Land Rover on Zoll-Auktion\""),
+      code("\"Monitor Troostwijk auctions within 100km of postcode 21224\""),
       spacer(),
       h2("8.2 Recurring Search"),
       code("\"Monitor Kleinanzeigen for Raspberry Pi 5 and alert me on new listings\""),
@@ -425,6 +427,7 @@ const doc = new Document({
       twoCol([
         ["v0.15.0 (now)", "Multi-LLM router, marketplace fix, clean installer, git-update"],
         ["v0.16 — AgentMail", "Email inbox for Dameon via agentmail.to"],
+        ["v0.17 — LLM Autonomy", "Dameon autonomously discovers free LLM backends. Troostwijk radius search (postcode + km). Zoll-Auktion.de platform. 4 security PRs merged."],
         ["v0.17 — Emergency", "Emergency shutdown via smart plug (modem cut)"],
         ["v0.18 — Security", "fail2ban integration, IP blocking, security reports"],
         ["v0.19 — Browser", "Tandem Browser: autonomous browsing and form filling"],

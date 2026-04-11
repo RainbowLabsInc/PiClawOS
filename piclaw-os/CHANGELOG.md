@@ -1,5 +1,57 @@
 # PiClaw OS – Changelog
 
+## v0.17.0 – 2026-04-11 🧠🛒⚖️🔐
+
+### Highlights
+- **LLM Autonomie** – Dameon findet selbständig neue kostenlose LLM-Backends
+- **Zoll-Auktion.de** – neue Suchplattform (Behörden-Versteigerungen, native PLZ + Umkreis)
+- **Troostwijk Umkreissuche** – PLZ + Radius mit Haversine-Distanzfilter
+- **4 Security-PRs gemergt** – Path-Traversal, Command-Injection, IP-Validierung
+- **Wizard-Crashfix** – `None`-Werte in LocationConfig konnten TOML-Serialisierung crashen
+
+### LLM Autonomie
+- **`llm_discover` Tool:** Scannt Groq, NVIDIA NIM, Cerebras, OpenRouter nach freien Modellen
+  - Provider MIT Key: holt Modell-Liste, testet Kandidaten, registriert automatisch
+  - Provider OHNE Key: schlägt Anmeldung via Telegram vor mit Signup-URL
+  - Ergebnis-Report mit registrierten + vorgeschlagenen Backends
+- **Proaktive Discovery** im Health Monitor: läuft täglich automatisch (nicht nur bei Ausfällen)
+- **Regex-Shortcut:** `llm_discover` funktioniert ohne LLM (20+ Trigger-Phrasen)
+  - Löst das Henne-Ei-Problem: wenn alle Cloud-Backends down sind, braucht man keine um neue zu finden
+- **Free-Tier-Whitelist:** 24 Modelle auf 4 Providern (Groq, NVIDIA, Cerebras, OpenRouter)
+  - Neu: `openai/gpt-oss-120b`, `qwen/qwen3-32b`, `deepseek-ai/deepseek-r1`, `llama-4-scout`
+
+### Marketplace: Zoll-Auktion.de
+- `_search_zoll_auktion()`: HTML-Scraper für das Auktionshaus von Bund, Ländern und Gemeinden
+- **Native PLZ + Umkreis** (20/50/100/250/500km serverseitig)
+- Preis-Filter, Restzeit, Gebote-Anzahl werden geparst
+- Intent-Detection: "zoll-auktion", "zollauktion" in allen Keyword-Listen
+- Emoji: ⚖️ in Text + Telegram Output
+
+### Marketplace: Troostwijk Umkreissuche
+- **PLZ → Koordinaten** via zippopotam.us (gecacht)
+- **Stadt → Koordinaten** via OpenStreetMap Nominatim (gecacht)
+- **Haversine-Distanzberechnung** filtert Auktionen nach Radius um PLZ-Zentrum
+- Nutzt `collectionDays[].city` aus der Troostwijk-API für Standort-Extraktion
+- Intent-Detection: erkennt PLZ + Radius aus natürlicher Sprache
+- Stadtfilter jetzt auch gegen `collectionDays` (nicht nur Auktionsname)
+
+### Security PRs gemergt
+- **#123** 🛡️ Path-Traversal in `write_workspace_file` (.resolve() + is_relative_to())
+- **#128** 🛡️ IP-Validierung vor Shell-Aufrufen in `network_security.py`
+- **#132** 🛡️ Command-Injection in `updater.py` (shlex.quote)
+- **#135** 🛡️ `network.py` komplett auf subprocess_exec umgestellt (kein Shell mehr)
+
+### Feature PRs gemergt
+- **#125** ⚙️ Async-Sensors-Migration (native async statt Thread-Pool)
+- **#133** ⚙️ Igor: Timezone-Setup, Doctor-Timeout, Query-Fixes
+- **#129** ⚙️ Location-Regex-Fix + City-Name-Leakage
+
+### Bugfixes
+- **Wizard-Crash:** `config.save()` crashte bei `None`-Werten in LocationConfig
+  - Fix: `_strip_none()` entfernt `None` rekursiv vor TOML-Serialisierung
+- **LLM-Discover-Routing:** Anfragen an lokales Modell geroutet statt Tool direkt aufzurufen
+  - Fix: Regex-Shortcut im Dispatch-Chain (wie HA-Shortcuts, 0 Tokens)
+
 ## v0.15.4 – 2026-03-28 🏠🔧🧠
 
 ### Highlights

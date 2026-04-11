@@ -4,7 +4,7 @@
 
 **Dein autonomer KI-Assistent für den Raspberry Pi**
 
-[![Version](https://img.shields.io/badge/version-0.16.0-blue?style=flat-square)](https://github.com/RainbowLabsInc/PiClawOS/releases)
+[![Version](https://img.shields.io/badge/version-0.17.0-blue?style=flat-square)](https://github.com/RainbowLabsInc/PiClawOS/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%205-red?style=flat-square)](https://www.raspberrypi.com)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -24,9 +24,10 @@ PiClaw OS verwandelt einen Raspberry Pi in einen intelligenten Assistenten, der 
 
 | | Feature | Beschreibung |
 |---|---|---|
-| 🧠 | **Multi-LLM-Routing** | Groq, NVIDIA NIM, OpenRouter, Anthropic, Ollama, lokales Qwen3 – mit automatischer Fallback-Kette |
-| 🛒 | **Marktplatz-Monitor** | Kleinanzeigen, eBay, eGun, willhaben, Troostwijk – meldet **nur neue** Inserate per Telegram |
-| 🏛️ | **Auktions-Monitor** | Troostwijk: neue Auktions-Events nach Land oder Stadt überwachen |
+| 🧠 | **Multi-LLM-Routing** | Groq, NVIDIA NIM, Cerebras, OpenRouter, Ollama, lokales Qwen3 – mit automatischer Fallback-Kette |
+| 🔍 | **LLM Autonomie** | Dameon findet und registriert **selbständig** neue kostenlose LLM-Backends (`llm_discover`) |
+| 🛒 | **Marktplatz-Monitor** | Kleinanzeigen, eBay, eGun, willhaben, Troostwijk, Zoll-Auktion – meldet **nur neue** Inserate per Telegram |
+| 🏛️ | **Auktions-Monitor** | Troostwijk + Zoll-Auktion: Events nach Land, Stadt oder **PLZ + Umkreis** überwachen |
 | 🤖 | **Natürliche Sprache** | *„Überwache eGun auf Sauer 505"* → erstellt automatisch einen stündlichen Monitor |
 | 💬 | **Messaging Hub** | Telegram, WhatsApp, Threema, MQTT |
 | 🏠 | **Home Assistant** | REST + WebSocket, 11 Tools, Echtzeit-Push bei Bewegung/Alarm |
@@ -44,12 +45,13 @@ PiClaw OS funktioniert vollständig mit kostenlosen API-Tiers:
 | Anbieter | Free Tier | URL | Format |
 |---|---|---|---|
 | **Groq** ⭐ | Unbegrenzt (rate-limited) | [console.groq.com](https://console.groq.com) | `gsk_...` |
+| **Cerebras** ⭐ | 8.000 Req/Tag, ultraschnell | [cloud.cerebras.ai](https://cloud.cerebras.ai) | `csk-...` |
 | **NVIDIA NIM** | 1.000 Calls/Monat | [build.nvidia.com](https://build.nvidia.com) | `nvapi-...` |
 | **OpenRouter** | Viele Modelle gratis | [openrouter.ai](https://openrouter.ai) | `sk-or-...` |
 | **Telegram Bot** | Komplett kostenlos | [@BotFather](https://t.me/BotFather) | `123:ABC...` |
 | **Lokal (Qwen3)** | Kein Key nötig | Im Paket enthalten | — |
 
-> **Empfehlung:** Groq als Haupt-Backend + lokales Qwen3 als Offline-Fallback. Fertig.
+> **Empfehlung:** Groq als Haupt-Backend + Cerebras als Fallback + lokales Qwen3 offline. `llm_discover` findet neue Backends automatisch.
 
 ---
 
@@ -93,7 +95,8 @@ http://piclaw.local:7842
 | 🎯 eGun.de | Jagd / Outdoor | 🇩🇪 | Preis |
 | 🇦🇹 willhaben.at | Kleinanzeigen | 🇦🇹 | Bundesland / Stadt |
 | 🔨 Troostwijk (Lose) | Industrie-Auktionen | 🌍 EU | Textsuche + Land |
-| 🏛️ Troostwijk (Events) | Auktions-Events | 🌍 EU | Land + Stadt |
+| 🏛️ Troostwijk (Events) | Auktions-Events | 🌍 EU | Land + Stadt + **PLZ + Radius** |
+| ⚖️ Zoll-Auktion.de | Behörden-Versteigerungen | 🇩🇪 | **PLZ + Umkreis** + Preis |
 | 🌐 Websuche | DuckDuckGo-Fallback | Global | — |
 
 ### Beispiele
@@ -101,12 +104,13 @@ http://piclaw.local:7842
 ```
 # Einmalige Suche
 > Suche auf Kleinanzeigen nach Gartentisch in 21224, 20km
+> Suche Land Rover auf der Zoll-Auktion
 
 # Automatischer Monitor (stündlich, tokenlos)
 > Überwache eGun auf Sauer 505
 > Überwache Kleinanzeigen auf Sonnenschirm in 21224, 20km Umkreis
 > Überwache Troostwijk auf neue Auktionen in Deutschland
-> Überwache Troostwijk auf neue Auktionen in Hamburg
+> Überwache Troostwijk Auktionen im Umkreis von 100km um 21224
 ```
 
 ---
@@ -122,6 +126,7 @@ Alle Marktplatz-Monitore laufen als **tokenlose Sub-Agenten** – kein LLM, kein
 | Monitor_Sonnenschirm | Kleinanzeigen | stündlich | 0 |
 | Monitor_Sauer505 | eGun | stündlich | 0 |
 | Monitor_TW_Deutschland | Troostwijk Events | stündlich | 0 |
+| Monitor_TW_PLZ21224_100km | Troostwijk Umkreis | stündlich | 0 |
 | CronJob_0715 | Tagesbriefing | tägl. 07:15 | ~500 |
 
 ---
@@ -140,15 +145,40 @@ Push-Benachrichtigungen bei Bewegung, geöffneten Türen, Rauchmeldern und mehr.
 
 ## 🤖 LLM-Backends
 
+PiClaw OS unterstützt **Multi-LLM-Routing** mit automatischer Fallback-Kette:
+
 | Anbieter | Format | Kostenlos | Empfehlung |
 |---|---|---|---|
 | **Groq** | `gsk_...` | ✅ | Haupt-Backend, schnellste Antworten |
+| **Cerebras** | `csk-...` | ✅ | Ultraschnell (>2000 Tok/s), Llama 3.3 70B |
 | NVIDIA NIM | `nvapi-...` | ✅ 1k/Monat | Fallback |
 | OpenRouter | `sk-or-...` | ✅ Viele | Aggregator |
 | Anthropic | `sk-ant-...` | ❌ | Premium-Alternative |
-| OpenAI | `sk-...` | ❌ | Pay-per-Token |
 | Ollama | kein Key | ✅ | Lokaler Server |
 | **Qwen3 Q4** | kein Key | ✅ | Offline-Fallback |
+
+### 🔍 LLM Autonomie (NEU in v0.17)
+
+Dameon findet und registriert selbständig neue kostenlose LLM-Backends:
+
+```
+> Finde neue LLM Backends
+🔍 LLM Auto-Discovery gestartet…
+📡 Groq (Key vorhanden)
+   ✅ Alle freien Modelle bereits registriert
+📡 NVIDIA NIM (Key vorhanden)
+   ✅ mixtral-8x7b-instruct → registriert als auto-nvidia-mixtral (561ms)
+🆓 Cerebras – kein API-Key vorhanden
+   → Anmeldung: https://cloud.cerebras.ai
+📊 Ergebnis: 1 neu registriert, 2 Provider verfügbar
+```
+
+**Wie es funktioniert:**
+- `llm_discover` scannt alle bekannten Free-Tier-Provider (Groq, NVIDIA, Cerebras, OpenRouter)
+- Testet automatisch ungenutzte Modelle und registriert funktionierende
+- Läuft auch **täglich im Hintergrund** via Health Monitor (proaktive Discovery)
+- Funktioniert **ohne LLM** (Regex-Shortcut) – genau dann wenn alle Cloud-Backends down sind
+- 24 kostenlose Modelle in der Whitelist auf 4 Providern
 
 ---
 
@@ -177,6 +207,10 @@ PiClaw OS wurde vor dem Release einem vollständigen Security-Audit unterzogen. 
 - ✅ CORS auf lokales Netzwerk beschränkt
 - ✅ Shell Command-Injection geblockt
 - ✅ Security-Header (X-Frame-Options, CSRF-Schutz)
+- ✅ Path-Traversal in `write_workspace_file` gefixt (v0.17)
+- ✅ IP-Validierung in Network-Security-Tools (v0.17)
+- ✅ Command-Injection in Updater via `shlex.quote` (v0.17)
+- ✅ Network-Tool komplett auf `subprocess_exec` umgestellt (v0.17)
 
 Mehr Details: [SECURITY.md](SECURITY.md)
 
@@ -184,8 +218,7 @@ Mehr Details: [SECURITY.md](SECURITY.md)
 
 ## 🗺️ Roadmap
 
-- **v0.16** ← *Aktuell* — Security-Audit, Troostwijk Auktionen, Zeitzone-Autosetup
-- **v0.17** — Emergency Shutdown via Smart Plug
+- **v0.17** ← *Aktuell* — LLM Autonomie, Troostwijk Umkreis, Zoll-Auktion, Security-PRs
 - **v0.18** — IPC-Reload (kein Neustart bei neuem Sub-Agent)
 - **v0.19** — Marketplace: Query-Extraktion verbessern, Willhaben Kategorie-Filter
 - **v1.0** — Frische Installation < 10 Minuten, alle Tests grün
