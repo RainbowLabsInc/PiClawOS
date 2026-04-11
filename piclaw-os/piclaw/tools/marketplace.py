@@ -46,6 +46,7 @@ RE_CLEAN_PLATFORMS = {
     for term in [
         "kleinanzeigen.de", "ebay.de", "willhaben.at", "egun.de",
         "troostwijkauctions.com", "troostwijk",
+        "zoll-auktion.de", "zoll-auktion", "zollauktion",
         "kleinanzeigen", "ebay", "willhaben", "egun", ".de", ".at",
     ]
 }
@@ -1362,6 +1363,162 @@ async def _search_willhaben(
     return results
 
 
+# ── Zoll-Auktion.de ────────────────────────────────────────────────────────────
+#
+# Das Auktionshaus von Bund, Ländern und Gemeinden.
+# Behörden versteigern hier Fahrzeuge, Elektronik, Werkzeuge, etc.
+#
+# Suchseite: /auktion/auktionsuebersicht.php?searchstring=X&plz=PLZ&umkreis=RADIUS
+#   Umkreis-Werte: 20, 50, 100, 250, 500 (nativ unterstützt!)
+#   Preis-Filter:  preis_bis=MAXPRICE
+#   Sortierung:    sortierfeld=enddatum  sortierrichtung=asc
+#
+# Produkt-URL: /auktion/produkt/SLUG/ID  (ID = numerisch, z.B. 953552)
+# Standort in Ergebnissen: "PLZ Ort" (z.B. "44801 Bochum")
+
+_ZA_BASE = "https://www.zoll-auktion.de"
+
+# Pre-compiled regex patterns for Zoll-Auktion parsing
+RE_ZA_PRODUCT_LINK = re.compile(
+    r'<a[^>]+href="[^"]*?/produkt/([^"]+?)/(\d+)"[^>]*(?:title="([^"]*)")?[^>]*>',
+    re.DOTALL | re.IGNORECASE,
+)
+RE_ZA_PRICE = re.compile(
+    r"([\d.,]+)\s*EUR",
+    re.IGNORECASE,
+)
+RE_ZA_LOCATION = re.compile(
+    r"(\d{5})\s+([A-ZÄÖÜa-zäöüß][A-ZÄÖÜa-zäöüß\s\-]+)",
+)
+RE_ZA_RESTZEIT = re.compile(
+    r"(?:noch\s+)?((?:\d+\s+Tag[e]?\s+)?\d+\s+Std\.\s+\d+\s+Min\.)",
+    re.IGNORECASE,
+)
+RE_ZA_GEBOTE = re.compile(r"(\d+)\s+Gebot", re.IGNORECASE)
+
+# Zoll-Auktion Umkreis → nächster unterstützter Wert
+_ZA_RADII = [20, 50, 100, 250, 500]
+
+
+def _za_nearest_radius(km: int) -> int:
+    """Rundet auf den nächstgrößeren von Zoll-Auktion unterstützten Radius."""
+    for r in _ZA_RADII:
+        if km <= r:
+            return r
+    return 500
+
+
+async def _search_zoll_auktion(
+    session: aiohttp.ClientSession,
+    query: str,
+    max_price: float | None = None,
+    max_results: int = 10,
+    location: str | None = None,
+    radius_km: int | None = None,
+) -> list[dict]:
+    """
+    Sucht auf zoll-auktion.de – Versteigerungen der öffentlichen Hand.
+
+    Unterstützt native PLZ + Umkreis-Suche (20/50/100/250/500 km).
+    """
+    results: list[dict] = []
+
+    q = quote_plus(query)
+    url = (
+        f"{_ZA_BASE}/auktion/auktionsuebersicht.php"
+        f"?searchstring={q}&kategorie=&submit=Suchen"
+        f"&sortierfeld=enddatum&sortierrichtung=asc"
+    )
+
+    # PLZ + Umkreis (nativ unterstützt!)
+    if location and re.fullmatch(r"\d{5}", location.strip()):
+        url += f"&plz={location.strip()}"
+        if radius_km:
+            url += f"&umkreis={_za_nearest_radius(radius_km)}"
+
+    # Preisfilter
+    if max_price:
+        url += f"&preis_bis={int(max_price)}"
+
+    log.info("Zoll-Auktion URL: %s", url)
+    html = await _fetch_html(url, label="Zoll-Auktion")
+    if not html:
+        log.warning("Zoll-Auktion: Keine Antwort für '%s'", query)
+        return []
+
+    # ── Ergebnisse parsen ─────────────────────────────────────────────
+    # Strategie: Produkt-Links finden (href="...produkt/SLUG/ID"),
+    # dann umgebenden Text für Preis, Ort, Restzeit parsen.
+    seen_ids: set[str] = set()
+
+    for m in RE_ZA_PRODUCT_LINK.finditer(html):
+        slug = m.group(1)
+        item_id = m.group(2)
+        title_attr = m.group(3) or ""
+
+        # Deduplizieren (jedes Inserat hat mehrere Links – Bild + Titel)
+        if item_id in seen_ids:
+            continue
+        seen_ids.add(item_id)
+
+        # Titel aus title-Attribut oder Link-Text
+        title = RE_HTML_TAGS.sub("", title_attr).strip()
+        if not title or len(title) < 4:
+            # Fallback: Link-Inhalt
+            link_end = html.find("</a>", m.end())
+            if link_end > 0:
+                link_text = RE_HTML_TAGS.sub("", html[m.end():link_end]).strip()
+                if len(link_text) > 4:
+                    title = link_text
+        if not title or len(title) < 4:
+            continue
+
+        # Kontext: 800 Zeichen nach dem Link für Preis/Ort/Restzeit
+        segment = html[m.start():m.start() + 1500]
+
+        # Preis
+        price_match = RE_ZA_PRICE.search(segment)
+        price_text = price_match.group(0).strip() if price_match else ""
+        price = _parse_price(price_text) if price_text else None
+
+        # Preisfilter (serverseitig ist bereits gefiltert, aber sicherheitshalber)
+        if max_price and price and price > max_price:
+            continue
+
+        # Standort (PLZ + Ort)
+        loc_match = RE_ZA_LOCATION.search(segment)
+        location_str = (
+            f"{loc_match.group(1)} {loc_match.group(2).strip()}"
+            if loc_match else ""
+        )
+
+        # Restzeit
+        rest_match = RE_ZA_RESTZEIT.search(segment)
+        restzeit = rest_match.group(1).strip() if rest_match else ""
+
+        # Gebote
+        gebote_match = RE_ZA_GEBOTE.search(segment)
+        gebote = int(gebote_match.group(1)) if gebote_match else 0
+
+        results.append({
+            "id":         item_id,
+            "platform":   "zoll_auktion",
+            "title":      title[:120],
+            "price":      price,
+            "price_text": price_text,
+            "location":   location_str,
+            "url":        f"{_ZA_BASE}/auktion/produkt/{slug}/{item_id}",
+            "restzeit":   restzeit,
+            "gebote":     gebote,
+        })
+
+        if len(results) >= max_results:
+            break
+
+    log.info("Zoll-Auktion: %d Inserate gefunden für '%s'", len(results), query)
+    return results
+
+
 async def _search_web(
     session: aiohttp.ClientSession,
     query: str,
@@ -1491,6 +1648,8 @@ async def marketplace_search(
                 session, country or "de", _tw_city, max_results,
                 plz=_tw_plz, radius_km=radius_km,
             ))
+        if "zoll_auktion" in platforms:
+            tasks.append(_search_zoll_auktion(session, query, max_price, max_results, location, radius_km))
         if "web" in platforms:
             tasks.append(_search_web(session, query, min(max_results, 5)))
 
@@ -1541,8 +1700,8 @@ def format_results(results: dict, mode: str = "text") -> str:
     header += "─" * 50 + "\n"
 
     lines = [header]
-    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben", "egun": "eGun", "troostwijk": "Troostwijk", "troostwijk_auctions": "TW-Auktion"}
-    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️"}
+    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben", "egun": "eGun", "troostwijk": "Troostwijk", "troostwijk_auctions": "TW-Auktion", "zoll_auktion": "Zoll-Auktion"}
+    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️", "zoll_auktion": "⚖️"}
 
     for i, item in enumerate(new[:10], 1):
         emoji = platform_emoji.get(item["platform"], "🔗")
@@ -1596,7 +1755,7 @@ def format_results_telegram(results: dict) -> str:
         lines[0] += f"(max. {results['max_price']:.0f} €)"
 
     for item in new[:10]:  # Max 10 pro Nachricht
-        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️"}.get(
+        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️", "zoll_auktion": "⚖️"}.get(
             item["platform"], "🔗"
         )
         # Markdown-Titel bereinigen (Klammern eskapen)
