@@ -1,5 +1,5 @@
 """
-PiClaw OS – Model Manager
+PiClaw OS â Model Manager
 Download, verify and manage local GGUF models.
 """
 import logging
@@ -13,11 +13,11 @@ log = logging.getLogger("piclaw.model")
 
 MODELS = {
     "gemma4-e2b-q4": {
-        "name": "Gemma 4 E2B Instruct Q4_K_M ★ Standard",
+        "name": "Gemma 4 E2B Instruct Q4_K_M â Standard",
         "url": MODEL_URL,
         "path": DEFAULT_MODEL_PATH,
-        "size_gb": 1.5,
-        "desc": "Empfohlen fuer Pi 5 – nativ Tool Calling, 128K Kontext, ~5-8 tok/s",
+        "size_gb": 3.0,
+        "desc": "Empfohlen fuer Pi 5 â nativ Tool Calling, 128K Kontext, ~5-8 tok/s",
     },
     "phi3-mini-q4": {
         "name": "Phi-3 Mini 4K Instruct Q4",
@@ -41,7 +41,7 @@ MODELS = {
         ),
         "path": DEFAULT_MODEL_PATH.parent / "tinyllama-q4.gguf",
         "size_gb": 0.7,
-        "desc": "Sehr schnell ~5s, begrenzte Intelligenz – gut als Fallback",
+        "desc": "Sehr schnell ~5s, begrenzte Intelligenz â gut als Fallback",
     },
 }
 
@@ -77,7 +77,7 @@ async def download_model(model_id: str = DEFAULT_MODEL_ID) -> str:
                 try:
                     resp = await session.get(url)
                     if resp.status in (401, 403):
-                        log.warning("URL %s: HTTP %s – versuche Fallback", url, resp.status)
+                        log.warning("URL %s: HTTP %s â versuche Fallback", url, resp.status)
                         await resp.release()
                         resp = None
                         continue
