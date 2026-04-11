@@ -40,6 +40,41 @@ _RE_CITIES = re.compile(
 )
 _CITY_MAP = {c.lower(): c for c in _KNOWN_CITIES}
 
+_RE_MONITOR_PHRASES = re.compile(
+    r"(?i)\b(" + "|".join(re.escape(p) for p in sorted([
+        "beobachte ob es", "beobachte ob", "schau ob es", "schau ob",
+        "sag mir wenn", "sag bescheid wenn", "benachrichtige mich",
+        "informiere mich", "überwache", "beobachte", "monitor",
+        "halte ausschau", "check regelmäßig", "automatisch",
+        "stündlich", "regelmäßig", "neue gibt", "neue auftauchen",
+        "neue inserate", "neue angebote", "neues gibt", "gibt es neue",
+        "gibt es", "ob es", "ob neue", "neue für", "nach neuen",
+        "jede stunde", "jede halbe stunde", "alle stunde"
+    ], key=len, reverse=True)) + r")\b"
+)
+
+_RE_PLATFORM_PHRASES = re.compile(
+    r"(?i)\b(" + "|".join(re.escape(p) for p in sorted([
+        "kleinanzeigen.de", "ebay.de", "willhaben.at", "kleinanzeigen",
+        "ebay", "willhaben", "zeige mir", "zeig mir", "was kostet",
+        "preis für", "gibt es", "auf"
+    ], key=len, reverse=True)) + r")\b"
+)
+
+_RE_STOPWORDS = re.compile(
+    r"(?i)(?<![\w])(" + "|".join(re.escape(p) for p in sorted([
+        "auf", "im", "in", "um", "von", "bis", "bitte", "suche", "finde",
+        "such", "durchsuche", "liste", "umkreis", "radius", "einen", "eine",
+        "ein", "mir", "dem", "der", "die", "das", "schnäppchen", "angebot",
+        "angebote", "nach", "einem", "einer", "nähe", "nähe von", "in der",
+        "nach einem", "ob es neue anzeigen zu", "ob es neue inserate zu",
+        "ob es neue", "neue anzeigen zu", "neue inserate zu",
+        "neue angebote zu", "anzeigen zu", "inserate zu", "ob es", "neue",
+        "anzeigen", "inserate", "gibt", "ob", "es", "zu", "für", "über", "wegen"
+    ], key=len, reverse=True)) + r")(?![\w])"
+)
+
+
 from collections.abc import Callable
 
 from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
@@ -1120,17 +1155,7 @@ class Agent:
 
         # Query: Monitoring-Keywords + Rauschen VOR _detect_marketplace_intent entfernen
         clean_text = text
-        for phrase in [
-            "beobachte ob es", "beobachte ob", "schau ob es", "schau ob",
-            "sag mir wenn", "sag bescheid wenn", "benachrichtige mich",
-            "informiere mich", "überwache", "beobachte", "monitor",
-            "halte ausschau", "check regelmäßig", "automatisch",
-            "stündlich", "regelmäßig", "neue gibt", "neue auftauchen",
-            "neue inserate", "neue angebote", "neues gibt", "gibt es neue",
-            "gibt es", "ob es", "ob neue", "neue für", "nach neuen",
-            "jede stunde", "jede halbe stunde", "alle stunde",
-        ]:
-            clean_text = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", clean_text)
+        clean_text = _RE_MONITOR_PHRASES.sub(" ", clean_text)
         # Regex-Patterns (z.B. "alle 30 Minuten", "jede 2 Stunden")
         clean_text = re.sub(r"(?i)(?:alle|jede)\s+\d+\s*(?:min(?:uten)?|stund(?:en?)?)", " ", clean_text)
         clean_text = re.sub(r"\s+", " ", clean_text).strip()
@@ -1277,21 +1302,7 @@ class Agent:
         # Query bereinigen
         query = text_clean
         # Plattform-Phrasen entfernen
-        for phrase in [
-            "kleinanzeigen.de",
-            "ebay.de",
-            "willhaben.at",
-            "kleinanzeigen",
-            "ebay",
-            "willhaben",
-            "zeige mir",
-            "zeig mir",
-            "was kostet",
-            "preis für",
-            "gibt es",
-            "auf",
-        ]:
-            query = re.sub(r"(?i)\b" + re.escape(phrase) + r"\b", " ", query)
+        query = _RE_PLATFORM_PHRASES.sub(" ", query)
         # .at und .de Domain-Suffixe entfernen
         query = re.sub(r"\.(at|de)\b", " ", query, flags=re.IGNORECASE)
         # PLZ + Stadtname aus Query entfernen
@@ -1302,64 +1313,7 @@ class Agent:
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
         query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
         # Stoppwörter entfernen
-        stopwords = [
-            "auf",
-            "im",
-            "in",
-            "um",
-            "von",
-            "bis",
-            "bitte",
-            "suche",
-            "finde",
-            "such",
-            "durchsuche",
-            "liste",
-            "umkreis",
-            "radius",
-            "einen",
-            "eine",
-            "ein",
-            "mir",
-            "dem",
-            "der",
-            "die",
-            "das",
-            # Städtenamen werden jetzt als location extrahiert (siehe oben)
-            # und aus dem Query via location-Removal entfernt
-            "schnäppchen",
-            "angebot",
-            "angebote",
-            "nach",
-            "einem",
-            "einer",
-            "nähe",
-            "nähe von",
-            "in der",
-            "nach einem",
-            # Query-Rauschen bei Formulierungen wie "ob es neue Anzeigen zu X gibt"
-            "ob es neue anzeigen zu",
-            "ob es neue inserate zu",
-            "ob es neue",
-            "neue anzeigen zu",
-            "neue inserate zu",
-            "neue angebote zu",
-            "anzeigen zu",
-            "inserate zu",
-            "ob es",
-            "neue",
-            "anzeigen",
-            "inserate",
-            "gibt",
-            "ob",
-            "es",
-            "zu",
-            "für",
-            "über",
-            "wegen",
-        ]
-        for w in stopwords:
-            query = re.sub(r"(?i)(?<![\w])" + re.escape(w) + r"(?![\w])", " ", query)
+        query = _RE_STOPWORDS.sub(" ", query)
         # .de Suffix entfernen
         query = re.sub(r"\.de\b", " ", query, flags=re.IGNORECASE)
         # Mehrfache Leerzeichen
