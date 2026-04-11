@@ -8,6 +8,7 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%205-red?style=flat-square)](https://www.raspberrypi.com)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20PiClaw-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/rainbowlabsinc)
 
 *Läuft 24/7 · Kein Abo · Vollständig offline-fähig · Kostenlose LLM-APIs*
 
@@ -237,6 +238,16 @@ Mehr Details: [SECURITY.md](SECURITY.md)
 
 ---
 
+## ☕ Unterstütze PiClaw OS
+
+<a href="https://ko-fi.com/rainbowlabsinc" target="_blank">
+  <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support on Ko-fi" height="36">
+</a>
+
+PiClaw OS ist ein Open-Source-Hobbyprojekt. Alle Spenden fließen direkt in die Weiterentwicklung – z.B. für neue Hardware wie einen **AI HAT+ 2**, SSDs, Sensoren oder Testgeräte. Jeder Beitrag hilft, das Projekt am Leben zu halten.
+
+---
+
 ## 📄 Lizenz
 
 MIT License – frei nutzbar, modifizierbar und verteilbar.
@@ -253,6 +264,6 @@ MIT License – frei nutzbar, modifizierbar und verteilbar.
 
 **Made with ❤️ for the Raspberry Pi community**
 
-[Dokumentation](piclaw-os/README.md) · [Sicherheit](SECURITY.md) · [Changelog](piclaw-os/CHANGELOG.md) · [Roadmap](piclaw-os/ROADMAP.md)
+[Dokumentation](piclaw-os/README.md) · [Sicherheit](SECURITY.md) · [Changelog](piclaw-os/CHANGELOG.md) · [Roadmap](piclaw-os/ROADMAP.md) · [☕ Spenden](https://ko-fi.com/rainbowlabsinc)
 
 </div>
