@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PiClaw OS ÃÂ¢ÃÂÃÂ CLI
+PiClaw OS – CLI
 `piclaw` command available in SSH session.
 """
 
@@ -9,12 +9,12 @@ import os
 
 
 BANNER = """
-  ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ      ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ    ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
-  ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ     ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ    ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
-  ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ     ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ     ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
-  ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ     ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ     ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
-  ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ     ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ  ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
-  ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ     ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ  ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ  OS v0.9
+  ██████╗ ██╗ ██████╗██╗      █████╗ ██╗    ██╗
+  ██╔══██╗██║██╔════╝██║     ██╔══██╗██║    ██║
+  ██████╔╝██║██║     ██║     ███████║██║ █╗ ██║
+  ██╔═══╝ ██║██║     ██║     ██╔══██║██║███╗██║
+  ██║     ██║╚██████╗███████╗██║  ██║╚███╔███╔╝
+  ╚═╝     ╚═╝ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝  OS v0.9
 """
 
 HELP = """
@@ -43,7 +43,7 @@ Commands:
   backup list       List available backups
   backup restore    Restore latest (or specific) backup
   metrics           Show latest system metrics
-  metrics history   Show metric history (cpu_temp_c, cpu_percent, ÃÂ¢ÃÂÃÂ¦)
+  metrics history   Show metric history (cpu_temp_c, cpu_percent, …)
   camera snapshot   Take a photo with the Pi camera
   camera list       List available cameras
   routine           List all routines and their status
@@ -61,7 +61,7 @@ Type 'exit' or Ctrl+C to leave the agent chat.
 
 
 def _api_running(cfg) -> bool:
-    """PrÃÂÃÂ¼ft ob piclaw-api auf localhost lÃÂÃÂ¤uft."""
+    """Prüft ob piclaw-api auf localhost läuft."""
     import urllib.request
     import urllib.error
 
@@ -77,7 +77,7 @@ def cmd_chat():
     from piclaw.config import load
 
     async def _run_via_api(cfg):
-        """Chat ÃÂÃÂ¼ber WebSocket-API ÃÂ¢ÃÂÃÂ Modell bleibt im Daemon-RAM."""
+        """Chat über WebSocket-API – Modell bleibt im Daemon-RAM."""
         import websockets
         import json
         from piclaw.auth import get_token
@@ -85,12 +85,12 @@ def cmd_chat():
         # Token aus auth-Modul (gesetzt beim API-Start) oder aus config
         token = get_token() or cfg.api.secret_key
         if not token:
-            raise ValueError("Kein API-Token ÃÂ¢ÃÂÃÂ piclaw setup ausfÃÂÃÂ¼hren")
+            raise ValueError("Kein API-Token – piclaw setup ausführen")
         url = f"ws://127.0.0.1:{cfg.api.port}/ws/chat?token={token}"
         print(BANNER)
         print(f"  {cfg.agent_name} ready. Type 'exit' to quit, 'help' for commands.")
         print(
-            "  \033[2m(Verbunden mit laufendem Daemon ÃÂ¢ÃÂÃÂ sofortige Antworten)\033[0m\n"
+            "  \033[2m(Verbunden mit laufendem Daemon – sofortige Antworten)\033[0m\n"
         )
         try:
             async with websockets.connect(
@@ -116,7 +116,7 @@ def cmd_chat():
                         continue
                     await ws.send(json.dumps({"text": text}))
                     reply_parts = []
-                    print("\033[2mThinkingÃÂ¢ÃÂÃÂ¦\033[0m", end="\r", flush=True)
+                    print("\033[2mThinking…\033[0m", end="\r", flush=True)
                     while True:
                         raw = await ws.recv()
                         msg = json.loads(raw)
@@ -137,21 +137,21 @@ def cmd_chat():
                                 print("\n")
                             break
                         elif msg["type"] == "error":
-                            print(f"\n\033[31mÃÂ¢ÃÂÃÂ {msg['text']}\033[0m\n")
+                            print(f"\n\033[31m❌ {msg['text']}\033[0m\n")
                             break
         except Exception as e:
             print(f"\n\033[31mWebSocket-Fehler: {e}\033[0m")
             raise
 
     async def _run_direct(cfg):
-        """Fallback: direkter Agent-Start (lÃÂÃÂ¤dt Modell neu)."""
+        """Fallback: direkter Agent-Start (lädt Modell neu)."""
         from piclaw.agent import Agent
 
         agent = Agent(cfg)
         await agent.boot()
         print(BANNER)
         print(f"  {cfg.agent_name} ready. Type 'exit' to quit, 'help' for commands.")
-        print("  \033[33m(Offline-Modus ÃÂ¢ÃÂÃÂ API nicht erreichbar)\033[0m\n")
+        print("  \033[33m(Offline-Modus – API nicht erreichbar)\033[0m\n")
         history = []
         while True:
             try:
@@ -167,7 +167,7 @@ def cmd_chat():
             if text.lower() == "help":
                 print(HELP)
                 continue
-            print("\033[2mThinkingÃÂ¢ÃÂÃÂ¦\033[0m", end="\r", flush=True)
+            print("\033[2mThinking…\033[0m", end="\r", flush=True)
             reply = await agent.run(text, history=history)
             from piclaw.llm import Message as _Msg
 
@@ -205,7 +205,7 @@ def cmd_doctor():
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
 
-        print("\nÃÂ°ÃÂÃÂÃÂ PiClaw Doctor\n")
+        print("\n🔍 PiClaw Doctor\n")
         print(f"  Agent       : {cfg.agent_name}")
         # Zeige echten Modellnamen: bei local den Dateinamen, sonst model aus config
         _model_display = cfg.llm.model
@@ -222,11 +222,11 @@ def cmd_doctor():
                     _DMP.name if _DMP.exists() else f"{cfg.llm.model} (nicht gefunden)"
                 )
         _health_str = (
-            "ÃÂ¢ÃÂÃÂ OK"
+            "✅ OK"
             if ok
-            else "ÃÂ¢ÃÂÃÂ UNREACHABLE (check API key)"
+            else "❌ UNREACHABLE (check API key)"
             if cfg.llm.backend != "local"
-            else "ÃÂ¢ÃÂÃÂ Modell nicht gefunden ÃÂ¢ÃÂÃÂ piclaw model download"
+            else "❌ Modell nicht gefunden – piclaw model download"
         )
         print(f"  LLM backend : {cfg.llm.backend} / {_model_display}")
         print(f"  LLM health  : {_health_str}")
@@ -240,21 +240,21 @@ def cmd_doctor():
         from piclaw.hardware.pi_info import current_temp
         temp = current_temp()
         if temp is not None:
-            print(f"  CPU Temp    : {temp:.1f}ÃÂÃÂ°C")
+            print(f"  CPU Temp    : {temp:.1f}°C")
         # Soul
         from piclaw import soul as soul_mod
 
         soul_path = soul_mod.get_path()
         # API Token
         if cfg.api.secret_key:
-            print("  API Token   : ÃÂ¢ÃÂÃÂ set (piclaw config token)")
+            print("  API Token   : ✅ set (piclaw config token)")
         else:
-            print("  API Token   : ÃÂ¢ÃÂ¬ÃÂ not generated yet")
+            print("  API Token   : ⬜ not generated yet")
         if soul_path.exists():
             soul_size = soul_path.stat().st_size
-            print(f"  Soul        : ÃÂ¢ÃÂÃÂ {soul_path} ({soul_size} B)")
+            print(f"  Soul        : ✅ {soul_path} ({soul_size} B)")
         else:
-            print("  Soul        : ÃÂ¢ÃÂ¬ÃÂ Not created yet (will be on first boot)")
+            print("  Soul        : ⬜ Not created yet (will be on first boot)")
         # Sub-agents
         from piclaw.agents.sa_registry import SubAgentRegistry
 
@@ -265,12 +265,12 @@ def cmd_doctor():
             ok_n = sum(1 for a in agents if a.last_status == "ok")
             err_n = sum(1 for a in agents if a.last_status == "error")
             print(
-                f"  Sub-Agents  : ÃÂ¢ÃÂÃÂ {len(agents)} defined  "
+                f"  Sub-Agents  : ✅ {len(agents)} defined  "
                 f"(ok={ok_n}, error={err_n}, running={running})"
             )
         else:
-            print("  Sub-Agents  : ÃÂ¢ÃÂ¬ÃÂ None defined")
-        # ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Home Assistant ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+            print("  Sub-Agents  : ⬜ None defined")
+        # ── Home Assistant ────────────────────────────────────────
         try:
             from piclaw.config import CONFIG_FILE
             import tomllib as _tomllib
@@ -293,32 +293,32 @@ def cmd_doctor():
                                 if _r.status == 200:
                                     _data = await _r.json()
                                     _ver = _data.get("version") or _data.get("ha_version") or ""
-                                    _ver_str = f" ÃÂ¢ÃÂÃÂ HA {_ver}" if _ver else ""
-                                    print(f"  Home Assist : ÃÂ¢ÃÂÃÂ verbunden ({_ha_url}){_ver_str}")
+                                    _ver_str = f" – HA {_ver}" if _ver else ""
+                                    print(f"  Home Assist : ✅ verbunden ({_ha_url}){_ver_str}")
                                     _ha_connected = True
                                     break
                                 else:
-                                    print(f"  Home Assist : ÃÂ¢ÃÂÃÂ HTTP {_r.status} ÃÂ¢ÃÂÃÂ Token ungÃÂÃÂ¼ltig?")
+                                    print(f"  Home Assist : ❌ HTTP {_r.status} – Token ungültig?")
                                     _ha_connected = True
                                     break
                     except Exception as _e:
                         if _attempt < 2:
                             await asyncio.sleep(10)
                         else:
-                            print(f"  Home Assist : ÃÂ¢ÃÂÃÂ Fehler nach 3 Versuchen: {_e}")
+                            print(f"  Home Assist : ❌ Fehler nach 3 Versuchen: {_e}")
                             _ha_connected = True
                             break
             else:
-                print("  Home Assist : ÃÂ¢ÃÂ¬ÃÂ nicht konfiguriert (piclaw setup)")
+                print("  Home Assist : ⬜ nicht konfiguriert (piclaw setup)")
         except Exception as _e:
-            print(f"  Home Assist : ÃÂ¢ÃÂÃÂ Fehler: {_e}")
+            print(f"  Home Assist : ❌ Fehler: {_e}")
 
-        # ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Messaging ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
-        _tg = "ÃÂ¢ÃÂÃÂ" if cfg.telegram.token and cfg.telegram.chat_id else "ÃÂ¢ÃÂ¬ÃÂ"
-        _dc = "ÃÂ¢ÃÂÃÂ" if cfg.discord.token else "ÃÂ¢ÃÂ¬ÃÂ"
-        _am = "ÃÂ¢ÃÂ¬ÃÂ"
+        # ── Messaging ─────────────────────────────────────────────
+        _tg = "✅" if cfg.telegram.token and cfg.telegram.chat_id else "⬜"
+        _dc = "✅" if cfg.discord.token else "⬜"
+        _am = "⬜"
         if cfg.agentmail.api_key:
-            _am = f"ÃÂ¢ÃÂÃÂ {cfg.agentmail.email_address}" if cfg.agentmail.email_address else "ÃÂ¢ÃÂÃÂ (keine Inbox)"
+            _am = f"✅ {cfg.agentmail.email_address}" if cfg.agentmail.email_address else "✅ (keine Inbox)"
         print(f"  Telegram    : {_tg}")
         print(f"  Discord     : {_dc}")
         print(f"  AgentMail   : {_am}")
@@ -326,23 +326,23 @@ def cmd_doctor():
         try:
             import aiohttp
 
-            print("  aiohttp     : ÃÂ¢ÃÂÃÂ")
+            print("  aiohttp     : ✅")
         except ImportError:
-            print("  aiohttp     : ÃÂ¢ÃÂÃÂ")
+            print("  aiohttp     : ❌")
         try:
             import fastapi
 
-            print("  fastapi     : ÃÂ¢ÃÂÃÂ")
+            print("  fastapi     : ✅")
         except ImportError:
-            print("  fastapi     : ÃÂ¢ÃÂÃÂ")
+            print("  fastapi     : ❌")
         try:
             import scrapling  # noqa: F401
 
-            print("  scrapling   : ÃÂ¢ÃÂÃÂ")
+            print("  scrapling   : ✅")
         except ImportError:
-            print("  scrapling   : ÃÂ¢ÃÂÃÂ  (pip install scrapling)")
+            print("  scrapling   : ❌  (pip install scrapling)")
 
-        # ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ System-Checks (Invarianten) ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+        # ── System-Checks (Invarianten) ──────────────────────────
         from pathlib import Path as _Path
         import stat as _stat
 
@@ -352,41 +352,41 @@ def cmd_doctor():
         _logdir  = _Path("/var/log/piclaw")
         _ipc     = _Path("/etc/piclaw/ipc")
 
-        # INV_021 ÃÂ¢ÃÂÃÂ Symlink
+        # INV_021 – Symlink
         if _symlink.is_symlink() and _symlink.resolve() == _target.resolve():
-            print("  Symlink     : ÃÂ¢ÃÂÃÂ  /opt/piclaw/piclaw ÃÂ¢ÃÂÃÂ piclaw-os/piclaw/")
+            print("  Symlink     : ✅  /opt/piclaw/piclaw → piclaw-os/piclaw/")
         elif _symlink.exists():
-            print("  Symlink     : ÃÂ¢ÃÂÃÂ  Kein Symlink! git pull hat keinen Effekt")
+            print("  Symlink     : ❌  Kein Symlink! git pull hat keinen Effekt")
             print("                    sudo bash /opt/piclaw/piclaw-os/tools/fix_install_path.sh")
         else:
-            print("  Symlink     : ÃÂ¢ÃÂ¬ÃÂ  /opt/piclaw nicht gefunden (abweichende Installation?)")
+            print("  Symlink     : ⬜  /opt/piclaw nicht gefunden (abweichende Installation?)")
 
-        # INV_022 ÃÂ¢ÃÂÃÂ /var/log/piclaw
+        # INV_022 – /var/log/piclaw
         if _logdir.exists():
             try:
                 import pwd as _pwd
                 _owner = _pwd.getpwuid(_logdir.stat().st_uid).pw_name
                 if _owner == "piclaw":
-                    print("  Log-Dir     : ÃÂ¢ÃÂÃÂ  /var/log/piclaw (owner: piclaw)")
+                    print("  Log-Dir     : ✅  /var/log/piclaw (owner: piclaw)")
                 else:
-                    print(f"  Log-Dir     : ÃÂ¢ÃÂÃÂ  Owner: {_owner} (erwartet: piclaw)")
+                    print(f"  Log-Dir     : ❌  Owner: {_owner} (erwartet: piclaw)")
                     print("                    sudo chown -R piclaw:piclaw /var/log/piclaw")
             except Exception:
-                print("  Log-Dir     : ÃÂ¢ÃÂ¬ÃÂ  Rechte nicht prÃÂÃÂ¼fbar")
+                print("  Log-Dir     : ⬜  Rechte nicht prüfbar")
         else:
-            print("  Log-Dir     : ÃÂ¢ÃÂÃÂ  /var/log/piclaw fehlt")
+            print("  Log-Dir     : ❌  /var/log/piclaw fehlt")
             print("                    sudo mkdir -p /var/log/piclaw && sudo chown -R piclaw:piclaw /var/log/piclaw")
 
         # IPC chmod 1777
         if _ipc.exists():
             _mode = _stat.S_IMODE(_ipc.stat().st_mode)
             if _mode == 0o1777:
-                print("  IPC-Dir     : ÃÂ¢ÃÂÃÂ  /etc/piclaw/ipc (chmod 1777)")
+                print("  IPC-Dir     : ✅  /etc/piclaw/ipc (chmod 1777)")
             else:
-                print(f"  IPC-Dir     : ÃÂ¢ÃÂÃÂ  chmod {oct(_mode)} (erwartet 1777)")
+                print(f"  IPC-Dir     : ❌  chmod {oct(_mode)} (erwartet 1777)")
                 print("                    sudo chmod 1777 /etc/piclaw/ipc")
         else:
-            print("  IPC-Dir     : ÃÂ¢ÃÂ¬ÃÂ  /etc/piclaw/ipc fehlt")
+            print("  IPC-Dir     : ⬜  /etc/piclaw/ipc fehlt")
 
         # .git/objects Rechte (verhindert 'piclaw update' Fehler)
         _git_objects = _install / ".git" / "objects"
@@ -395,14 +395,14 @@ def cmd_doctor():
             try:
                 _git_owner = _pwd2.getpwuid(_git_objects.stat().st_uid).pw_name
                 if _git_owner == "piclaw":
-                    print("  .git Rechte : ÃÂ¢ÃÂÃÂ  /opt/piclaw/.git (owner: piclaw)")
+                    print("  .git Rechte : ✅  /opt/piclaw/.git (owner: piclaw)")
                 else:
-                    print(f"  .git Rechte : ÃÂ¢ÃÂÃÂ  Owner: {_git_owner} (erwartet: piclaw)")
+                    print(f"  .git Rechte : ❌  Owner: {_git_owner} (erwartet: piclaw)")
                     print("                    sudo chown -R piclaw:piclaw /opt/piclaw/.git")
             except Exception:
-                print("  .git Rechte : ÃÂ¢ÃÂ¬ÃÂ  Nicht prÃÂÃÂ¼fbar")
+                print("  .git Rechte : ⬜  Nicht prüfbar")
         else:
-            print("  .git Rechte : ÃÂ¢ÃÂ¬ÃÂ  /opt/piclaw/.git nicht gefunden")
+            print("  .git Rechte : ⬜  /opt/piclaw/.git nicht gefunden")
 
         print()
 
@@ -419,7 +419,7 @@ def cmd_web():
         ip = socket.gethostbyname(hostname)
     except Exception:
         ip = "YOUR_PI_IP"
-    print("\n  ÃÂ°ÃÂÃÂÃÂ PiClaw Web UI")
+    print("\n  🌐 PiClaw Web UI")
     print(f"  http://{ip}:{cfg.api.port}")
     print(f"  http://{hostname}.local:{cfg.api.port}\n")
 
@@ -439,7 +439,7 @@ def cmd_config(args):
         print()
     elif args[0] == "token":
         if cfg.api.secret_key:
-            print(f"\n  ÃÂ°ÃÂÃÂÃÂ API Token (Bearer):\n  {cfg.api.secret_key}\n")
+            print(f"\n  🔑 API Token (Bearer):\n  {cfg.api.secret_key}\n")
             print(f"  Usage: curl -H 'Authorization: Bearer {cfg.api.secret_key}' \\")
             print(f"         http://piclaw.local:{cfg.api.port}/api/stats\n")
         else:
@@ -466,14 +466,14 @@ def cmd_config(args):
             print("Supported: llm.api_key, llm.model, llm.backend, llm.base_url, agent_name")
             return
         save(cfg)
-        print(f"  ÃÂ¢ÃÂÃÂ {key} updated.")
-        # LLM-Registry leeren damit der Router beim nÃÂÃÂ¤chsten Start neu bootstrappt
+        print(f"  ✅ {key} updated.")
+        # LLM-Registry leeren damit der Router beim nächsten Start neu bootstrappt
         if _llm_changed:
             from piclaw.config import CONFIG_DIR
             registry_file = CONFIG_DIR / "llm_registry.json"
             if registry_file.exists():
                 registry_file.write_text("{}")
-                print("  ÃÂ°ÃÂÃÂÃÂ LLM-Registry zurÃÂÃÂ¼ckgesetzt (wird beim Neustart neu aufgebaut)")
+                print("  🔄 LLM-Registry zurückgesetzt (wird beim Neustart neu aufgebaut)")
     else:
         print("Usage: piclaw config get | piclaw config set <key> <value>")
 
@@ -503,9 +503,9 @@ def cmd_model(args):
         path = DEFAULT_MODEL_PATH
         if path.exists():
             mb = path.stat().st_size // 1_048_576
-            print(f"  ÃÂ¢ÃÂÃÂ Phi-3 Mini Q4 installed ({mb} MB) ÃÂ¢ÃÂÃÂ {path}")
+            print(f"  ✅ Phi-3 Mini Q4 installed ({mb} MB) → {path}")
         else:
-            print("  ÃÂ¢ÃÂ¬ÃÂ Not downloaded. Run: piclaw model download")
+            print("  ⬇ Not downloaded. Run: piclaw model download")
     else:
         print("Usage: piclaw model [list|download [id]|remove [id]|status]")
 
@@ -517,7 +517,7 @@ def cmd_messaging(args):
     cfg = load()
 
     if sub == "status":
-        print("\nÃÂ°ÃÂÃÂÃÂ¡ Messaging Adapters\n")
+        print("\n📡 Messaging Adapters\n")
         adapters = [
             (
                 "Telegram",
@@ -541,18 +541,18 @@ def cmd_messaging(args):
             ),
         ]
         for name, ok, detail in adapters:
-            icon = "ÃÂ¢ÃÂÃÂ" if ok else "ÃÂ¢ÃÂ¬ÃÂ"
+            icon = "✅" if ok else "⬜"
             print(f"  {icon} {name:12} {detail}")
         print()
 
     elif sub == "test":
-        print("Sending test message to all configured adaptersÃÂ¢ÃÂÃÂ¦")
+        print("Sending test message to all configured adapters…")
 
         async def _test():
             from piclaw.messaging import build_hub
 
             hub = build_hub(cfg)
-            await hub.send_all("ÃÂ°ÃÂÃÂ§ÃÂª PiClaw test message ÃÂ¢ÃÂÃÂ adapters working correctly.")
+            await hub.send_all("🧪 PiClaw test message – adapters working correctly.")
             print(f"  Sent to: {', '.join(hub.active_adapters()) or 'none configured'}")
 
         asyncio.run(_test())
@@ -581,8 +581,8 @@ def _messaging_setup_wizard(cfg, platform=None):
         platforms[platform](cfg)
         return
 
-    print("\nÃÂ°ÃÂÃÂÃÂ§ Messaging Setup Wizard\n")
-    print("Welchen Adapter mÃÂÃÂ¶chtest du einrichten?")
+    print("\n🔧 Messaging Setup Wizard\n")
+    print("Welchen Adapter möchtest du einrichten?")
     for i, (name, _) in enumerate(platforms.items(), 1):
         current = {
             "telegram": bool(cfg.telegram.token),
@@ -591,8 +591,8 @@ def _messaging_setup_wizard(cfg, platform=None):
             "whatsapp": bool(cfg.whatsapp.access_token),
             "agentmail": bool(cfg.agentmail.api_key),
         }[name]
-        status = "ÃÂ¢ÃÂÃÂ" if current else "ÃÂ¢ÃÂ¬ÃÂ"
-        label = "AgentMail (E-Mail fÃÂÃÂ¼r Dameon)" if name == "agentmail" else name.capitalize()
+        status = "✅" if current else "⬜"
+        label = "AgentMail (E-Mail für Dameon)" if name == "agentmail" else name.capitalize()
         print(f"  {i}. {status} {label}")
     print("  0. Abbrechen\n")
 
@@ -608,16 +608,16 @@ def _messaging_setup_wizard(cfg, platform=None):
 def _setup_telegram(cfg):
     from piclaw.config import save
 
-    print("\nÃÂ°ÃÂÃÂÃÂ± Telegram Setup\n")
+    print("\n📱 Telegram Setup\n")
     print("1. Gehe zu @BotFather in Telegram")
     print("2. Tippe /newbot und folge den Anweisungen")
     print("3. Kopiere den Bot-Token\n")
-    token = input("Bot-Token (oder Enter zum ÃÂÃÂberspringen): ").strip()
+    token = input("Bot-Token (oder Enter zum Überspringen): ").strip()
     if not token:
-        print("ÃÂÃÂbersprungen.")
+        print("Übersprungen.")
         return
     print("\n4. Schreibe deinem neuen Bot eine Nachricht")
-    print("5. ÃÂÃÂffne: https://api.telegram.org/bot<TOKEN>/getUpdates")
+    print("5. Öffne: https://api.telegram.org/bot<TOKEN>/getUpdates")
     print("   und kopiere die chat.id aus der Antwort\n")
     chat_id = input("Chat-ID: ").strip()
     if not chat_id:
@@ -626,27 +626,27 @@ def _setup_telegram(cfg):
     cfg.telegram.token = token
     cfg.telegram.chat_id = chat_id
     save(cfg)
-    print("\nÃÂ¢ÃÂÃÂ Telegram konfiguriert.")
+    print("\n✅ Telegram konfiguriert.")
     print("   Neustart: sudo systemctl restart piclaw-api\n")
 
 
 def _setup_discord(cfg):
     from piclaw.config import save
 
-    print("\nÃÂ°ÃÂÃÂÃÂ® Discord Setup\n")
-    print("1. https://discord.com/developers/applications ÃÂ¢ÃÂÃÂ New Application")
-    print("2. Bot ÃÂ¢ÃÂÃÂ Add Bot ÃÂ¢ÃÂÃÂ 'Message Content Intent' aktivieren")
+    print("\n🎮 Discord Setup\n")
+    print("1. https://discord.com/developers/applications → New Application")
+    print("2. Bot → Add Bot → 'Message Content Intent' aktivieren")
     print("3. Bot-Token kopieren\n")
-    token = input("Bot-Token (oder Enter zum ÃÂÃÂberspringen): ").strip()
+    token = input("Bot-Token (oder Enter zum Überspringen): ").strip()
     if not token:
-        print("ÃÂÃÂbersprungen.")
+        print("Übersprungen.")
         return
-    print("\n4. OAuth2 ÃÂ¢ÃÂÃÂ URL Generator ÃÂ¢ÃÂÃÂ bot + Read/Send Messages ÃÂ¢ÃÂÃÂ einladen")
-    print("5. Discord: Einstellungen ÃÂ¢ÃÂÃÂ Erweitert ÃÂ¢ÃÂÃÂ Entwicklermodus")
-    print("   Rechtsklick auf Kanal ÃÂ¢ÃÂÃÂ Kanal-ID kopieren\n")
+    print("\n4. OAuth2 → URL Generator → bot + Read/Send Messages → einladen")
+    print("5. Discord: Einstellungen → Erweitert → Entwicklermodus")
+    print("   Rechtsklick auf Kanal → Kanal-ID kopieren\n")
     channel_id_str = input("Kanal-ID: ").strip()
     if not channel_id_str.isdigit():
-        print("UngÃÂÃÂ¼ltige Kanal-ID.")
+        print("Ungültige Kanal-ID.")
         return
     user_ids_str = input("Deine User-ID (Enter = alle erlaubt): ").strip()
     allowed = [int(user_ids_str)] if user_ids_str.isdigit() else []
@@ -654,7 +654,7 @@ def _setup_discord(cfg):
     cfg.discord.channel_id = int(channel_id_str)
     cfg.discord.allowed_users = allowed
     save(cfg)
-    print("\nÃÂ¢ÃÂÃÂ Discord konfiguriert.")
+    print("\n✅ Discord konfiguriert.")
     print("   Neustart: sudo systemctl restart piclaw-api\n")
 
 
@@ -662,18 +662,18 @@ def _setup_threema(cfg):
     from piclaw.config import save
     from pathlib import Path
 
-    print("\nÃÂ°ÃÂÃÂÃÂ Threema Gateway Setup\n")
+    print("\n🔒 Threema Gateway Setup\n")
     print("1. Registrierung: https://gateway.threema.ch")
-    print("   ÃÂ¢ÃÂÃÂ Gateway-ID beantragen (z.B. *PICLAW01)")
-    print("   ÃÂ¢ÃÂÃÂ E2E-Modus wÃÂÃÂ¤hlen\n")
-    print("2. SchlÃÂÃÂ¼sselpaar generieren:")
+    print("   → Gateway-ID beantragen (z.B. *PICLAW01)")
+    print("   → E2E-Modus wählen\n")
+    print("2. Schlüsselpaar generieren:")
     print(
         "   threema-gateway generate /etc/piclaw/threema-private.key /etc/piclaw/threema-public.key"
     )
     print("   Dann Public Key im Gateway-Portal hochladen\n")
-    gw_id = input("Gateway-ID (z.B. *PICLAW01, Enter zum ÃÂÃÂberspringen): ").strip()
+    gw_id = input("Gateway-ID (z.B. *PICLAW01, Enter zum Überspringen): ").strip()
     if not gw_id:
-        print("ÃÂÃÂbersprungen.")
+        print("Übersprungen.")
         return
     api_secret = input("API-Secret: ").strip()
     recipient = input("Deine Threema-ID (8 Zeichen): ").strip()
@@ -685,10 +685,10 @@ def _setup_threema(cfg):
     cfg.threema.recipient_id = recipient
     cfg.threema.private_key_file = key_file
     save(cfg)
-    print("\nÃÂ¢ÃÂÃÂ Threema konfiguriert.")
+    print("\n✅ Threema konfiguriert.")
     if not Path(key_file).exists():
-        print(f"   ÃÂ¢ÃÂÃÂ ÃÂ¯ÃÂ¸ÃÂ  Key-Datei nicht gefunden: {key_file}")
-        print("   Erst SchlÃÂÃÂ¼ssel generieren, dann Neustart.\n")
+        print(f"   ⚠️  Key-Datei nicht gefunden: {key_file}")
+        print("   Erst Schlüssel generieren, dann Neustart.\n")
     else:
         print("   Neustart: sudo systemctl restart piclaw-api\n")
 
@@ -696,17 +696,17 @@ def _setup_threema(cfg):
 def _setup_whatsapp(cfg):
     from piclaw.config import save
 
-    print("\nÃÂ°ÃÂÃÂÃÂ¬ WhatsApp Meta Cloud API Setup\n")
-    print("ÃÂ¢ÃÂÃÂ ÃÂ¯ÃÂ¸ÃÂ  Voraussetzung: ÃÂÃÂffentliche HTTPS-URL!")
-    print("   Einfachste LÃÂÃÂ¶sung ÃÂ¢ÃÂÃÂ Cloudflare Tunnel (kostenlos):")
+    print("\n💬 WhatsApp Meta Cloud API Setup\n")
+    print("⚠️  Voraussetzung: Öffentliche HTTPS-URL!")
+    print("   Einfachste Lösung – Cloudflare Tunnel (kostenlos):")
     print("   cloudflared tunnel --url http://localhost:7842")
-    print("   ÃÂ¢ÃÂÃÂ gibt eine URL aus (z.B. https://abc.trycloudflare.com)\n")
-    print("1. https://developers.facebook.com ÃÂ¢ÃÂÃÂ App erstellen ÃÂ¢ÃÂÃÂ WhatsApp")
-    print("2. TemporÃÂÃÂ¤ren Access Token kopieren")
+    print("   → gibt eine URL aus (z.B. https://abc.trycloudflare.com)\n")
+    print("1. https://developers.facebook.com → App erstellen → WhatsApp")
+    print("2. Temporären Access Token kopieren")
     print("3. Telefonnummer-ID kopieren\n")
-    access_token = input("Access Token (EAA..., Enter zum ÃÂÃÂberspringen): ").strip()
+    access_token = input("Access Token (EAA..., Enter zum Überspringen): ").strip()
     if not access_token:
-        print("ÃÂÃÂbersprungen.")
+        print("Übersprungen.")
         return
     phone_number_id = input("Telefonnummer-ID: ").strip()
     app_secret = input("App Secret: ").strip()
@@ -720,7 +720,7 @@ def _setup_whatsapp(cfg):
     cfg.whatsapp.recipient = recipient
     cfg.whatsapp.verify_token = verify_token
     save(cfg)
-    print("\nÃÂ¢ÃÂÃÂ WhatsApp konfiguriert.")
+    print("\n✅ WhatsApp konfiguriert.")
     print("   Webhook-URL im Meta-Portal eintragen:")
     print("   https://DEINE-URL/webhook/whatsapp")
     print(f"  Verify Token: {verify_token}")
@@ -731,23 +731,23 @@ def _setup_whatsapp(cfg):
 def _setup_agentmail(cfg):
     from piclaw.config import save
 
-    print("\nÃÂ°ÃÂÃÂÃÂ§ AgentMail Setup ÃÂ¢ÃÂÃÂ E-Mail-Adresse fÃÂÃÂ¼r Dameon\n")
+    print("\n📧 AgentMail Setup – E-Mail-Adresse für Dameon\n")
     print("AgentMail gibt deinem Agenten eine eigene E-Mail-Adresse.")
     print("Damit kann er sich bei API-Providern registrieren,")
-    print("BestÃÂÃÂ¤tigungsmails empfangen und autonom handeln.\n")
+    print("Bestätigungsmails empfangen und autonom handeln.\n")
     print("1. Gehe zu https://agentmail.to")
     print("2. Erstelle einen Account und generiere einen API-Key")
     print("3. Kopiere den API-Key\n")
-    api_key = input("AgentMail API-Key (oder Enter zum ÃÂÃÂberspringen): ").strip()
+    api_key = input("AgentMail API-Key (oder Enter zum Überspringen): ").strip()
     if not api_key:
-        print("ÃÂÃÂbersprungen.")
+        print("Übersprungen.")
         return
 
     cfg.agentmail.api_key = api_key
     save(cfg)
 
     # Inbox erstellen
-    print("\nMÃÂÃÂ¶chtest du direkt eine Inbox fÃÂÃÂ¼r Dameon erstellen?")
+    print("\nMöchtest du direkt eine Inbox für Dameon erstellen?")
     agent_name = cfg.agent_name or "Dameon"
     username = input(f"Benutzername [{agent_name.lower()}]: ").strip()
     if not username:
@@ -775,20 +775,20 @@ def _setup_agentmail(cfg):
             if email_match:
                 cfg.agentmail.email_address = email_match.group(1)
             save(cfg)
-            print("\nÃÂ¢ÃÂÃÂ AgentMail konfiguriert.")
+            print("\n✅ AgentMail konfiguriert.")
             print(f"   E-Mail: {cfg.agentmail.email_address}")
             print(f"   Inbox-ID: {cfg.agentmail.inbox_id}")
         else:
-            print("\nÃÂ¢ÃÂÃÂ ÃÂ¯ÃÂ¸ÃÂ API-Key gespeichert, aber Inbox konnte nicht erstellt werden.")
-            print("   Dameon kann die Inbox beim nÃÂÃÂ¤chsten Start selbst erstellen.")
+            print("\n⚠️ API-Key gespeichert, aber Inbox konnte nicht erstellt werden.")
+            print("   Dameon kann die Inbox beim nächsten Start selbst erstellen.")
 
     except ImportError:
-        print("\nÃÂ¢ÃÂÃÂ ÃÂ¯ÃÂ¸ÃÂ 'agentmail' Python-Paket nicht installiert.")
+        print("\n⚠️ 'agentmail' Python-Paket nicht installiert.")
         print("   Installiere mit: pip install agentmail --break-system-packages")
-        print("   API-Key wurde gespeichert ÃÂ¢ÃÂÃÂ Inbox kann danach erstellt werden.")
+        print("   API-Key wurde gespeichert – Inbox kann danach erstellt werden.")
     except Exception as e:
-        print(f"\nÃÂ¢ÃÂÃÂ ÃÂ¯ÃÂ¸ÃÂ Fehler beim Erstellen der Inbox: {e}")
-        print("   API-Key wurde gespeichert ÃÂ¢ÃÂÃÂ Inbox kann spÃÂÃÂ¤ter erstellt werden.")
+        print(f"\n⚠️ Fehler beim Erstellen der Inbox: {e}")
+        print("   API-Key wurde gespeichert – Inbox kann später erstellt werden.")
 
     print("   Neustart: sudo systemctl restart piclaw-agent piclaw-api\n")
 
@@ -801,7 +801,7 @@ def cmd_soul(args):
     if sub == "show":
         content = soul_mod.load()
         path = soul_mod.get_path()
-        print(f"\nÃÂ°ÃÂÃÂÃÂ Soul file: {path}\n")
+        print(f"\n📄 Soul file: {path}\n")
         print(content)
         print()
 
@@ -810,14 +810,14 @@ def cmd_soul(args):
         # Ensure file exists before opening
         soul_mod.load()
         editor = os.environ.get("EDITOR", "nano")
-        print(f"  Opening {path} in {editor}ÃÂ¢ÃÂÃÂ¦")
+        print(f"  Opening {path} in {editor}…")
         os.system(f"{editor} {path}")
         print("  Soul updated. Changes take effect in the next conversation.")
 
     elif sub == "reset":
         confirm = (
             input(
-                "  ÃÂ¢ÃÂÃÂ ÃÂ¯ÃÂ¸ÃÂ  Reset soul to default? This overwrites your customizations. [y/N] "
+                "  ⚠️  Reset soul to default? This overwrites your customizations. [y/N] "
             )
             .strip()
             .lower()
@@ -826,7 +826,7 @@ def cmd_soul(args):
             from piclaw.soul import DEFAULT_SOUL
 
             result = soul_mod.save(DEFAULT_SOUL)
-            print(f"  ÃÂ¢ÃÂÃÂ {result}")
+            print(f"  ✅ {result}")
         else:
             print("  Abgebrochen.")
 
@@ -846,17 +846,17 @@ def cmd_agent(args):
         agents = registry.list_all()
         if not agents:
             print("\n  No sub-agents defined yet.")
-            print("  Create one via the agent chat: 'Erstelle einen Agenten derÃÂ¢ÃÂÃÂ¦'\n")
+            print("  Create one via the agent chat: 'Erstelle einen Agenten der…'\n")
             return
         print(f"\n  Sub-Agents ({len(agents)}):\n")
         for a in agents:
             status_icon = {
-                "ok": "ÃÂ¢ÃÂÃÂ",
-                "error": "ÃÂ¢ÃÂÃÂ",
-                "timeout": "ÃÂ¢ÃÂÃÂ±ÃÂ¯ÃÂ¸ÃÂ",
-                "running": "ÃÂ¢ÃÂÃÂÃÂ¯ÃÂ¸ÃÂ",
-                None: "ÃÂ¢ÃÂ¬ÃÂ",
-            }.get(a.last_status, "ÃÂ¢ÃÂ¬ÃÂ")
+                "ok": "✅",
+                "error": "❌",
+                "timeout": "⏱️",
+                "running": "⚙️",
+                None: "⬜",
+            }.get(a.last_status, "⬜")
             enabled_str = "" if a.enabled else "  [disabled]"
             print(f"  {status_icon} [{a.id}] {a.name}{enabled_str}")
             print(f"       {a.description}")
@@ -864,7 +864,7 @@ def cmd_agent(args):
                 f"       schedule: {a.schedule}  |  tools: {', '.join(a.tools) if a.tools else 'all'}"
             )
             print(
-                f"       last run: {a.last_run or 'never'}  |  status: {a.last_status or 'ÃÂ¢ÃÂÃÂ'}"
+                f"       last run: {a.last_run or 'never'}  |  status: {a.last_status or '—'}"
             )
             print()
 
@@ -878,8 +878,8 @@ def cmd_agent(args):
             print(f"  {result.get('result', result)}")
         else:
             # Fallback: show instruction
-            print("  ÃÂ¢ÃÂÃÂ¹ÃÂ¯ÃÂ¸ÃÂ  API not reachable. To start from within the agent, type:")
-            print(f"     piclaw  ÃÂ¢ÃÂÃÂ  'Starte den Sub-Agenten {name}'")
+            print("  ℹ️  API not reachable. To start from within the agent, type:")
+            print(f"     piclaw  →  'Starte den Sub-Agenten {name}'")
 
     elif sub == "stop":
         if not name:
@@ -889,7 +889,7 @@ def cmd_agent(args):
         if result:
             print(f"  {result.get('result', result)}")
         else:
-            print("  ÃÂ¢ÃÂÃÂ¹ÃÂ¯ÃÂ¸ÃÂ  API not reachable. Agent may not be running.")
+            print("  ℹ️  API not reachable. Agent may not be running.")
 
     elif sub == "remove":
         if not name:
@@ -907,11 +907,11 @@ def cmd_agent(args):
         if confirm == "y":
             result = _api_call("DELETE", f"/api/subagents/{name}")
             if result:
-                print("  ÃÂ¢ÃÂÃÂ Removed.")
+                print("  ✅ Removed.")
             else:
                 # Fallback: direct registry delete
                 registry.remove(name)
-                print(f"  ÃÂ¢ÃÂÃÂ '{name}' removed from registry.")
+                print(f"  ✅ '{name}' removed from registry.")
         else:
             print("  Abgebrochen.")
 
@@ -921,9 +921,9 @@ def cmd_agent(args):
             return
         result = _api_call("POST", f"/api/subagents/{name}/run")
         if result:
-            print("  ÃÂ¢ÃÂÃÂÃÂ¯ÃÂ¸ÃÂ  Triggered. Check logs or Telegram for result.")
+            print("  ⚙️  Triggered. Check logs or Telegram for result.")
         else:
-            print("  ÃÂ¢ÃÂÃÂ¹ÃÂ¯ÃÂ¸ÃÂ  API not reachable. Agent daemon may not be running.")
+            print("  ℹ️  API not reachable. Agent daemon may not be running.")
 
     else:
         print("Usage: piclaw agent [list|start|stop|remove|run] [name]")
@@ -958,8 +958,8 @@ def _api_call(method: str, path: str, body: dict = None) -> dict | None:
 def cmd_setup():
     """
     Interaktiver Ersteinrichtungs-Wizard (SSH/Terminal).
-    FÃÂÃÂ¼hrt Schritt fÃÂÃÂ¼r Schritt durch LLM, Messaging, WLAN,
-    Hardware und Soul ÃÂ¢ÃÂÃÂ ohne Browser, ohne GUI.
+    Führt Schritt für Schritt durch LLM, Messaging, WLAN,
+    Hardware und Soul – ohne Browser, ohne GUI.
     """
     from piclaw.wizard import run as wizard_run
 
@@ -981,10 +981,10 @@ def _edit_soul_interactive():
         if not soul_path.exists():
             soul.load()  # creates default
         subprocess.call([editor, str(soul_path)])
-        print("  ÃÂ¢ÃÂÃÂ Soul gespeichert.")
+        print("  ✅ Soul gespeichert.")
     else:
         print("  Kein $EDITOR gesetzt. Gib deinen Soul direkt ein.")
-        print("  (Leere Zeile + Enter zum AbschlieÃÂÃÂen, oder Ctrl+C zum ÃÂÃÂberspringen)\n")
+        print("  (Leere Zeile + Enter zum Abschließen, oder Ctrl+C zum Überspringen)\n")
         lines = []
         try:
             while True:
@@ -994,9 +994,9 @@ def _edit_soul_interactive():
             pass
         if lines:
             soul.save("\n".join(lines))
-            print("  ÃÂ¢ÃÂÃÂ Soul gespeichert.")
+            print("  ✅ Soul gespeichert.")
         else:
-            print("  ÃÂ¢ÃÂÃÂ© Kein Inhalt ÃÂ¢ÃÂÃÂ ÃÂÃÂ¼bersprungen.")
+            print("  ⏩ Kein Inhalt – übersprungen.")
 
 
 def cmd_llm(args):
@@ -1069,7 +1069,7 @@ def cmd_llm(args):
             else:
                 i += 1
         if not kw:
-            print("  Keine ÃÂÃÂnderungen angegeben.")
+            print("  Keine Änderungen angegeben.")
             return
         print(f"  {registry.update(name, **kw)}")
 
@@ -1130,7 +1130,7 @@ def cmd_llm(args):
         print("  piclaw llm enable/disable <name>")
 
 
-# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Update ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+# ── Update ─────────────────────────────────────────────────────────
 
 
 def cmd_update(args: list):
@@ -1142,16 +1142,16 @@ def cmd_update(args: list):
     sub = args[0] if args else "piclaw"
     cfg = load()
 
-    print(f"\n  ÃÂ°ÃÂÃÂÃÂ PiClaw Update ({sub})ÃÂ¢ÃÂÃÂ¦\n")
+    print(f"\n  🔄 PiClaw Update ({sub})…\n")
     result = asyncio.run(system_update(target=sub, cfg=cfg.updater))
     print(f"  {result}\n")
 
 
-# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Debug ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+# ── Debug ──────────────────────────────────────────────────────────
 
 
 def cmd_debug(args: list):
-    """piclaw debug ÃÂ¢ÃÂÃÂ run debug/test scripts via pytest"""
+    """piclaw debug – run debug/test scripts via pytest"""
     import asyncio
     import os
     import sys
@@ -1170,16 +1170,16 @@ def cmd_debug(args: list):
             scripts_map[f"[debug] {f.name}"] = f
 
     if not scripts_map:
-        print("\n  ÃÂ¢ÃÂÃÂ Keine Testskripte gefunden.\n")
+        print("\n  ❌ Keine Testskripte gefunden.\n")
         return
 
-    print("\nÃÂ°ÃÂÃÂÃÂ PiClaw Debug")
-    print("ÃÂ¢ÃÂÃÂ" * 40)
+    print("\n🐛 PiClaw Debug")
+    print("─" * 40)
     entries = list(scripts_map.keys())
     for i, name in enumerate(entries, 1):
         print(f"  {i}. {name}")
     print("  0. Abbrechen")
-    print("  a. Alle ausfÃÂÃÂ¼hren\n")
+    print("  a. Alle ausführen\n")
 
     choice = input("Auswahl [0/a/Nummer]: ").strip().lower()
     if choice == "0" or not choice:
@@ -1192,7 +1192,7 @@ def cmd_debug(args: list):
                 entries[int(x.strip()) - 1] for x in choice.split(",") if x.strip()
             ]
         except (ValueError, IndexError):
-            print("  ÃÂ¢ÃÂÃÂ UngÃÂÃÂ¼ltige Auswahl")
+            print("  ❌ Ungültige Auswahl")
             return
 
     paths = [str(scripts_map[s]) for s in selected]
@@ -1208,7 +1208,7 @@ def cmd_debug(args: list):
             else:
                 cmd = [sys.executable, "-m", "pytest", "-v", path]
 
-            print(f"\n  ÃÂ¢ÃÂÃÂ¶  {script.name}\n")
+            print(f"\n  ▶  {script.name}\n")
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -1224,7 +1224,7 @@ def cmd_debug(args: list):
         if save:
             log = base_dir / "debug_output.txt"
             log.write_text("\n".join(all_output))
-            print(f"\n  ÃÂ°ÃÂÃÂÃÂ¾ Gespeichert: {log}\n")
+            print(f"\n  💾 Gespeichert: {log}\n")
 
     asyncio.run(_run())
 
@@ -1287,7 +1287,7 @@ def main():
         print("Run 'piclaw help' for available commands.")
 
 
-# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Backup ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+# ── Backup ─────────────────────────────────────────────────────────
 
 
 def cmd_backup(args: list):
@@ -1312,10 +1312,10 @@ def cmd_backup(args: list):
 
             backup_path = Path(args[2])
 
-        print("  ÃÂ°ÃÂÃÂÃÂ Backup-Inhalte prÃÂÃÂ¼fen (dry-run)ÃÂ¢ÃÂÃÂ¦")
+        print("  🔍 Backup-Inhalte prüfen (dry-run)…")
         dry = asyncio.run(restore_backup(backup_path=backup_path, dry_run=True))
         if not dry["ok"]:
-            print(f"  ÃÂ¢ÃÂÃÂ {dry['error']}")
+            print(f"  ❌ {dry['error']}")
             return
 
         print(f"\n  Backup: {dry['backup']}  ({dry['backup_ts']})")
@@ -1323,7 +1323,7 @@ def cmd_backup(args: list):
         for f in dry["restored"][:10]:
             print(f"    {f}")
         if len(dry["restored"]) > 10:
-            print(f"    ÃÂ¢ÃÂÃÂ¦ und {len(dry['restored']) - 10} weitere")
+            print(f"    … und {len(dry['restored']) - 10} weitere")
 
         ans = input("\n  Wirklich wiederherstellen? [j/N]: ").strip().lower()
         if ans not in ("j", "y"):
@@ -1332,27 +1332,27 @@ def cmd_backup(args: list):
 
         result = asyncio.run(restore_backup(backup_path=backup_path))
         if result["ok"]:
-            print(f"\n  ÃÂ¢ÃÂÃÂ {len(result['restored'])} Dateien wiederhergestellt.")
+            print(f"\n  ✅ {len(result['restored'])} Dateien wiederhergestellt.")
             print("  Services neu starten: piclaw stop && piclaw start")
         else:
-            print(f"\n  ÃÂ¢ÃÂÃÂ Fehler: {result['errors']}")
+            print(f"\n  ❌ Fehler: {result['errors']}")
 
     else:  # create
         note = " ".join(args[1:]) if len(args) > 1 else ""
         inc_metrics = "--metrics" in args
 
-        print("  ÃÂ°ÃÂÃÂÃÂ¦ Backup wird erstelltÃÂ¢ÃÂÃÂ¦")
+        print("  📦 Backup wird erstellt…")
         path = asyncio.run(create_backup(include_metrics=inc_metrics, note=note))
         import os
 
         size_kb = round(os.path.getsize(path) / 1024, 1)
-        print(f"\n  ÃÂ¢ÃÂÃÂ Backup erstellt: {path}")
-        print(f"     GrÃÂÃÂ¶ÃÂÃÂe: {size_kb} KB")
+        print(f"\n  ✅ Backup erstellt: {path}")
+        print(f"     Größe: {size_kb} KB")
         print("\n  Auflisten: piclaw backup list")
         print("  Wiederherstellen: piclaw backup restore")
 
 
-# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Metriken ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+# ── Metriken ────────────────────────────────────────────────────────
 
 
 def cmd_metrics(args: list):
@@ -1368,7 +1368,7 @@ def cmd_metrics(args: list):
         db = get_db()
         rows = db.query(metric, since_s=since, limit=20)
         if not rows:
-            print(f"  Keine Daten fÃÂÃÂ¼r '{metric}' in den letzten {since // 60} Minuten.")
+            print(f"  Keine Daten für '{metric}' in den letzten {since // 60} Minuten.")
             print(f"  Bekannte Metriken: {', '.join(db.list_metrics())}")
             return
 
@@ -1377,15 +1377,15 @@ def cmd_metrics(args: list):
         import datetime
         for r in reversed(rows):
             dt = datetime.datetime.fromtimestamp(r["ts"]).strftime("%H:%M:%S")
-            bar_len = int(r["value"] / 2) if unit in ("%", "ÃÂÃÂ°C") else 10
-            bar = "ÃÂ¢ÃÂÃÂ" * min(bar_len, 50)
+            bar_len = int(r["value"] / 2) if unit in ("%", "°C") else 10
+            bar = "█" * min(bar_len, 50)
             print(f"  {dt}  {r['value']:>7.1f}{unit}  {bar}")
 
-    else:  # show ÃÂ¢ÃÂÃÂ aktuelle Werte
+    else:  # show – aktuelle Werte
         db = get_db()
         stats = db.stats()
 
-        print("\n  ÃÂ°ÃÂÃÂÃÂ Aktuelle Systemmetriken:\n")
+        print("\n  📊 Aktuelle Systemmetriken:\n")
         cpu = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
@@ -1394,7 +1394,7 @@ def cmd_metrics(args: list):
         def bar(pct, width=20):
             filled = int(pct / 100 * width)
             color = "\033[32m" if pct < 70 else "\033[33m" if pct < 85 else "\033[31m"
-            return f"{color}{'ÃÂ¢ÃÂÃÂ' * filled}{'ÃÂ¢ÃÂÃÂ' * (width - filled)}\033[0m"
+            return f"{color}{'█' * filled}{'░' * (width - filled)}\033[0m"
 
         print(f"  CPU Last  : {cpu:5.1f}%  {bar(cpu)}")
         print(
@@ -1404,16 +1404,16 @@ def cmd_metrics(args: list):
             f"  Disk      : {disk.percent:5.1f}%  {bar(disk.percent)}  ({disk.free // 1024 // 1024 // 1024:.1f} GB frei)"
         )
         if temp:
-            print(f"  CPU Temp  : {temp:5.1f}ÃÂÃÂ°C  {bar(temp * 100 / 85)}")
+            print(f"  CPU Temp  : {temp:5.1f}°C  {bar(temp * 100 / 85)}")
 
         print(
-            f"\n  DB: {stats['total_points']} Messpunkte ÃÂÃÂ· {stats['distinct_metrics']} Metriken ÃÂÃÂ· {stats['size_kb']} KB"
+            f"\n  DB: {stats['total_points']} Messpunkte · {stats['distinct_metrics']} Metriken · {stats['size_kb']} KB"
         )
         print(f"  Metriken: {', '.join(db.list_metrics()[:8])}")
         print("\n  Verlauf: piclaw metrics history cpu_temp_c 3600")
 
 
-# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Kamera ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+# ── Kamera ──────────────────────────────────────────────────────────
 
 
 def cmd_camera(args: list):
@@ -1434,40 +1434,40 @@ def cmd_camera(args: list):
             for cam in cameras:
                 print(f"  [{cam.index}] {cam.name}")
                 print(
-                    f"       Treiber: {cam.driver}  AuflÃÂÃÂ¶sung: {cam.resolution[0]}x{cam.resolution[1]}"
+                    f"       Treiber: {cam.driver}  Auflösung: {cam.resolution[0]}x{cam.resolution[1]}"
                 )
 
     elif sub == "describe":
         from piclaw.hardware.camera import capture_snapshot, describe_image
 
         prompt = " ".join(args[1:]) if len(args) > 1 else "Beschreibe was du siehst."
-        print("  ÃÂ°ÃÂÃÂÃÂ¸ Foto aufnehmenÃÂ¢ÃÂÃÂ¦")
+        print("  📸 Foto aufnehmen…")
         try:
             path = asyncio.run(capture_snapshot())
-            print(f"  ÃÂ¢ÃÂÃÂ Foto: {path}")
-            print(f"  ÃÂ°ÃÂÃÂÃÂ Vision-Analyse: {prompt}\n")
+            print(f"  ✅ Foto: {path}")
+            print(f"  🔍 Vision-Analyse: {prompt}\n")
             description = asyncio.run(describe_image(path, prompt))
             print(f"  {description}")
         except Exception as e:
-            print(f"  ÃÂ¢ÃÂÃÂ Fehler: {e}")
+            print(f"  ❌ Fehler: {e}")
 
     else:  # snapshot
         from piclaw.hardware.camera import capture_snapshot
 
         filename = args[1] if len(args) > 1 else None
-        print("  ÃÂ°ÃÂÃÂÃÂ¸ Foto aufnehmenÃÂ¢ÃÂÃÂ¦")
+        print("  📸 Foto aufnehmen…")
         try:
             path = asyncio.run(capture_snapshot(filename=filename))
             import os
 
             size_kb = round(os.path.getsize(path) / 1024, 1)
-            print(f"  ÃÂ¢ÃÂÃÂ Foto gespeichert: {path} ({size_kb} KB)")
+            print(f"  ✅ Foto gespeichert: {path} ({size_kb} KB)")
         except Exception as e:
-            print(f"  ÃÂ¢ÃÂÃÂ Fehler: {e}")
-            print("  Kamera angeschlossen? PrÃÂÃÂ¼fen: piclaw camera list")
+            print(f"  ❌ Fehler: {e}")
+            print("  Kamera angeschlossen? Prüfen: piclaw camera list")
 
 
-# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Routinen CLI ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+# ── Routinen CLI ──────────────────────────────────────────────────
 
 
 def cmd_routine(args: list):
@@ -1486,8 +1486,8 @@ def cmd_routine(args: list):
             last = f"  zuletzt: {r.last_run[:16]}" if r.last_run else ""
             print(f"  {status}  {r.name:<25}  {r.cron:<18}  {r.action}{last}")
         print()
-        print("  piclaw routine enable <name>   ÃÂ¢ÃÂÃÂ aktivieren")
-        print("  piclaw routine disable <name>  ÃÂ¢ÃÂÃÂ deaktivieren")
+        print("  piclaw routine enable <name>   – aktivieren")
+        print("  piclaw routine disable <name>  – deaktivieren")
         print()
 
     elif sub == "enable":
@@ -1497,15 +1497,15 @@ def cmd_routine(args: list):
             return
         if registry.enable(name):
             r = registry.get(name)
-            print(f"  \033[32mÃÂ¢ÃÂÃÂ\033[0m Routine '{r.name}' aktiviert  [{r.cron}]")
+            print(f"  \033[32m✓\033[0m Routine '{r.name}' aktiviert  [{r.cron}]")
         else:
             print(f"  Routine '{name}' nicht gefunden.")
-            print("  piclaw routine list ÃÂ¢ÃÂÃÂ alle Routinen anzeigen")
+            print("  piclaw routine list – alle Routinen anzeigen")
 
     elif sub == "disable":
         name = " ".join(args[1:])
         if registry.disable(name):
-            print(f"  \033[33mÃÂ¢ÃÂÃÂ\033[0m Routine '{name}' deaktiviert.")
+            print(f"  \033[33m✓\033[0m Routine '{name}' deaktiviert.")
         else:
             print(f"  Routine '{name}' nicht gefunden.")
 
@@ -1514,7 +1514,7 @@ def cmd_routine(args: list):
         print("  piclaw routine list | enable <name> | disable <name>")
 
 
-# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Briefing CLI ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+# ── Briefing CLI ──────────────────────────────────────────────────
 
 
 def cmd_briefing(args: list):
@@ -1543,9 +1543,9 @@ def cmd_briefing(args: list):
                 hub = build_hub(cfg)
                 await hub.send_all(msg)
                 await hub.close()
-                print(f"\033[32mÃÂ¢ÃÂÃÂ Briefing gesendet ({kind})\033[0m\n")
+                print(f"\033[32m✓ Briefing gesendet ({kind})\033[0m\n")
             except Exception as e:
-                print(f"\033[33mÃÂ¢ÃÂÃÂ  Senden fehlgeschlagen: {e}\033[0m\n")
+                print(f"\033[33m⚠ Senden fehlgeschlagen: {e}\033[0m\n")
 
         print(msg)
         print()
@@ -1553,7 +1553,7 @@ def cmd_briefing(args: list):
     asyncio.run(_run())
 
 
-# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ClawHub Skill CLI ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+# ── ClawHub Skill CLI ──────────────────────────────────────────────
 
 
 def cmd_skill(args: list):
