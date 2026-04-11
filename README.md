@@ -48,7 +48,6 @@ PiClaw OS funktioniert vollständig mit kostenlosen API-Tiers:
 | **Cerebras** ⭐ | 8.000 Req/Tag, ultraschnell | [cloud.cerebras.ai](https://cloud.cerebras.ai) | `csk-...` |
 | **NVIDIA NIM** | 1.000 Calls/Monat | [build.nvidia.com](https://build.nvidia.com) | `nvapi-...` |
 | **OpenRouter** | Viele Modelle gratis | [openrouter.ai](https://openrouter.ai) | `sk-or-...` |
-| **Telegram Bot** | Komplett kostenlos | [@BotFather](https://t.me/BotFather) | `123:ABC...` |
 | **Lokal (Qwen3)** | Kein Key nötig | Im Paket enthalten | — |
 
 > **Empfehlung:** Groq als Haupt-Backend + Cerebras als Fallback + lokales Qwen3 offline. `llm_discover` findet neue Backends automatisch.
