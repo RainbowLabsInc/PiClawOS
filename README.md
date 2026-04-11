@@ -8,7 +8,6 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%205-red?style=flat-square)](https://www.raspberrypi.com)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Security](https://img.shields.io/badge/security-audited-brightgreen?style=flat-square)](SECURITY.md)
 
 *Läuft 24/7 · Kein Abo · Vollständig offline-fähig · Kostenlose LLM-APIs*
 
