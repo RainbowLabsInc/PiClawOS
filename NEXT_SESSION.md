@@ -21,6 +21,13 @@
 - `agent.py`: Intent-Detection erkennt PLZ + Radius aus natürlicher Sprache
 - Live-validiert: PLZ 21224 (Rosengarten) → Hamburg 17km ✅, Pinneberg 39km ✅, Walsrode 65km ✅
 
+### Zoll-Auktion.de als Plattform hinzugefügt
+- `_search_zoll_auktion()`: HTML-Scraper für das Auktionshaus von Bund/Ländern/Gemeinden
+- Native PLZ + Umkreis-Suche (20/50/100/250/500km serverseitig)
+- Parst Titel, Preis (EUR), PLZ+Ort, Restzeit, Anzahl Gebote
+- Intent-Detection: "zoll-auktion", "zollauktion" in allen Keyword-Listen
+- Emoji: ⚖️ für Text + Telegram Output
+
 ---
 
 ## 🚨 Sofort (nach dieser Session)
