@@ -40,6 +40,40 @@ _RE_CITIES = re.compile(
 )
 _CITY_MAP = {c.lower(): c for c in _KNOWN_CITIES}
 
+# --- Precompiled Regexes for substring checks (Performance Optimization) ---
+_RE_CRON_CREATE = re.compile("|".join(re.escape(k) for k in sorted(("erstell", "create", "mach", "baue", "neuen agenten", "einen job", "einen task", "einen agenten"), key=len, reverse=True)))
+_RE_CRON_TIME = re.compile("|".join(re.escape(k) for k in sorted(("uhr", "taeglich", "taegl", "jeden tag", "jede woche", "morgens", "abends", "nachts", "cron", "um "), key=len, reverse=True)))
+_RE_CRON_MARKET = re.compile("|".join(re.escape(k) for k in sorted(("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "inserat", "marktplatz"), key=len, reverse=True)))
+
+_RE_NETMON_MARKET = re.compile("|".join(re.escape(k) for k in sorted(("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "inserat", "anzeige", "marktplatz", "kaufen", "verkaufen", "sonnenschirm", "fahrrad", "auto", "wohnung"), key=len, reverse=True)))
+_RE_NETMON_SPECIFIC = re.compile("|".join(re.escape(k) for k in sorted(("netzwerk", "network", "gerät", "device", "router", "lan", "wlan", "wifi", "nmap", "ip adresse", "wer ist im netz", "welche geräte", "neue verbindung", "fremdes gerät", "unbekanntes gerät"), key=len, reverse=True)))
+_RE_NETMON_MONITOR = re.compile("|".join(re.escape(k) for k in sorted(("überwach", "beobacht", "monitor", "scan"), key=len, reverse=True)))
+
+_RE_HW = re.compile("|".join(re.escape(k) for k in sorted(("temperatur", "temp", "cpu", "hardware", "pi info", "wärme"), key=len, reverse=True)))
+_RE_SVC = re.compile("|".join(re.escape(k) for k in sorted(("service", "dienst", "status", "prozess"), key=len, reverse=True)))
+_RE_SVC_SHORT = re.compile("|".join(re.escape(k) for k in sorted(("service", "dienst", "status"), key=len, reverse=True)))
+
+_RE_HA_CMD = re.compile("|".join(re.escape(k) for k in sorted(("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh", "licht", "lampe", "leuchte", "steckdose", "schalter"), key=len, reverse=True)))
+_RE_HA_ON = re.compile("|".join(re.escape(k) for k in sorted(("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen"), key=len, reverse=True)))
+_RE_HA_OFF = re.compile("|".join(re.escape(k) for k in sorted(("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen"), key=len, reverse=True)))
+_RE_HA_TOGGLE = re.compile("|".join(re.escape(k) for k in sorted(("toggle", "umschalten", "wechseln"), key=len, reverse=True)))
+
+_RE_TW_TROOST = re.compile("|".join(re.escape(k) for k in sorted(("troostwijk", "troost"), key=len, reverse=True)))
+_RE_TW_AUKTION = re.compile("|".join(re.escape(k) for k in sorted(("auktion", "auction", "neue", "überwach", "monitor", "benachrichtig", "meld", "inform"), key=len, reverse=True)))
+
+_RE_INT_30MIN = re.compile("|".join(re.escape(k) for k in sorted(("30 min", "30min", "halbstündlich"), key=len, reverse=True)))
+_RE_INT_30MIN_ALT = re.compile("|".join(re.escape(k) for k in sorted(("30 min", "30min", "halbstündlich", "halbe stunde", "jede halbe"), key=len, reverse=True)))
+_RE_INT_DAILY = re.compile("|".join(re.escape(k) for k in sorted(("täglich", "24h", "einmal am tag"), key=len, reverse=True)))
+_RE_INT_DAILY_ALT = re.compile("|".join(re.escape(k) for k in sorted(("täglich", "einmal am tag", "24h"), key=len, reverse=True)))
+_RE_INT_15MIN = re.compile("|".join(re.escape(k) for k in sorted(("15 min", "15min"), key=len, reverse=True)))
+_RE_INT_2H = re.compile("|".join(re.escape(k) for k in sorted(("2 stund", "2h", "alle zwei"), key=len, reverse=True)))
+
+_RE_MONITOR_MONITOR = re.compile("|".join(re.escape(k) for k in sorted(("überwach", "beobacht", "benachrichtig", "informier", "meld", "sag mir wenn", "sag bescheid", "schick mir", "check regelmäßig", "halte ausschau", "halte die augen offen", "alert", "monitor", "watch", "notify", "stündlich", "regelmäßig", "automatisch", "jede stunde", "alle stunde", "jede halbe stunde"), key=len, reverse=True)))
+_RE_MONITOR_MARKET = re.compile("|".join(re.escape(k) for k in sorted(("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "inserat", "anzeige", "kaufen", "marktplatz", "gebraucht", "preis", "euro", "angebot"), key=len, reverse=True)))
+
+_RE_PLAT_KLEINANZEIGEN = re.compile("|".join(re.escape(k) for k in sorted(("kleinanzeigen", "kleinanzeigen.de"), key=len, reverse=True)))
+_RE_PLAT_EGUN = re.compile("|".join(re.escape(k) for k in sorted(("egun", "egun.de"), key=len, reverse=True)))
+
 from collections.abc import Callable
 
 from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
@@ -525,17 +559,11 @@ class Agent:
 
         t = text.lower()
 
-        create_kw = ("erstell", "create", "mach", "baue", "neuen agenten",
-                     "einen job", "einen task", "einen agenten")
-        time_kw = ("uhr", "taeglich", "taegl", "jeden tag", "jede woche",
-                   "morgens", "abends", "nachts", "cron", "um ")
-
-        if not any(k in t for k in create_kw):
+        if not _RE_CRON_CREATE.search(t):
             return None
-        if not any(k in t for k in time_kw):
+        if not _RE_CRON_TIME.search(t):
             return None
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "inserat", "marktplatz")
-        if any(k in t for k in market_kw):
+        if _RE_CRON_MARKET.search(t):
             return None
 
         # Zeit extrahieren
@@ -582,23 +610,11 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "inserat",
-                     "anzeige", "marktplatz", "kaufen", "verkaufen",
-                     "sonnenschirm", "fahrrad", "auto", "wohnung")
-        if any(k in t for k in market_kw):
+        if _RE_NETMON_MARKET.search(t):
             return False
 
-        # Netzwerk-spezifische Keywords müssen vorhanden sein
-        network_specific = (
-            "netzwerk", "network", "gerät", "device", "router",
-            "lan", "wlan", "wifi", "nmap", "ip adresse",
-            "wer ist im netz", "welche geräte", "neue verbindung",
-            "fremdes gerät", "unbekanntes gerät",
-        )
-        monitor_kw = ("überwach", "beobacht", "monitor", "scan")
-
-        has_network = any(k in t for k in network_specific)
-        has_monitor = any(k in t for k in monitor_kw)
+        has_network = bool(_RE_NETMON_SPECIFIC.search(t))
+        has_monitor = bool(_RE_NETMON_MONITOR.search(t))
         return has_network and has_monitor
 
     async def _create_cron_agent(self, intent: dict) -> str:
@@ -613,7 +629,7 @@ class Agent:
         name = f"CronJob_{hour:02d}{minute:02d}"
         # Tool-Auswahl basierend auf Aufgabe
         t = task.lower()
-        if any(k in t for k in ("temperatur", "temp", "cpu", "hardware", "pi info", "wärme")):
+        if _RE_HW.search(t):
             tools = ["thermal_status", "pi_info", "memory_log"]
             mission = (
                 f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
@@ -625,7 +641,7 @@ class Agent:
                 f"4. Protokolliere das Ergebnis mit memory_log.\n\n"
                 f"WICHTIG: Antworte ausschliesslich auf Deutsch."
             )
-        elif any(k in t for k in ("service", "dienst", "status")):
+        elif _RE_SVC_SHORT.search(t):
             tools = ["service_status", "service_list", "memory_log"]
             mission = (
                 f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
@@ -641,9 +657,7 @@ class Agent:
             # direct_tool wird weiter unten gesetzt
 
         # direct_tool für Systembericht-Tasks (kein LLM-Loop nötig)
-        _use_direct_tool = not any(
-            k in t for k in ("service", "dienst", "status", "prozess")
-        )
+        _use_direct_tool = not _RE_SVC.search(t)
         _direct_tool_name = "system_report" if _use_direct_tool else ""
 
         # Collision check
@@ -747,24 +761,17 @@ class Agent:
         if not client:
             return None
 
-        # Intent erkennen
-        on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
-        off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
-        toggle_kw = ("toggle", "umschalten", "wechseln")
-        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter")
-
         # Muss mindestens ein Befehlswort enthalten
-        if not any(k in t for k in cmd_kw):
+        if not _RE_HA_CMD.search(t):
             return None
 
         # Richtung bestimmen
         action = None
-        if any(k in t for k in on_kw):
+        if _RE_HA_ON.search(t):
             action = "on"
-        elif any(k in t for k in off_kw):
+        elif _RE_HA_OFF.search(t):
             action = "off"
-        elif any(k in t for k in toggle_kw):
+        elif _RE_HA_TOGGLE.search(t):
             action = "toggle"
         else:
             return None  # Kein klarer On/Off Intent
@@ -776,7 +783,7 @@ class Agent:
         words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
         # Raum-Keywords suchen
         area_words = [w for w in words if w not in
-                      on_kw + off_kw + toggle_kw +
+                      ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen") + ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen") + ("toggle", "umschalten", "wechseln") +
                       ["schalte", "mach", "mache", "stell", "stelle",
                        "knips", "dreh", "licht", "lampe", "leuchte",
                        "steckdose", "schalter", "bitte"]]
@@ -860,17 +867,16 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Muss Troostwijk + Auktions-Kontext haben
-        if not any(k in t for k in ("troostwijk", "troost")):
+        if not _RE_TW_TROOST.search(t):
             return None
-        if not any(k in t for k in ("auktion", "auction", "neue", "überwach", "monitor",
-                                     "benachrichtig", "meld", "inform")):
+        if not _RE_TW_AUKTION.search(t):
             return None
 
         # Intervall (default: 1h)
         interval_sec = 3600
-        if any(k in t for k in ("30 min", "30min", "halbstündlich")):
+        if _RE_INT_30MIN.search(t):
             interval_sec = 1800
-        elif any(k in t for k in ("täglich", "24h", "einmal am tag")):
+        elif _RE_INT_DAILY.search(t):
             interval_sec = 86400
         m_iv = re.search(r"(?:alle|jede)\s+(\d+)\s*(min|stund)", t)
         if m_iv:
@@ -1054,37 +1060,24 @@ class Agent:
             r"wenn.*inserat", r"wenn.*neu", r"jede.*stunde", r"alle.*stunde",
             r"jede.*halbe", r"alle\s+\d+\s*min",
         ]
-        monitor_kw = (
-            "überwach", "beobacht", "benachrichtig", "informier", "meld",
-            "sag mir wenn", "sag bescheid", "schick mir", "check regelmäßig",
-            "halte ausschau", "halte die augen offen",
-            "alert", "monitor", "watch", "notify",
-            "stündlich", "regelmäßig", "automatisch",
-            "jede stunde", "alle stunde", "jede halbe stunde",
-        )
-        market_kw = (
-            "kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "inserat", "anzeige", "kaufen",
-            "marktplatz", "gebraucht", "preis", "euro", "angebot",
-        )
-
-        _has_monitor_kw = any(k in t for k in monitor_kw)
+        _has_monitor_kw = bool(_RE_MONITOR_MONITOR.search(t))
         if not _has_monitor_kw:
             # Regex-Patterns als Fallback prüfen
             _has_monitor_kw = any(re.search(p, t) for p in _regex_patterns)
         if not _has_monitor_kw:
             return None
-        if not any(k in t for k in market_kw):
+        if not _RE_MONITOR_MARKET.search(t):
             return None
 
         # Intervall aus Text extrahieren (default 1h)
         interval_sec = 3600
-        if any(k in t for k in ("30 min", "30min", "halbstündlich", "halbe stunde", "jede halbe")):
+        if _RE_INT_30MIN_ALT.search(t):
             interval_sec = 1800
-        elif any(k in t for k in ("15 min", "15min")):
+        elif _RE_INT_15MIN.search(t):
             interval_sec = 900
-        elif any(k in t for k in ("2 stund", "2h", "alle zwei")):
+        elif _RE_INT_2H.search(t):
             interval_sec = 7200
-        elif any(k in t for k in ("täglich", "einmal am tag", "24h")):
+        elif _RE_INT_DAILY_ALT.search(t):
             interval_sec = 86400
         # Explizite "alle N min/stunde" Extraktion
         _interval_match = re.search(r"(?:alle|jede)\s+(\d+)\s*(min|stund)", t)
@@ -1098,13 +1091,13 @@ class Agent:
 
         # Plattform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if _RE_PLAT_KLEINANZEIGEN.search(t):
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
-        if any(k in t for k in ("egun", "egun.de")):
+        if _RE_PLAT_EGUN.search(t):
             platforms.append("egun")
-        if any(k in t for k in ("troostwijk", "troost")):
+        if _RE_TW_TROOST.search(t):
             platforms.append("troostwijk")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
@@ -1234,11 +1227,11 @@ class Agent:
             return None
         # Platform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if _RE_PLAT_KLEINANZEIGEN.search(t):
             platforms.append("kleinanzeigen")
-        if any(k in t for k in ("egun", "egun.de")):
+        if _RE_PLAT_EGUN.search(t):
             platforms.append("egun")          # FIX: egun vor ebay prüfen (ebay-Fallback würde sonst greifen)
-        if any(k in t for k in ("troostwijk", "troost")):
+        if _RE_TW_TROOST.search(t):
             platforms.append("troostwijk")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
