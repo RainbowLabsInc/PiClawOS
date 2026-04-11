@@ -72,6 +72,7 @@ _PROVIDER_SIGNUP_URLS = {
 
 # Nur Modelle die NACHWEISLICH KOSTENLOS sind (Free-Tier)
 # Wird von Auto-Discovery und Auto-Repair als Whitelist verwendet
+# Letzte Aktualisierung: April 2026
 _FREE_TIER_MODELS = {
     "api.groq.com": [
         # Groq Free Tier: Rate-Limits, aber keine Kosten
@@ -81,6 +82,8 @@ _FREE_TIER_MODELS = {
         "llama-3.1-8b-instant",
         "gemma2-9b-it",
         "kimi-k2-instruct",
+        "openai/gpt-oss-120b",
+        "qwen/qwen3-32b",
     ],
     "integrate.api.nvidia.com": [
         # NVIDIA NIM: Free-Tier mit 1000 Requests/Tag
@@ -89,18 +92,21 @@ _FREE_TIER_MODELS = {
         "meta/llama-3.3-70b-instruct",
         "meta/llama-3.1-70b-instruct",
         "mistralai/mixtral-8x7b-instruct-v0.1",
+        "deepseek-ai/deepseek-r1",
     ],
     "api.cerebras.ai": [
-        # Cerebras: Kostenloser Developer-Tier
+        # Cerebras: Kostenloser Developer-Tier, extrem schnell
         "llama-3.3-70b",
         "llama-3.1-8b",
+        "llama-4-scout-17b-16e",
     ],
     "openrouter.ai": [
-        # OpenRouter: Einige Modelle permanent kostenlos (kein :free Suffix nötig wenn bereits kostenlos)
+        # OpenRouter: Einige Modelle permanent kostenlos
         "meta-llama/llama-3.3-70b-instruct:free",
         "microsoft/phi-3-medium-128k-instruct:free",
         "google/gemma-2-9b-it:free",
         "mistralai/mistral-7b-instruct:free",
+        "deepseek/deepseek-r1:free",
     ],
 }
 
@@ -150,6 +156,8 @@ class LLMHealthMonitor:
         self._health: dict[str, BackendHealth] = {}
         self._stop = asyncio.Event()
         self._all_api_down_notified = False  # Nur einmal benachrichtigen
+        self._last_discovery_time: float = 0.0  # Unix-Timestamp der letzten Discovery
+        self.DISCOVERY_INTERVAL = 86400  # 24h – proaktive Discovery
 
     # ── Echtzeit-Meldung vom Multirouter ──────────────────────────
 
@@ -693,6 +701,105 @@ class LLMHealthMonitor:
                     f"🧹 *Auto-Cleanup*: {len(auto_backends)} temporäre Backend(s) entfernt – "
                     f"Original-Backends wieder verfügbar."
                 )
+
+        # ── Proaktive Discovery (täglich) ──────────────────────────
+        # Nicht nur bei Ausfällen, sondern regelmäßig nach neuen Free-Tier-Modellen suchen
+        if time.time() - self._last_discovery_time > self.DISCOVERY_INTERVAL:
+            self._last_discovery_time = time.time()
+            create_background_task(
+                self._proactive_discovery(), name="llm-proactive-discovery"
+            )
+
+    async def _proactive_discovery(self):
+        """
+        Läuft täglich: Prüft alle bekannten Provider auf neue kostenlose Modelle.
+        Registriert neue Modelle automatisch mit niedriger Priorität.
+        Benachrichtigt über Telegram wenn neue Modelle gefunden wurden.
+        """
+        log.info("Proaktive LLM-Discovery gestartet")
+        from urllib.parse import urlparse
+
+        all_backends = self.registry.list_all() if hasattr(self.registry, "list_all") else []
+        used_models = {b.model for b in all_backends}
+        used_names = {b.name for b in all_backends}
+
+        # API-Keys nach Provider-Host gruppieren
+        provider_keys: dict[str, tuple[str, str]] = {}
+        for b in all_backends:
+            if not b.base_url or not b.api_key or b.provider == "local":
+                continue
+            host = urlparse(b.base_url).netloc
+            if host not in provider_keys:
+                provider_keys[host] = (b.api_key, b.base_url)
+
+        discovered = []
+
+        for host, (api_key, base_url) in provider_keys.items():
+            models_url = _PROVIDER_MODEL_ENDPOINTS.get(host)
+            if not models_url:
+                continue
+
+            try:
+                available = await self._fetch_available_models(models_url, api_key)
+                if not available:
+                    continue
+
+                whitelist = _FREE_TIER_MODELS.get(host, [])
+                candidates = [m for m in whitelist if m not in used_models and m in available]
+
+                for model in candidates:
+                    ok = await self._test_model(base_url, api_key, model)
+                    if ok:
+                        new_name = self._generate_backend_name(host, model)
+                        if new_name in used_names:
+                            continue
+                        from piclaw.llm.registry import BackendConfig
+                        new_backend = BackendConfig(
+                            name=new_name,
+                            provider="openai",
+                            model=model,
+                            api_key=api_key,
+                            base_url=base_url,
+                            tags=["general", "auto-discovered", "free-tier"],
+                            priority=4,
+                            temperature=0.7,
+                            notes=f"Proactive discovery ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
+                        )
+                        self.registry.add(new_backend)
+                        self._health[new_name] = BackendHealth(name=new_name)
+                        discovered.append((new_name, model, host))
+                        used_names.add(new_name)
+                        used_models.add(model)
+                        log.info("Proaktive Discovery: ✅ '%s' registriert (%s)", new_name, model)
+            except Exception as e:
+                log.debug("Proaktive Discovery %s Fehler: %s", host, e)
+
+        # Providers ohne Key vorschlagen
+        missing_providers = []
+        known_hosts = set(provider_keys.keys())
+        for host, (signup_url, env_name, info) in _PROVIDER_SIGNUP_URLS.items():
+            if host not in known_hosts:
+                host_short = {
+                    "api.groq.com": "Groq", "integrate.api.nvidia.com": "NVIDIA NIM",
+                    "api.cerebras.ai": "Cerebras", "openrouter.ai": "OpenRouter",
+                }.get(host, host)
+                missing_providers.append((host_short, signup_url, info))
+
+        if discovered or missing_providers:
+            lines = [f"🔍 *Proaktive LLM-Discovery* ({datetime.now().strftime('%d.%m.%Y %H:%M')})\n"]
+            if discovered:
+                lines.append(f"✅ {len(discovered)} neue Backend(s) registriert:")
+                for name, model, host in discovered:
+                    lines.append(f"  `{name}`: {model}")
+            if missing_providers:
+                lines.append(f"\n🆓 {len(missing_providers)} Provider ohne API-Key:")
+                for name, url, info in missing_providers:
+                    lines.append(f"  *{name}*: {info}")
+                    lines.append(f"  → {url}")
+            await self._safe_notify("\n".join(lines))
+        else:
+            log.info("Proaktive Discovery: Keine neuen Modelle gefunden")
+
 
     async def _test_backend(self, backend) -> tuple[int | None, str]:
         """Backend testen. Gibt (error_code, message) oder (None, "") wenn OK."""

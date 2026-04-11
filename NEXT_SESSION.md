@@ -1,6 +1,6 @@
 # PiClaw OS – Nächste Session
-**Letzte Aktualisierung:** 2026-04-10 (Session 10 – Security Merges + Troostwijk Umkreissuche)
-**Version:** v0.16.1 🟢
+**Letzte Aktualisierung:** 2026-04-11 (Session 10 – Security + Troostwijk + Zoll-Auktion + LLM Autonomie)
+**Version:** v0.17.0 🟢
 
 ---
 

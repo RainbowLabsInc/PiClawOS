@@ -114,6 +114,26 @@ TOOL_DEFS = [
             "required": ["message"],
         },
     ),
+    ToolDefinition(
+        name="llm_discover",
+        description=(
+            "Proactively discover and register new free LLM backends. "
+            "Scans all known providers (Groq, NVIDIA NIM, Cerebras, OpenRouter) for "
+            "available free-tier models, tests them, and auto-registers working ones. "
+            "Also suggests providers where no API key exists yet. "
+            "Call this periodically or when backends are degraded."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "force": {
+                    "type": "boolean",
+                    "description": "If true, re-test even already-registered models",
+                    "default": False,
+                },
+            },
+        },
+    ),
 ]
 
 
@@ -223,6 +243,194 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
             lines.append("  No matching backends – would use highest-priority backend.")
         return "\n".join(lines)
 
+    async def llm_discover(force: bool = False) -> str:
+        """
+        Proaktive LLM-Backend-Discovery: Scannt alle bekannten Free-Tier-Provider,
+        findet neue kostenlose Modelle, testet sie und registriert funktionierende.
+
+        Ablauf:
+          1. Provider MIT vorhandenem API-Key → neue Modelle entdecken + testen
+          2. Provider OHNE Key → als Vorschlag melden
+          3. Ergebnis: Report mit registrierten + vorgeschlagenen Backends
+        """
+        import aiohttp
+        import time
+        from urllib.parse import urlparse
+        from piclaw.llm.health_monitor import (
+            _PROVIDER_MODEL_ENDPOINTS,
+            _FREE_TIER_MODELS,
+            _PROVIDER_SIGNUP_URLS,
+        )
+
+        lines = ["🔍 LLM Auto-Discovery gestartet…\n"]
+        registered = []
+        tested_ok = []
+        tested_fail = []
+        suggestions = []
+
+        # ── 1. Bestehende Keys nach Provider-Host gruppieren ──────
+        all_backends = registry.list_all() if hasattr(registry, "list_all") else []
+        used_models = {b.model for b in all_backends}
+        used_names = {b.name for b in all_backends}
+
+        provider_keys: dict[str, tuple[str, str]] = {}  # host → (api_key, base_url)
+        for b in all_backends:
+            if not b.base_url or not b.api_key or b.provider == "local":
+                continue
+            host = urlparse(b.base_url).netloc
+            if host not in provider_keys:
+                provider_keys[host] = (b.api_key, b.base_url)
+
+        # ── 2. Provider MIT Key: Modelle entdecken + testen ───────
+        for host, (api_key, base_url) in provider_keys.items():
+            models_url = _PROVIDER_MODEL_ENDPOINTS.get(host)
+            if not models_url:
+                continue
+
+            host_short = {
+                "api.groq.com": "Groq",
+                "integrate.api.nvidia.com": "NVIDIA NIM",
+                "api.cerebras.ai": "Cerebras",
+                "openrouter.ai": "OpenRouter",
+            }.get(host, host)
+
+            lines.append(f"📡 **{host_short}** (Key vorhanden)")
+
+            # Modell-Liste abrufen
+            try:
+                async with aiohttp.ClientSession() as s:
+                    async with s.get(
+                        models_url,
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as r:
+                        if r.status != 200:
+                            lines.append(f"   ⚠️ Modell-Liste nicht abrufbar (HTTP {r.status})")
+                            continue
+                        data = await r.json()
+                available = {m["id"] for m in data.get("data", [])}
+            except Exception as e:
+                lines.append(f"   ❌ Fehler: {e}")
+                continue
+
+            # Whitelist-Modelle filtern
+            whitelist = _FREE_TIER_MODELS.get(host, [])
+            candidates = [
+                m for m in whitelist
+                if m in available and (force or m not in used_models)
+            ]
+
+            if not candidates:
+                lines.append(f"   ✅ Alle freien Modelle bereits registriert")
+                continue
+
+            lines.append(f"   🔎 {len(candidates)} Kandidat(en) gefunden, teste…")
+
+            for model in candidates:
+                # Test: einfacher Chat-Request
+                try:
+                    url = f"{base_url.rstrip('/')}/chat/completions"
+                    payload = {
+                        "model": model,
+                        "messages": [{"role": "user", "content": "Reply with: OK"}],
+                        "max_tokens": 5,
+                    }
+                    headers = {
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    }
+                    t0 = time.time()
+                    async with aiohttp.ClientSession() as s:
+                        async with s.post(
+                            url, json=payload, headers=headers,
+                            timeout=aiohttp.ClientTimeout(total=15),
+                        ) as r:
+                            ms = int((time.time() - t0) * 1000)
+                            if r.status == 200:
+                                tested_ok.append((model, host_short, ms))
+
+                                # Auto-registrieren wenn noch nicht vorhanden
+                                p_short = {
+                                    "api.groq.com": "groq",
+                                    "integrate.api.nvidia.com": "nvidia",
+                                    "api.cerebras.ai": "cerebras",
+                                    "openrouter.ai": "openrouter",
+                                }.get(host, host.split(".")[0])
+                                m_short = model.split("/")[-1][:20]
+                                new_name = f"auto-{p_short}-{m_short}"
+
+                                if new_name not in used_names:
+                                    new_cfg = BackendConfig(
+                                        name=new_name,
+                                        provider="openai",
+                                        model=model,
+                                        api_key=api_key,
+                                        base_url=base_url,
+                                        tags=["general", "auto-discovered", "free-tier"],
+                                        priority=4,  # Niedrig – Originale bevorzugen
+                                        temperature=0.7,
+                                        notes=f"Auto-discovered free-tier ({host_short})",
+                                    )
+                                    registry.add(new_cfg)
+                                    from piclaw.llm.multirouter import BackendHealth
+                                    router._health[new_name] = BackendHealth(name=new_name)
+                                    registered.append((new_name, model, host_short, ms))
+                                    used_names.add(new_name)
+                                    lines.append(
+                                        f"   ✅ `{model}` → registriert als `{new_name}` ({ms}ms)"
+                                    )
+                                else:
+                                    lines.append(
+                                        f"   ✅ `{model}` → OK ({ms}ms), bereits als `{new_name}` vorhanden"
+                                    )
+                            else:
+                                body = await r.text()
+                                reason = body[:80] if body else f"HTTP {r.status}"
+                                tested_fail.append((model, host_short, reason))
+                                lines.append(f"   ❌ `{model}` → {reason}")
+                except Exception as e:
+                    tested_fail.append((model, host_short, str(e)[:60]))
+                    lines.append(f"   ❌ `{model}` → {e}")
+
+        # ── 3. Provider OHNE Key: Vorschlagen ─────────────────────
+        known_hosts = set(provider_keys.keys())
+        for host, (signup_url, env_name, info) in _PROVIDER_SIGNUP_URLS.items():
+            if host in known_hosts:
+                continue
+
+            host_short = {
+                "api.groq.com": "Groq",
+                "integrate.api.nvidia.com": "NVIDIA NIM",
+                "api.cerebras.ai": "Cerebras",
+                "openrouter.ai": "OpenRouter",
+            }.get(host, host)
+
+            free_models = _FREE_TIER_MODELS.get(host, [])
+            suggestions.append((host_short, signup_url, info, len(free_models)))
+            lines.append(
+                f"\n🆓 **{host_short}** – kein API-Key vorhanden"
+                f"\n   {info}"
+                f"\n   {len(free_models)} freie Modelle verfügbar"
+                f"\n   Anmeldung: {signup_url}"
+                f"\n   → `piclaw llm add --name {host_short.lower()}-free "
+                f"--provider openai --model {free_models[0] if free_models else '...'} "
+                f"--base-url https://{host}/v1 --api-key <KEY>`"
+            )
+
+        # ── 4. Zusammenfassung ────────────────────────────────────
+        lines.append("\n" + "─" * 40)
+        lines.append("📊 **Ergebnis:**")
+        lines.append(f"   Neu registriert: {len(registered)}")
+        lines.append(f"   Getestet OK: {len(tested_ok)}")
+        lines.append(f"   Getestet fehlgeschlagen: {len(tested_fail)}")
+        if suggestions:
+            lines.append(f"   Neue Provider verfügbar: {len(suggestions)}")
+            lines.append(
+                "   → Melde dich kostenlos an und füge den Key hinzu!"
+            )
+
+        return "\n".join(lines)
+
     return {
         "llm_list": lambda **_: llm_list(),
         "llm_add": lambda **kw: llm_add(**kw),
@@ -230,4 +438,5 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
         "llm_remove": lambda **kw: llm_remove(**kw),
         "llm_test": lambda **kw: llm_test(**kw),
         "llm_classify": lambda **kw: llm_classify(**kw),
+        "llm_discover": lambda **kw: llm_discover(**kw),
     }
