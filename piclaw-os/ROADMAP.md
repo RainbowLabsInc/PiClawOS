@@ -1,16 +1,27 @@
 # PiClaw OS — Roadmap
 
-## Status: v0.16.0 (April 2026) 🟢 Release Candidate
+## Status: v0.17.0 (April 2026) 🟢 Release Candidate
 
 Dameon läuft stabil auf Raspberry Pi 5.
-- **Security-Audit abgeschlossen** – alle 6 Schwachstellen behoben
-- 6 aktive Sub-Agenten (tokenlos: Netzwerk + 4× Marktplatz + Auktionen)
+- **Security-Audit abgeschlossen** – alle 6 Schwachstellen behoben + 4 PRs gemergt
+- 7 aktive Sub-Agenten (tokenlos: Netzwerk + 4× Marktplatz + 2× Auktionen)
 - LLM-Routing: Groq (10/9/8) → NVIDIA NIM (6) → Qwen3 lokal
+- **LLM Autonomie** – Dameon sucht selbständig neue Free-Tier-Backends
 - Alle kritischen Bugs aus 3 Debug-Runden behoben
 
 ---
 
 ## ✅ Abgeschlossen
+
+### v0.17.0 — LLM Autonomie + Marketplace-Erweiterungen (April 2026)
+- [x] **LLM Autonomie** – `llm_discover` Tool: Dameon findet neue Free-Tier-Backends
+- [x] Proaktive Discovery im Health Monitor (täglich, nicht nur bei Ausfällen)
+- [x] Free-Tier-Whitelist erweitert (Groq, NVIDIA, Cerebras, OpenRouter – 24 Modelle)
+- [x] Provider-Vorschläge via Telegram wenn kein Key vorhanden
+- [x] Troostwijk Umkreissuche (PLZ + Radius mit Haversine-Distanzfilter)
+- [x] Zoll-Auktion.de als neue Suchplattform (native PLZ + Umkreis)
+- [x] 7 Security- und Feature-PRs gemergt (4× Security, 3× Features)
+- [x] Stadtfilter in Troostwijk jetzt auch gegen collectionDays[].city
 
 ### v0.16.0 — Security-Audit + Stabilisierung (April 2026)
 - [x] SEC-1: WhatsApp Auth-Bypass geschlossen
@@ -53,31 +64,25 @@ Dameon läuft stabil auf Raspberry Pi 5.
 
 ## 📋 Geplant
 
-### v0.17 — Zeitzone-Wizard + HA-Erweiterungen
-- [ ] Automatische TZ-Erkennung aus Koordinaten im Setup-Wizard
-- [ ] `timedatectl set-timezone` aus Wizard heraus aufrufen
-- [ ] HA doctor: Retry-Logik mit 30s Timeout
-- [ ] Emergency Shutdown via schaltbare Steckdose
-
-### v0.18 — IPC-Reload + Queue
+### v0.17 — IPC-Reload + Queue (ehem. v0.18)
 - [ ] Registry-Reload via IPC (kein Daemon-Neustart bei neuem Sub-Agent)
 - [ ] Queue für parallele Sub-Agent-Ausführung
 - [ ] Sub-Agent-Status in Echtzeit via WebSocket
 
-### v0.19 — Marketplace Erweiterungen
+### v0.18 — Marketplace Erweiterungen (ehem. v0.19)
 - [ ] Willhaben: Kategorie-Filter
 - [ ] Troostwijk: Stadtfilter via API (wenn verfügbar)
 - [ ] Query-Extraktion: Ortsnamen sauber entfernen
 
-### v0.20 — Kamera & Sensoren
+### v0.19 — Kamera & Sensoren (ehem. v0.20)
 - [ ] ESP32-CAM / ESPHome vollständig
 - [ ] Pond-Camera-Integration
 
 ### v1.0 — Stable Release
 - [ ] Frische Installation < 10 Minuten
 - [ ] `piclaw doctor` alles grün (inkl. HA)
-- [ ] Mind. 3 Cloud-LLM-Anbieter aktiv
-- [ ] Alle Marktplatz-Plattformen vollständig getestet
+- [x] Mind. 3 Cloud-LLM-Anbieter aktiv (Groq + NVIDIA + auto-discovery)
+- [x] Alle Marktplatz-Plattformen vollständig getestet (6 Plattformen)
 - [ ] Vollständige Testabdeckung kritischer Pfade
 
 ---
@@ -93,6 +98,8 @@ Dameon läuft stabil auf Raspberry Pi 5.
 | `/api/shell` entfernt | ✅ v0.15.3 |
 | Alle kritischen Bugs behoben | ✅ v0.16.0 |
 | SECURITY.md vollständig | ✅ v0.16.0 |
+| Mind. 3 Cloud-LLM-Anbieter | ✅ v0.17.0 |
+| Marktplatz-Plattformen getestet | ✅ v0.17.0 |
 | LLM Health Monitor aktiv | ✅ v0.15.4 |
 
 ---
