@@ -563,12 +563,127 @@ async def parcel_extract_and_add(text: str) -> str:
 
 # ── Monitor (Direct Tool für Sub-Agent) ──────────────────────────────────────
 
+async def _scan_agentmail_inbox() -> list[str]:
+    """
+    Scannt die AgentMail-Inbox auf neue E-Mails mit Trackingnummern.
+    Gibt Liste von Benachrichtigungen zurück (neue Pakete die hinzugefügt wurden).
+    """
+    try:
+        import tomllib
+        cfg_path = CONFIG_DIR / "config.toml"
+        if not cfg_path.exists():
+            return []
+        cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+        api_key = cfg.get("agentmail", {}).get("api_key", "")
+        inbox_id = cfg.get("agentmail", {}).get("inbox_id", "")
+        if not api_key or not inbox_id:
+            return []
+    except Exception:
+        return []
+
+    try:
+        from agentmail import AsyncAgentMail
+    except ImportError:
+        return []
+
+    # Letzten gescannten Zeitpunkt laden
+    data = _load_parcels()
+    last_scan = data.get("_inbox_last_scan", 0)
+
+    try:
+        client = AsyncAgentMail(api_key=api_key)
+        msgs_res = await client.inboxes.messages.list(inbox_id=inbox_id, limit=10)
+    except Exception as e:
+        log.warning("AgentMail Inbox-Scan fehlgeschlagen: %s", e)
+        return []
+
+    if not msgs_res.messages:
+        return []
+
+    notifications = []
+    new_last_scan = last_scan
+
+    for msg in msgs_res.messages:
+        # Zeitstempel des Messages prüfen
+        msg_time = getattr(msg, "created_at", None)
+        if msg_time:
+            # ISO-String zu Unix-Timestamp
+            try:
+                from datetime import datetime as _dt
+                if isinstance(msg_time, str):
+                    # Versuche ISO-Format zu parsen
+                    ts = _dt.fromisoformat(msg_time.replace("Z", "+00:00")).timestamp()
+                else:
+                    ts = float(msg_time)
+                if ts <= last_scan:
+                    continue  # Bereits verarbeitet
+                new_last_scan = max(new_last_scan, ts)
+            except Exception:
+                pass  # Wenn Timestamp nicht parsbar → trotzdem verarbeiten
+
+        # Text aus E-Mail extrahieren
+        body = ""
+        if hasattr(msg, "extracted_text") and msg.extracted_text:
+            body = msg.extracted_text
+        elif hasattr(msg, "text") and msg.text:
+            body = msg.text
+        subject = getattr(msg, "subject", "") or ""
+        from_addr = getattr(msg, "from_address", "") or ""
+
+        full_text = f"{subject}\n{body}"
+
+        # Trackingnummern extrahieren
+        found = extract_tracking_numbers(full_text)
+        if not found:
+            continue
+
+        log.info(
+            "AgentMail: %d Trackingnummer(n) in E-Mail von %s gefunden",
+            len(found), from_addr,
+        )
+
+        for item in found:
+            tn = item["tracking_number"]
+            if tn in data["parcels"]:
+                continue  # Bereits verfolgt
+
+            # Label aus Betreff extrahieren
+            label = subject[:50] if subject else f"via {from_addr}"
+
+            try:
+                result = await parcel_add(
+                    tracking_number=tn,
+                    label=label,
+                    carrier=item["carrier"],
+                )
+                notifications.append(f"📧 {result}")
+            except Exception as e:
+                log.warning("Auto-Add für %s fehlgeschlagen: %s", tn, e)
+
+    # Letzten Scan-Zeitpunkt aktualisieren
+    if new_last_scan > last_scan:
+        data = _load_parcels()  # Neu laden (parcel_add hat gespeichert)
+        data["_inbox_last_scan"] = new_last_scan
+        _save_parcels(data)
+
+    return notifications
+
+
 async def parcel_monitor_check() -> str:
     """
     Prüft alle aktiven Pakete auf Statusänderungen.
+    Scannt auch die AgentMail-Inbox auf neue Trackingnummern.
     Wird vom Sub-Agent Monitor_Pakete als direct_tool aufgerufen.
     Gibt nur geänderte Pakete zurück (für Telegram-Benachrichtigung).
     """
+    # 1. AgentMail-Inbox auf neue Versandbestätigungen scannen
+    inbox_notifications = []
+    try:
+        inbox_notifications = await _scan_agentmail_inbox()
+    except Exception as e:
+        log.warning("AgentMail Inbox-Scan Fehler: %s", e)
+
+    # 2. Alle aktiven Pakete auf Statusänderungen prüfen
     data = _load_parcels()
     if not data["parcels"]:
         return "__NO_NEW_RESULTS__"
@@ -612,10 +727,13 @@ async def parcel_monitor_check() -> str:
 
     _save_parcels(data)
 
-    if not changes:
+    # Inbox-Funde + Statusänderungen zusammenführen
+    all_notifications = inbox_notifications + changes
+
+    if not all_notifications:
         return "__NO_NEW_RESULTS__"
 
-    return "\n\n".join(changes)
+    return "\n\n".join(all_notifications)
 
 
 # ── Formatierung ─────────────────────────────────────────────────────────────
