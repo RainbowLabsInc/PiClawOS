@@ -41,17 +41,18 @@ HEADERS = {
 RE_CLEAN_CHAT_PREFIX = re.compile(r"\[.*?\]")
 RE_CLEAN_PLZ = re.compile(r"(?<!\d)\d{5}(?!\d)")
 RE_CLEAN_RADIUS = re.compile(r"\d+\s*km", flags=re.IGNORECASE)
-RE_CLEAN_PLATFORMS = {
-    term: re.compile(re.escape(term), flags=re.IGNORECASE)
-    for term in [
-        "kleinanzeigen.de", "ebay.de", "willhaben.at", "egun.de",
-        "troostwijkauctions.com", "troostwijk",
-        "zoll-auktion.de", "zoll-auktion", "zollauktion",
-        "kleinanzeigen", "ebay", "willhaben", "egun", ".de", ".at",
-    ]
-}
-RE_CLEAN_NOISE = []
-noise_words = [
+_platform_terms = [
+    "kleinanzeigen.de", "ebay.de", "willhaben.at", "egun.de",
+    "troostwijkauctions.com", "troostwijk",
+    "zoll-auktion.de", "zoll-auktion", "zollauktion",
+    "kleinanzeigen", "ebay", "willhaben", "egun", ".de", ".at",
+]
+_platform_terms.sort(key=len, reverse=True)
+RE_CLEAN_PLATFORMS = re.compile(
+    r"(?i)(?:" + "|".join(re.escape(term) for term in _platform_terms) + r")"
+)
+
+_noise_words = [
     "suche",
     "finde",
     "such",
@@ -118,11 +119,10 @@ noise_words = [
     "inserate",
     "anzeigen",
 ]
-noise_words.sort(key=len, reverse=True)
-for word in noise_words:
-    RE_CLEAN_NOISE.append(
-        re.compile(r"(?i)(?:^|(?<=\W))" + re.escape(word) + r"(?:(?=\W)|$)")
-    )
+_noise_words.sort(key=len, reverse=True)
+RE_CLEAN_NOISE = re.compile(
+    r"(?i)(?:^|(?<=\W))(?:" + "|".join(re.escape(word) for word in _noise_words) + r")(?=\W|$)"
+)
 RE_CLEAN_SPECIAL_CHARS = re.compile(r"[?!.,;:\-_/]")
 
 # Common Parsing
@@ -236,12 +236,10 @@ def _clean_query(query: str) -> str:
     q = RE_CLEAN_RADIUS.sub(" ", q)
 
     # Plattformnamen und Domains
-    for term, pattern in RE_CLEAN_PLATFORMS.items():
-        q = pattern.sub(" ", q)
+    q = RE_CLEAN_PLATFORMS.sub(" ", q)
 
     # Deutsche Stoppwörter/Rauschen für Marktplatz-Suche
-    for pattern in RE_CLEAN_NOISE:
-        q = pattern.sub(" ", q)
+    q = RE_CLEAN_NOISE.sub(" ", q)
 
     # Alle Sonderzeichen entfernen
     q = RE_CLEAN_SPECIAL_CHARS.sub(" ", q)
