@@ -6,7 +6,7 @@
 ---
 ## META
 project=PiClaw_OS
-version=0.15.4
+version=0.15.5
 target_hw=Raspberry_Pi_5_arm64
 python_min=3.11
 tested_python=3.13.5
@@ -934,7 +934,7 @@ ACTIVE_SUB_AGENTS_SESSION_9:
 URSACHE: Früherer Patch hat Quelldateien durch Latin-1→UTF-8 Konvertierung geschickt
   cli.py: 3-fach mojibaked (80.196 → 59.238 bytes)
   model_manager.py: 1-fach mojibaked (5.651 → 5.636 bytes)
-SYMPTOM: Emojis wie ✅ werden als ÃÂ¢ÃÂÃÂ angezeigt in Terminal
+SYMPTOM: Emojis wie ✅ werden als âÃÂÃÂ angezeigt in Terminal
 FIX: Iteratives demojibake: decode UTF-8 → encode Latin-1 → repeat bis UnicodeError
 TOOL: /tmp/fix_mojibake.py (base64-deployed, scannt + repariert + committet)
 LEARNING: `-X utf8` im Python-Wrapper löst das Problem NICHT wenn die Bytes im Quellcode kaputt sind
@@ -974,3 +974,48 @@ SECURITY_ALREADY_IN_MAIN:
 GIT_CONFIG: remote.origin.fetch muss '+refs/heads/*:refs/remotes/origin/*' sein
   WRONG: nur main fetchen → `git merge origin/branch` schlägt fehl
   FIX: git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+
+### Paket-Tracking System (NEU)
+MODULE: piclaw/tools/parcel_tracking.py (805 Zeilen)
+CARRIER_DETECT: Regex-basiert (DHL:00/JJD, UPS:1Z, Hermes:14-16 Stellen, DPD:01+12, GLS:11-12, Amazon:TBA, FedEx:12/15)
+TRACKING_SOURCES:
+  1. Parcello (parcello.org) — Zustellprognose (Tag + 2-3h Fenster), alle Carrier
+  2. DHL Unified API (developer.dhl.com) — detaillierte Events, optional mit API Key
+STORAGE: /etc/piclaw/parcels.json (auto-archive nach 7 Tagen delivered)
+TOOLS: parcel_add, parcel_status, parcel_remove, parcel_extract
+DIRECT_TOOL: parcel_monitor → prüft alle Pakete + scannt AgentMail Inbox
+SUB_AGENT: Monitor_Pakete (auto-created bei Boot, interval:1800, direct_tool=parcel_monitor)
+INTENT_DETECTION: _detect_parcel_intent() in agent.py — vor Marketplace-Intent
+  Erkennt: "Tracke 00340...", "Wo ist mein Paket?", "Pakete", weitergeleitete E-Mails
+AGENTMAIL_INBOX_SCANNER: _scan_agentmail_inbox() in parcel_tracking.py
+  Pollt Inbox alle 30 Min, extrahiert Trackingnummern aus Subject+Body
+  Timestamp-Tracking: nur neue Mails seit letztem Scan
+  Auto-Add mit Label aus E-Mail-Betreff
+CONFIG:
+  [agentmail] api_key, inbox_id, email_address
+  [parcel_tracking] dhl_api_key (optional)
+
+### Wizard-Steps (NEU)
+step_agentmail: Im Block "Kommunikation"
+  → API-Key eingeben, Inbox automatisch erstellen
+  → Validierung via _create_agentmail_inbox()
+step_parcel_tracking: Im neuen Block "Dienste"
+  → Zeigt AgentMail-Status, DHL API Key (optional)
+  → Schreibt [parcel_tracking] dhl_api_key direkt in config.toml
+
+### Mojibake-Fix (vollständig)
+ALLE Dateien im Repo gescannt und repariert:
+  cli.py: 3x mojibaked (Session 10 Part 1)
+  model_manager.py: 1x mojibaked (Session 10 Part 1)
+  wizard.py: 590 mixed mojibake Sequenzen (1x, mit sauberen Unicode-Chars gemischt)
+  README.md: 2448 Sequenzen, 2x mojibaked (3 iterative Runden nötig)
+  CLAUDE_REBUILD.md: 2 Sequenzen
+FIX_ALGORITHM: Iterativer per-Sequenz-Fixer
+  Für jedes Zeichen im Bereich 0xC0-0xFF:
+    Bestimme UTF-8 Sequenzlänge (2/3/4 bytes)
+    Versuch: encode('latin-1') → decode('utf-8')
+    Bei Erfolg: ersetze die Sequenz mit dem dekodierten Zeichen
+  Wiederholen bis keine Fixes mehr (für Multi-Layer-Mojibake)
+LEARNING: Ganzdatei-Demojibake schlägt fehl bei gemischten Dateien
+  (einige Chars sauber UTF-8, andere mojibaked → encode('latin-1') wirft UnicodeEncodeError)
+  Lösung: Per-Sequenz-Ansatz mit iterativen Runden
