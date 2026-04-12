@@ -824,7 +824,7 @@ TOOL_DEFS = [
             "Erkennt den Carrier (DHL, Hermes, DPD, GLS, UPS) automatisch. "
             "Nutze dies wenn der User eine Trackingnummer schickt."
         ),
-        input_schema={
+        parameters={
             "type": "object",
             "properties": {
                 "tracking_number": {
@@ -845,7 +845,7 @@ TOOL_DEFS = [
             "Zeigt den Status aller verfolgten Pakete oder eines bestimmten Pakets. "
             "Nutze dies bei Fragen wie 'Wo ist mein Paket?' oder 'Pakete'."
         ),
-        input_schema={
+        parameters={
             "type": "object",
             "properties": {
                 "tracking_number": {
@@ -858,7 +858,7 @@ TOOL_DEFS = [
     _TD(
         name="parcel_remove",
         description="Entfernt ein Paket aus der Sendungsverfolgung.",
-        input_schema={
+        parameters={
             "type": "object",
             "properties": {
                 "tracking_number": {
@@ -875,7 +875,7 @@ TOOL_DEFS = [
             "Extrahiert Trackingnummern aus einem Text (z.B. weitergeleitete "
             "Versandbestätigung, E-Mail-Body) und fügt sie automatisch hinzu."
         ),
-        input_schema={
+        parameters={
             "type": "object",
             "properties": {
                 "text": {
