@@ -16,7 +16,7 @@ llm_primary=groq-actions/llama-3.3-70b-versatile (Prio 10, tags: action,home_aut
 llm_primary=groq-fallback/kimi-k2-instruct (Prio 9, tags: general,reasoning)
 llm_secondary=nemotron-nvidia/llama-4-maverick-17b@nvidia_nim (Prio 8)
 llm_secondary=openai-default/llama-3.3-70b-instruct@nvidia_nim (Prio 7, Fallback)
-llm_local=gemma-2b-q4@llama.cpp (letzter Fallback)
+llm_local=gemma-4-e2b-q4_k_m@llama.cpp (letzter Fallback, 2.9 GB, ~8-12 tok/s auf Pi 5)
 install_dir=/opt/piclaw
 config_dir=/etc/piclaw
 repo=https://github.com/RainbowLabsInc/PiClawOS.git
@@ -794,7 +794,7 @@ INV_037: Neuer Agent nach Daemon-Start → einmaliger Neustart nötig
 checksum_invariants=37
 checksum_services=4+1timer
 status=PRODUCTION_STABLE
-last_updated=2026-04-04
+last_updated=2026-04-12
 
 ---
 ## NEW_INVARIANTS_v0154
@@ -916,3 +916,99 @@ INV_027: _detect_tw_auction_monitor_intent() MUSS VOR _detect_monitor_intent() k
 ACTIVE_SUB_AGENTS_SESSION_9:
   Monitor_TW_Deutschland  interval:3600  direct_tool=marketplace_monitor
   mission: {"query":"","platforms":["troostwijk_auctions"],"location":null,"country":"de","max_results":24}
+
+---
+## SESSION_10_2026-04-12
+
+### Mojibake-Fix (UTF-8 Korruption in Quelldateien)
+URSACHE: Früherer Patch hat Quelldateien durch Latin-1→UTF-8 Konvertierung geschickt
+  cli.py: 3-fach mojibaked (80.196 → 59.238 bytes)
+  model_manager.py: 1-fach mojibaked (5.651 → 5.636 bytes)
+SYMPTOM: Emojis wie ✅ werden als ÃÂ¢ÃÂÃÂ angezeigt in Terminal
+FIX: Iteratives demojibake: decode UTF-8 → encode Latin-1 → repeat bis UnicodeError
+TOOL: /tmp/fix_mojibake.py (base64-deployed, scannt + repariert + committet)
+LEARNING: `-X utf8` im Python-Wrapper löst das Problem NICHT wenn die Bytes im Quellcode kaputt sind
+LEARNING: Binärdateien in Logs (grep: Übereinstimmungen in Binärdatei) → `grep -a` verwenden
+COMMIT: 92caf2b fix: repair mojibaked UTF-8 in cli.py and model_manager.py
+
+### Gemma 4 E2B als lokaler Fallback
+UPGRADE: llama-cpp-python 0.3.16 → 0.3.20 (Gemma 4 Support ab 0.3.17+)
+  0.3.16 (Aug 2025): Kennt Gemma 4 Format nicht → "Failed to load model from file"
+  0.3.20 (Apr 2026): Gemma 4 Day-1 Support
+MODEL: /etc/piclaw/models/gemma-4-e2b-q4_k_m.gguf (2.9 GB, Unsloth GGUF)
+RAM: ~1.4 GB bei Preload (use_mmap=True), ~1.9 GB total Systemverbrauch
+PRELOAD: Background-Task bei Agent-Boot, Log: "Local model loaded ✅"
+ROUTING: Online-Backends (Groq/NIM) haben IMMER Vorrang; Gemma 4 nur bei totalem API-Ausfall
+
+INV_028: llama-cpp-python MUSS >= 0.3.20 sein für Gemma 4 E2B
+  WRONG: pip install llama-cpp-python==0.3.16  → preload fails silently
+  RIGHT: pip install llama-cpp-python>=0.3.20 --break-system-packages
+  NOTE: Kompiliert from source auf ARM64 (~10-15 Min)
+
+### LLM Health Monitor Intervalle (Referenz)
+  Health-Check (alles OK):  60 min  (INTERVAL_HEALTHY = 3600)
+  Health-Check (degraded):   5 min  (INTERVAL_DEGRADED = 300)
+  Proaktive Discovery:      24 h    (DISCOVERY_INTERVAL = 86400)
+  Auto-Discovery (reaktiv): sofort  (wenn alle API-Backends down)
+  Auto-Cleanup:             beim nächsten Check (Original wieder gesund → auto-discovered entfernt)
+  Erster Check nach Boot:   60 sek  (INITIAL_DELAY = 60)
+
+### Branch-Cleanup
+MERGED:
+  bolt-marketplace-query-optimization → Regex-Loops zu einzelnen kompilierten Patterns
+  igor/marketplace-intent-city-leakage-fix → City-Name Leakage aus Suchquery + Tests
+DELETED: 36 stale Branches (0 ahead oder 25-88 behind main)
+SECURITY_ALREADY_IN_MAIN:
+  sentinel-fix-path-traversal (store.py resolve + is_relative_to)
+  sentinel-fix-shell-bypass (&, \n, \r zu Metachar-Blocklist)
+GIT_CONFIG: remote.origin.fetch muss '+refs/heads/*:refs/remotes/origin/*' sein
+  WRONG: nur main fetchen → git merge origin/branch schlägt fehl
+  FIX: git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+
+---
+## SESSION_10_2026-04-12
+
+### Mojibake-Fix (UTF-8 Korruption in Quelldateien)
+URSACHE: Früherer Patch hat Quelldateien durch Latin-1→UTF-8 Konvertierung geschickt
+  cli.py: 3-fach mojibaked (80.196 → 59.238 bytes)
+  model_manager.py: 1-fach mojibaked (5.651 → 5.636 bytes)
+SYMPTOM: Emojis wie ✅ werden als ÃÂ¢ÃÂÃÂ angezeigt in Terminal
+FIX: Iteratives demojibake: decode UTF-8 → encode Latin-1 → repeat bis UnicodeError
+TOOL: /tmp/fix_mojibake.py (base64-deployed, scannt + repariert + committet)
+LEARNING: `-X utf8` im Python-Wrapper löst das Problem NICHT wenn die Bytes im Quellcode kaputt sind
+LEARNING: Binärdateien in Logs (grep: Übereinstimmungen in Binärdatei) → `grep -a` verwenden
+COMMIT: 92caf2b fix: repair mojibaked UTF-8 in cli.py and model_manager.py
+
+### Gemma 4 E2B als lokaler Fallback
+UPGRADE: llama-cpp-python 0.3.16 → 0.3.20 (Gemma 4 Support ab 0.3.17+)
+  0.3.16 (Aug 2025): Kennt Gemma 4 Format nicht → "Failed to load model from file"
+  0.3.20 (Apr 2026): Gemma 4 Day-1 Support
+MODEL: /etc/piclaw/models/gemma-4-e2b-q4_k_m.gguf (2.9 GB, Unsloth GGUF)
+RAM: ~1.4 GB bei Preload (use_mmap=True), ~1.9 GB total Systemverbrauch
+PRELOAD: Background-Task bei Agent-Boot, Log: "Local model loaded ✅"
+ROUTING: Online-Backends (Groq/NIM) haben IMMER Vorrang; Gemma 4 nur bei totalem API-Ausfall
+
+INV_028: llama-cpp-python MUSS >= 0.3.20 sein für Gemma 4 E2B
+  WRONG: pip install llama-cpp-python==0.3.16  → preload fails silently
+  RIGHT: pip install llama-cpp-python>=0.3.20 --break-system-packages
+  NOTE: Kompiliert from source auf ARM64 (~10-15 Min)
+
+### LLM Health Monitor Intervalle (Referenz)
+  Health-Check (alles OK):  60 min  (INTERVAL_HEALTHY = 3600)
+  Health-Check (degraded):   5 min  (INTERVAL_DEGRADED = 300)
+  Proaktive Discovery:      24 h    (DISCOVERY_INTERVAL = 86400)
+  Auto-Discovery (reaktiv): sofort  (wenn alle API-Backends down)
+  Auto-Cleanup:             beim nächsten Check (Original wieder gesund → auto-discovered entfernt)
+  Erster Check nach Boot:   60 sek  (INITIAL_DELAY = 60)
+
+### Branch-Cleanup
+MERGED:
+  bolt-marketplace-query-optimization → Regex-Loops zu einzelnen kompilierten Patterns
+  igor/marketplace-intent-city-leakage-fix → City-Name Leakage aus Suchquery + Tests
+DELETED: 36 stale Branches (0 ahead oder 25-88 behind main)
+SECURITY_ALREADY_IN_MAIN:
+  sentinel-fix-path-traversal (store.py resolve + is_relative_to)
+  sentinel-fix-shell-bypass (&, \n, \r zu Metachar-Blocklist)
+GIT_CONFIG: remote.origin.fetch muss '+refs/heads/*:refs/remotes/origin/*' sein
+  WRONG: nur main fetchen → git merge origin/branch schlägt fehl
+  FIX: git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
