@@ -197,7 +197,7 @@ piclaw backup       # Backup erstellen
 
 ## 🛡️ Sicherheit
 
-PiClaw OS wurde vor dem Release einem vollständigen Security-Audit unterzogen. Alle kritischen Schwachstellen wurden behoben:
+PiClaw OS wurde vor dem Release einem Security-Audit, nach bestem Wissen und gewissen unterzogen. Es wurden folgende kritischen Schwachstellen behoben:
 
 - ✅ WhatsApp Webhook Auth-Bypass geschlossen
 - ✅ Firewall auf LAN-IPs eingeschränkt (nicht internet-weit)
@@ -209,6 +209,8 @@ PiClaw OS wurde vor dem Release einem vollständigen Security-Audit unterzogen. 
 - ✅ IP-Validierung in Network-Security-Tools (v0.17)
 - ✅ Command-Injection in Updater via `shlex.quote` (v0.17)
 - ✅ Network-Tool komplett auf `subprocess_exec` umgestellt (v0.17)
+
+Es wird darauf hingewiesen das es sich um ein Amateur-Projekt handelt und es nach wie vor schwerwiegende unentdeckte Lücken geben kann.
 
 Mehr Details: [SECURITY.md](SECURITY.md)
 
