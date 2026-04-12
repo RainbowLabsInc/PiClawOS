@@ -373,6 +373,9 @@ class SubAgentRunner:
         if agent.direct_tool == "marketplace_monitor":
             return await self._run_marketplace_monitor(agent)
 
+        if agent.direct_tool == "parcel_monitor":
+            return await self._run_parcel_monitor(agent)
+
         handler = self.handlers.get(agent.direct_tool)
         if not handler:
             return f"[ERROR] Direct tool '{agent.direct_tool}' nicht gefunden."
@@ -424,6 +427,17 @@ class SubAgentRunner:
 
         from piclaw.tools.marketplace import format_results_telegram
         return format_results_telegram(result)
+
+    async def _run_parcel_monitor(self, agent: SubAgentDef) -> str:
+        """
+        Paket-Monitor: Prüft alle aktiven Pakete auf Statusänderungen.
+        Kein mission-JSON nötig – liest direkt aus parcels.json.
+        """
+        try:
+            from piclaw.tools.parcel_tracking import parcel_monitor_check
+            return await parcel_monitor_check()
+        except Exception as e:
+            return f"[ERROR] parcel_monitor Fehler: {e}"
 
     def _is_quiet_network_result(self, result: str) -> bool:
         """
