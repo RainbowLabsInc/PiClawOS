@@ -19,12 +19,14 @@ TOOL_DEFS = [
     ),
     ToolDefinition(
         name="wifi_connect",
-        description="Connect to a WiFi network.",
+        description=(
+            "Connect to a WiFi network by SSID. Uses saved credentials if available. "
+            "If no saved credentials exist, tell the user to run 'nmcli dev wifi connect SSID password PASS' directly on the Pi terminal."
+        ),
         parameters={
             "type": "object",
             "properties": {
                 "ssid": {"type": "string", "description": "Network name (SSID)"},
-                "password": {"type": "string", "description": "WiFi password"},
             },
             "required": ["ssid"],
         },
