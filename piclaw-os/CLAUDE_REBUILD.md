@@ -1019,3 +1019,49 @@ FIX_ALGORITHM: Iterativer per-Sequenz-Fixer
 LEARNING: Ganzdatei-Demojibake schlägt fehl bei gemischten Dateien
   (einige Chars sauber UTF-8, andere mojibaked → encode('latin-1') wirft UnicodeEncodeError)
   Lösung: Per-Sequenz-Ansatz mit iterativen Runden
+
+### Security Audit (Session 10)
+AUDIT_DATE: 2026-04-12
+SCOPE: Alle Python-Dateien in piclaw/
+
+FIXED:
+  SEC-7: WiFi-Passwort aus LLM Tool-Definition entfernt
+    network.py: wifi_connect hat keinen password-Parameter mehr
+    Nutzer muss Passwort direkt im Terminal eingeben
+  SEC-8: Verschlüsselter Secret-Store (piclaw/secrets.py)
+    Algorithmus: Fernet (AES-128-CBC + HMAC-SHA256)
+    Key: PBKDF2(Pi-CPU-Serial + Random-Salt, 100k Iterationen)
+    Dateien: /etc/piclaw/secrets.enc (chmod 600), /etc/piclaw/.secret_salt
+    Migration: piclaw secrets migrate (config.toml → secrets.enc)
+    Integration: config.load() → inject_secrets_into_config()
+    Shell-Blocklist erweitert: secrets.enc, .secret_salt, /etc/shadow, passwd, useradd, usermod, visudo
+  SEC-9: API Rate Limiting (auth.py)
+    10 Fehlversuche pro IP → 15 Min Lockout (_LOCKOUT_SECONDS=900)
+    Auto-Cleanup alle 5 Min
+    Constant-time Token-Vergleich (secrets.compare_digest)
+
+EVALUATED_NO_CHANGE:
+  SEC-1: Shell Allowlist (python3, pip, curl, wget)
+    Benötigt für ClawHub Skills + LLM Self-Configuration
+    Risiko akzeptiert, mitigiert durch: Secrets nicht mehr in config.toml
+  SEC-2: HTTP Tool (SSRF-Vektor)
+    Benötigt für LLM Web-Zugriff + ClawHub
+    Risiko akzeptiert, mitigiert durch: Secrets verschlüsselt
+  SEC-3: Shell Blocklist
+    Erweitert (secrets.enc etc.), aber python3 -c Bypass bleibt (nötig für 1)
+  SEC-4: Updater create_subprocess_shell
+    INSTALL_DIR hardcoded, repo_url via shlex.quote(), Token via credential store
+    Kein relevantes Risiko → kein Change
+
+ROADMAP_SECURITY:
+  Watchdog Soul-Guard: Überwacht SOUL.md auf unerwartete Änderungen
+  Watchdog Memory-Injection-Detection: Scannt QMD Memory auf Prompt-Injection Patterns
+  HTTP-Tool Private-IP-Filter: Blockiert Zugriffe auf 127.0.0.0/8, 10.0.0.0/8, 192.168.0.0/16
+
+INV_029: cryptography >= 42.0 MUSS installiert sein für Secrets-Store
+  INSTALL: /opt/piclaw/.venv/bin/pip install cryptography --break-system-packages
+  FALLBACK: Ohne cryptography bleiben Secrets in config.toml (Klartext)
+
+INV_030: Nach Migration MUSS config.toml KEINE echten API-Keys mehr enthalten
+  CHECK: grep -v '#' /etc/piclaw/config.toml | grep -E 'api_key|token|secret' | grep -v '""'
+  EXPECTED: Alle Werte leer ("") mit Kommentar # @encrypted → secrets.enc
