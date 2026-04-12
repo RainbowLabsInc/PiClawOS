@@ -101,6 +101,13 @@ class ShellConfig:
             "mkfs",
             "dd if=/dev/zero",
             "> /dev/sd",
+            "secrets.enc",
+            ".secret_salt",
+            "/etc/shadow",
+            "passwd --",
+            "useradd",
+            "usermod",
+            "visudo",
         ]
     )
     timeout: int = 30
@@ -249,6 +256,16 @@ def load() -> PiClawConfig:
     cfg.location  = _load_section(LocationConfig,  raw, "location")
     cfg.agent_name = raw.get("agent_name", cfg.agent_name)
     cfg.log_level = raw.get("log_level", cfg.log_level)
+
+    # Secrets aus verschlüsseltem Keyfile laden und in Config injizieren
+    try:
+        from piclaw.secrets import inject_secrets_into_config
+        inject_secrets_into_config(cfg)
+    except ImportError:
+        pass  # cryptography nicht installiert — Secrets bleiben in config.toml
+    except Exception as _sec_err:
+        log.warning("Secrets laden fehlgeschlagen: %s", _sec_err)
+
     return cfg
 
 

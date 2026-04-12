@@ -18,8 +18,10 @@ dependencies = [
     "croniter>=1.4",
     # Timezone detection from coordinates (used in setup wizard)
     "timezonefinder>=6.2",
-    # Local LLM (CPU-only build for Pi 5 arm64)
-    "llama-cpp-python>=0.2.90",
+    # Local LLM (CPU-only build for Pi 5 arm64) – 0.3.20+ for Gemma 4
+    "llama-cpp-python>=0.3.20",
+    # Encrypted secrets store
+    "cryptography>=42.0",
     # Messaging adapters
     "discord.py>=2.3",
     "threema.gateway[e2e]>=8.0",

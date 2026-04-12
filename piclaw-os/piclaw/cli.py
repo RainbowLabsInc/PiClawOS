@@ -53,6 +53,8 @@ Commands:
   skill             Manage ClawHub skills (search, install, list, remove)
   briefing send     Generate and send via messaging (morning/evening/status)
   update            Update PiClaw via git pull (update check|piclaw|system)
+  secrets status    Show encrypted secret keys (no values)
+  secrets migrate   Migrate API keys from config.toml to encrypted store
   setup             First-boot setup wizard (LLM, Telegram, Soul)
   help              This message
 
@@ -1229,6 +1231,53 @@ def cmd_debug(args: list):
     asyncio.run(_run())
 
 
+def cmd_secrets(args: list):
+    """Verschlüsseltes Secrets-Management."""
+    sub = args[0] if args else "status"
+
+    if sub == "migrate":
+        try:
+            from piclaw.secrets import migrate_from_config
+            n = migrate_from_config()
+            if n > 0:
+                print(f"\n✅ {n} Secret(s) nach secrets.enc migriert.")
+                print("   API-Keys in config.toml durch Platzhalter ersetzt.")
+                print("   Neustart: sudo systemctl restart piclaw-agent piclaw-api\n")
+            else:
+                print("\n✅ Keine Migration nötig – Secrets bereits migriert oder keine Keys in config.toml.\n")
+        except ImportError:
+            print("\n❌ 'cryptography' nicht installiert.")
+            print("   /opt/piclaw/.venv/bin/pip install cryptography --break-system-packages\n")
+        except Exception as e:
+            print(f"\n❌ Fehler: {e}\n")
+
+    elif sub == "status":
+        from piclaw.config import CONFIG_DIR
+        secrets_file = CONFIG_DIR / "secrets.enc"
+        if secrets_file.exists():
+            try:
+                from piclaw.secrets import list_keys
+                keys = list_keys()
+                print(f"\n🔐 Secrets-Store: {secrets_file}")
+                print(f"   {len(keys)} verschlüsselte Keys:")
+                for k in keys:
+                    # Nur den Key-Namen zeigen, nie den Wert
+                    print(f"   • {k}")
+                print()
+            except ImportError:
+                print("\n⚠️ 'cryptography' nicht installiert – secrets.enc nicht lesbar.\n")
+            except Exception as e:
+                print(f"\n❌ Fehler: {e}\n")
+        else:
+            print(f"\n📋 Kein Secrets-Store gefunden ({secrets_file})")
+            print("   Migrieren mit: piclaw secrets migrate\n")
+
+    else:
+        print("\nUsage: piclaw secrets [status|migrate]")
+        print("  status   – Zeigt verschlüsselte Keys (ohne Werte)")
+        print("  migrate  – Migriert API-Keys aus config.toml nach secrets.enc\n")
+
+
 def main():
     import sys
 
@@ -1278,6 +1327,8 @@ def main():
         cmd_llm(args[1:])
     elif cmd == "update":
         cmd_update(args[1:])
+    elif cmd == "secrets":
+        cmd_secrets(args[1:])
     elif cmd == "debug":
         cmd_debug(args[1:])
     elif cmd in ("help", "-h", "--help"):
