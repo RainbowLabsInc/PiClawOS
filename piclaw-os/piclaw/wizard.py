@@ -2,17 +2,17 @@
 PiClaw OS -- Interaktiver Konfigurations-Wizard (SSH/Terminal)
 ============================================================
 
-FÃ¼hrt schrittweise durch die komplette Ersteinrichtung.
-Laeuft vollstÃ¤ndig im Terminal -- kein Browser, kein GUI nÃ¶tig.
+Führt schrittweise durch die komplette Ersteinrichtung.
+Laeuft vollständig im Terminal -- kein Browser, kein GUI nötig.
 
 Features:
   - Visueller Fortschrittsbalken + Schritt-Nummern
   - Validierung mit sofortigem Feedback (LLM-Test, Telegram-Test)
   - Retry bei ungueltigen Eingaben
   - Maskierte Anzeige vorhandener Secrets
-  - Alle Schritte Ã¼berspringbar mit Enter
-  - Farbiges Diff der Ãnderungen am Ende
-  - Neustart-Hinweis wenn nÃ¶tig
+  - Alle Schritte überspringbar mit Enter
+  - Farbiges Diff der Änderungen am Ende
+  - Neustart-Hinweis wenn nötig
 
 Aufruf: piclaw setup
 """
@@ -31,19 +31,19 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# ââ SSH / TTY-Erkennung ââââââââââââââââââââââââââââââââââââââââââââ
-# Laeuft der Wizard Ã¼ber SSH oder eine einfache serielle Konsole,
-# ist stdin kein echter TTY -> getpass fÃ¤llt auf normale Eingabe zurÃ¼ck,
-# ANSI-Farben werden unterdrÃ¼ckt falls TERM ungesetzt ist.
+# ── SSH / TTY-Erkennung ────────────────────────────────────────────
+# Laeuft der Wizard über SSH oder eine einfache serielle Konsole,
+# ist stdin kein echter TTY -> getpass fällt auf normale Eingabe zurück,
+# ANSI-Farben werden unterdrückt falls TERM ungesetzt ist.
 
 _IS_TTY = sys.stdin.isatty() and sys.stdout.isatty()
 _NO_COLOR = (
     not _IS_TTY or os.environ.get("NO_COLOR") or os.environ.get("TERM") == "dumb"
 )
 
-# UTF-8 sicher? (Ã¤ltere Pis / serielle Konsolen kÃ¶nnen ASCII-only sein)
+# UTF-8 sicher? (ältere Pis / serielle Konsolen können ASCII-only sein)
 try:
-    "ââ".encode(sys.stdout.encoding or "ascii")
+    "✓✗".encode(sys.stdout.encoding or "ascii")
     _UTF8 = True
 except (UnicodeEncodeError, LookupError):
     _UTF8 = False
@@ -51,7 +51,7 @@ except (UnicodeEncodeError, LookupError):
 TERMINAL_WIDTH = shutil.get_terminal_size((80, 24)).columns
 
 
-# ââ ANSI Farben -- deaktiviert wenn kein echtes Terminal âââââââââââ
+# ── ANSI Farben -- deaktiviert wenn kein echtes Terminal ───────────
 def _c(code: str) -> str:
     return "" if _NO_COLOR else code
 
@@ -70,21 +70,21 @@ FG_WHITE = _c("\033[97m")
 FG_GRAY = _c("\033[90m")
 
 
-# ââ Symbole -- ASCII-Fallback wenn kein UTF-8 ââââââââââââââââââââââ
+# ── Symbole -- ASCII-Fallback wenn kein UTF-8 ──────────────────────
 def _sym(utf8: str, ascii_: str) -> str:
     return utf8 if _UTF8 else ascii_
 
 
-OK_SYM = _sym("â", "OK")
-SKIP_SYM = _sym("â", "->")
-WARN_SYM = _sym("â ", "!")
-ERR_SYM = _sym("â", "X")
-INFO_SYM = _sym("Â·", "*")
-SPIN_SYM = _sym("â³", "~")
-ARROW = _sym("â¯", ">")
+OK_SYM = _sym("✓", "OK")
+SKIP_SYM = _sym("→", "->")
+WARN_SYM = _sym("⚠", "!")
+ERR_SYM = _sym("✗", "X")
+INFO_SYM = _sym("·", "*")
+SPIN_SYM = _sym("⟳", "~")
+ARROW = _sym("❯", ">")
 
 
-# ââ Hilfsfunktionen ââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Hilfsfunktionen ────────────────────────────────────────────────
 
 
 def _w(n: int = 1) -> None:
@@ -92,11 +92,11 @@ def _w(n: int = 1) -> None:
     print("\n" * (n - 1))
 
 
-def _rule(char: str = "â", color: str = FG_GRAY) -> None:
+def _rule(char: str = "─", color: str = FG_GRAY) -> None:
     print(f"{color}{char * min(TERMINAL_WIDTH, 72)}{R}")
 
 
-def _header(step: int, total: int, title: str, icon: str = "â") -> None:
+def _header(step: int, total: int, title: str, icon: str = "◆") -> None:
     _w()
     _rule()
     filled = round((step / total) * 20)
@@ -142,14 +142,14 @@ def _info(msg: str) -> None:
 def _mask(val: str, show: int = 6) -> str:
     if not val:
         return f"{FG_GRAY}(nicht gesetzt){R}"
-    mask_char = "*" if not _UTF8 else "â"
+    mask_char = "*" if not _UTF8 else "●"
     if len(val) <= show:
         return f"{FG_YELLOW}{mask_char * len(val)}{R}"
     return f"{FG_YELLOW}{mask_char * (len(val) - show)}{val[-show:]}{R}"
 
 
 def _flush_stdin() -> None:
-    """Leert gepufferte Eingaben aus stdin (verhindert ungewolltes Ãberspringen)."""
+    """Leert gepufferte Eingaben aus stdin (verhindert ungewolltes Überspringen)."""
     try:
         import termios
 
@@ -161,7 +161,7 @@ def _flush_stdin() -> None:
 def _prompt(label: str, default: str = "", secret: bool = False) -> str:
     """
     Eingabezeile -- SSH-sicher:
-    - stdin wird vor jeder Eingabe geleert (verhindert Ãberspringen durch gepufferte Newlines)
+    - stdin wird vor jeder Eingabe geleert (verhindert Überspringen durch gepufferte Newlines)
     - secret=True  ->  Eingabe trotzdem sichtbar (Token wird in config gespeichert, kein Passwort)
     """
     suffix = (
@@ -187,7 +187,7 @@ def _prompt(label: str, default: str = "", secret: bool = False) -> str:
 def _choice(
     label: str, options: list[tuple[str, str, str]], default: str | None = None
 ) -> str:
-    """AuswahlmenÃ¼. options = [(key, label, description), ...]"""
+    """Auswahlmenü. options = [(key, label, description), ...]"""
     print(f"\n  {B}{label}{R}\n")
     for key, lbl, desc in options:
         marker = f"{FG_GREEN}[{key}]{R}" if key == default else f"{FG_BLUE}[{key}]{R}"
@@ -234,7 +234,7 @@ def _header(step: int, total: int, title: str, icon: str = "#") -> None:
 
 
 def _test_async(coro) -> tuple[bool, str]:
-    """FÃ¼hrt eine async Funktion synchron aus und gibt (ok, message) zurÃ¼ck."""
+    """Führt eine async Funktion synchron aus und gibt (ok, message) zurück."""
     try:
         loop = asyncio.new_event_loop()
         return loop.run_until_complete(coro)
@@ -244,7 +244,7 @@ def _test_async(coro) -> tuple[bool, str]:
         loop.close()
 
 
-# ââ Validatoren ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Validatoren ────────────────────────────────────────────────────
 
 
 async def _validate_llm(
@@ -254,7 +254,7 @@ async def _validate_llm(
         from piclaw.llm.base import Message
         from piclaw.llm.api import OpenAIBackend, AnthropicBackend
 
-        # Direkt das passende Backend instanziieren â kein MultiLLMRouter,
+        # Direkt das passende Backend instanziieren – kein MultiLLMRouter,
         # der wuerde boot() benoetigen und haengt im Wizard-Kontext
         if backend == "anthropic":
             b = AnthropicBackend(
@@ -283,9 +283,9 @@ async def _validate_llm(
         return False, "Timeout -- API erreichbar?"
     except Exception as e:
         msg = str(e)
-        # 429 = Quota Ã¼berschritten, aber Key ist gÃ¼ltig
+        # 429 = Quota überschritten, aber Key ist gültig
         if "429" in msg:
-            return True, "Key gÃ¼ltig (Quota-Limit erreicht)"
+            return True, "Key gültig (Quota-Limit erreicht)"
         return False, msg[:120]
 
 
@@ -305,7 +305,7 @@ async def _validate_telegram(token: str, chat_id: str) -> tuple[bool, str]:
             ) as r:
                 data = await r.json()
                 if data.get("ok"):
-                    return True, "Testnachricht gesendet â"
+                    return True, "Testnachricht gesendet ✓"
                 return False, data.get("description", "Unbekannter Fehler")
     except Exception as e:
         return False, str(e)[:120]
@@ -352,7 +352,7 @@ async def _validate_ollama(base_url: str, model: str) -> tuple[bool, str]:
         return False, str(e)[:120]
 
 
-# ââ Schritt-Funktionen ââââââââââââââââââââââââââââââââââââââââââââ
+# ── Schritt-Funktionen ────────────────────────────────────────────
 
 
 @dataclass
@@ -367,7 +367,7 @@ class WizardState:
 
 def step_welcome(state: WizardState) -> None:
     """Willkommensbildschirm."""
-    border = _sym("â", "=") * min(54, TERMINAL_WIDTH - 4)
+    border = _sym("━", "=") * min(54, TERMINAL_WIDTH - 4)
 
     # Dynamischer Titel: frische Installation vs. Re-run
     cfg = state.cfg
@@ -447,7 +447,7 @@ def step_agent(state: WizardState, step: int, total: int) -> None:
         "Log-Level:",
         [
             ("INFO", "INFO", "Standard -- wichtige Ereignisse"),
-            ("DEBUG", "DEBUG", "AusfÃ¼hrlich -- fÃ¼r Entwicklung"),
+            ("DEBUG", "DEBUG", "Ausführlich -- für Entwicklung"),
             ("WARNING", "WARNING", "Nur Warnungen und Fehler"),
         ],
         default=cfg.log_level,
@@ -475,15 +475,15 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
     print(f"  Aktuell: {status_str}\n")
 
     provider = _choice(
-        "Welchen Anbieter mÃ¶chtest du verwenden?",
+        "Welchen Anbieter möchtest du verwenden?",
         [
             (
                 "1",
                 "API-Key (Auto-Detect)",
                 "Anthropic / OpenAI / Gemini / Mistral / Fireworks / NVIDIA NIM",
             ),
-            ("2", "Ollama (lokal)", "eigener Server Â· kein API-Key"),
-            ("3", "Gemma 2B (Pi)", "offline Â· ~1.5 GB RAM Â· schnell"),  # Standard
+            ("2", "Ollama (lokal)", "eigener Server · kein API-Key"),
+            ("3", "Gemma 2B (Pi)", "offline · ~1.5 GB RAM · schnell"),  # Standard
             ("e", "Behalten", f"aktuell: {cfg.llm.backend}"),
         ],
         default="e",
@@ -491,28 +491,28 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
 
     if provider == "1":
         _w()
-        print(f"  {FG_GRAY}UnterstÃ¼tzte Provider (Auto-Detect anhand Key-PrÃ¤fix):{R}")
+        print(f"  {FG_GRAY}Unterstützte Provider (Auto-Detect anhand Key-Präfix):{R}")
         print(f"  {FG_GRAY}  Anthropic:   sk-ant-...{R}")
         print(f"  {FG_GRAY}  OpenAI:      sk-proj-... oder sk-...{R}")
-        print(f"  {FG_GRAY}  Google:      AIza...  â Gemini 2.0 Flash{R}")
-        print(f"  {FG_GRAY}  Groq:        gsk_...  â Llama 3.3 70B{R}")
+        print(f"  {FG_GRAY}  Google:      AIza...  → Gemini 2.0 Flash{R}")
+        print(f"  {FG_GRAY}  Groq:        gsk_...  → Llama 3.3 70B{R}")
         print(f"  {FG_GRAY}  Mistral:     Key von console.mistral.ai{R}")
         print(f"  {FG_GRAY}  Fireworks:   fw-...{R}")
-        print(f"  {FG_GRAY}  NVIDIA NIM:  nvapi-... â bestes verfÃ¼gbares Modell{R}")
+        print(f"  {FG_GRAY}  NVIDIA NIM:  nvapi-... → bestes verfügbares Modell{R}")
         print(f"  {FG_GRAY}  Cerebras:    csk-...{R}")
         print()
 
         def _try_auto(initial_key: str | None = None) -> bool:
-            """Versucht Auto-Detect. Gibt True zurÃ¼ck wenn gespeichert."""
+            """Versucht Auto-Detect. Gibt True zurück wenn gespeichert."""
             key = initial_key or _prompt("API-Key", secret=True)
             if not key:
-                _skip("Ãbersprungen")
+                _skip("Übersprungen")
                 return True  # abgebrochen, nicht wiederholen
 
             from piclaw.llm.api import detect_provider_and_model
 
             _flush_stdin()
-            _spinner("API-Key wird geprÃ¼ft (Auto-Detect)...")
+            _spinner("API-Key wird geprüft (Auto-Detect)...")
             try:
                 loop = asyncio.new_event_loop()
                 detected_backend, base_url, model = loop.run_until_complete(
@@ -570,7 +570,7 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
         def _do_manual():
             """Manuelle LLM-Konfiguration."""
             _w()
-            print(f"  {FG_GRAY}Manuelle Konfiguration â alle Parameter selbst eingeben{R}")
+            print(f"  {FG_GRAY}Manuelle Konfiguration – alle Parameter selbst eingeben{R}")
             print()
             providers = [
                 ("openai",     "OpenAI-kompatibel (NIM, Together, Groq, Cerebras, ...)"),
@@ -612,14 +612,14 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
             state.restart_needed = True
             _ok(f"Gespeichert: {backend} / {model}")
 
-        # Hauptloop: Auto-Detect mit WiederholungsmÃ¶glichkeit
+        # Hauptloop: Auto-Detect mit Wiederholungsmöglichkeit
         while not _try_auto():
             pass
 
     elif provider == "2":
         default_url = getattr(cfg.llm, "base_url", "") or "http://localhost:11434"
         url = _prompt("Ollama-URL", default=default_url) or default_url
-        # qwen2.5:3b: bestes Tool Calling in dieser GrÃ¶Ãe, ~2GB, Pi 5-tauglich
+        # qwen2.5:3b: bestes Tool Calling in dieser Größe, ~2GB, Pi 5-tauglich
         _cur = getattr(cfg.llm, "model", "") or ""
         _cur_backend = getattr(cfg.llm, "backend", "")
         _default_model = _cur if (_cur and _cur_backend == "ollama") else "qwen2.5:3b"
@@ -636,9 +636,9 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
             _info("Ollama installieren und Modell laden:")
             print(f"  {FG_GRAY}  curl -fsSL https://ollama.com/install.sh | sh{R}")
             print(f"  {FG_GRAY}  ollama pull {model}{R}")
-            print(f"  {FG_GRAY}  (ollama lÃ¤uft danach automatisch als Service){R}")
+            print(f"  {FG_GRAY}  (ollama läuft danach automatisch als Service){R}")
             print()
-            _info("Config wird trotzdem gespeichert â Ollama kann spÃ¤ter gestartet werden.")
+            _info("Config wird trotzdem gespeichert – Ollama kann später gestartet werden.")
 
         cfg.llm.backend = "ollama"
         cfg.llm.base_url = url
@@ -654,7 +654,7 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
         cfg.llm.model = "/etc/piclaw/models/gemma-2b-q4.gguf"
         state.mark("llm -> local/gemma2b")
         state.restart_needed = True
-        _ok("Gemma 2B gewÃ¤hlt (Standard â schnellstes empfohlenes Modell)")
+        _ok("Gemma 2B gewählt (Standard – schnellstes empfohlenes Modell)")
         print()
         ans = (
             input(
@@ -665,7 +665,7 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
         )
         if ans in ("", "j", "y"):
             print()
-            _info("Lade Gemma 2B herunter â bitte warten...")
+            _info("Lade Gemma 2B herunter – bitte warten...")
             import subprocess
             import sys
 
@@ -676,22 +676,22 @@ def step_llm(state: WizardState, step: int, total: int) -> None:
             if result.returncode == 0:
                 _ok("Gemma 2B erfolgreich heruntergeladen")
             else:
-                _warn("Download fehlgeschlagen â spÃ¤ter manuell: piclaw model download")
+                _warn("Download fehlgeschlagen – später manuell: piclaw model download")
         else:
-            _info("Modell spÃ¤ter herunterladen: piclaw model download  (~1.6 GB)")
+            _info("Modell später herunterladen: piclaw model download  (~1.6 GB)")
 
     else:
         _skip(f"Behalten: {cfg.llm.backend}")
 
 
-# Mapping: Zweck-Label â Tags die der Router verwendet
+# Mapping: Zweck-Label → Tags die der Router verwendet
 _PURPOSE_TAGS = {
     "1": (["coding", "debugging", "analysis"], "Coding & Debugging"),
     "2": (["general", "chat", "reasoning"], "Chat & Allgemein"),
     "3": (["creative", "writing"], "Kreatives Schreiben"),
     "4": (
         ["summarization", "translation", "research"],
-        "Zusammenfassung & Ãbersetzung",
+        "Zusammenfassung & Übersetzung",
     ),
     "5": (["math", "science", "analysis"], "Mathematik & Wissenschaft"),
     "6": (["fast", "general"], "Schnelle Antworten"),
@@ -704,9 +704,9 @@ _PURPOSE_TAGS = {
 
 
 def _ask_purpose() -> list[str]:
-    """Fragt nach dem Verwendungszweck und gibt Tags zurÃ¼ck."""
+    """Fragt nach dem Verwendungszweck und gibt Tags zurück."""
     print()
-    print("  WofÃ¼r soll dieses Backend bevorzugt eingesetzt werden?")
+    print("  Wofür soll dieses Backend bevorzugt eingesetzt werden?")
     print("  (Mehrfachauswahl mit Komma, z.B. 1,3)")
     print()
     for k, (_, label) in _PURPOSE_TAGS.items():
@@ -729,31 +729,31 @@ def _ask_purpose() -> list[str]:
 
 
 def step_llm_extra(state: WizardState, step: int, total: int) -> None:
-    """Schritt: Weitere LLM-Backends zur Registry hinzufÃ¼gen."""
+    """Schritt: Weitere LLM-Backends zur Registry hinzufügen."""
     _header(step, total, "Weitere LLM-Backends -- optional", "[LLM+]")
     from piclaw.llm.registry import LLMRegistry, BackendConfig
 
     registry = LLMRegistry()
 
     print("  Hier kannst du weitere LLM-Backends registrieren.")
-    print("  FÃ¼r jeden Backend legst du fest wofÃ¼r er zustÃ¤ndig ist.")
-    print("  Der Router wÃ¤hlt dann automatisch das passende Modell.")
+    print("  Für jeden Backend legst du fest wofür er zuständig ist.")
+    print("  Der Router wählt dann automatisch das passende Modell.")
     print()
 
     while True:
         ans = (
-            input(f"  {FG_BLUE}{ARROW}{R} Backend hinzufÃ¼gen? [j/N]: ").strip().lower()
+            input(f"  {FG_BLUE}{ARROW}{R} Backend hinzufügen? [j/N]: ").strip().lower()
         )
         if ans not in ("j", "y"):
             break
 
         print()
         print("  Anbieter:")
-        print(f"    [1]  NVIDIA NIM     {FG_GRAY}nvapi-... â Llama 3.3 70B (empfohlen){R}")
-        print(f"    [2]  Groq           {FG_GRAY}gsk_... â Llama 3.3 70B (sehr schnell, free){R}")
-        print(f"    [3]  Cerebras       {FG_GRAY}csk-... â Llama 3.3 70B (schnellste API){R}")
-        print(f"    [4]  Google Gemini  {FG_GRAY}AIza... â Gemini 2.0 Flash{R}")
-        print(f"    [5]  Anthropic      {FG_GRAY}sk-ant-... â Claude Sonnet{R}")
+        print(f"    [1]  NVIDIA NIM     {FG_GRAY}nvapi-... → Llama 3.3 70B (empfohlen){R}")
+        print(f"    [2]  Groq           {FG_GRAY}gsk_... → Llama 3.3 70B (sehr schnell, free){R}")
+        print(f"    [3]  Cerebras       {FG_GRAY}csk-... → Llama 3.3 70B (schnellste API){R}")
+        print(f"    [4]  Google Gemini  {FG_GRAY}AIza... → Gemini 2.0 Flash{R}")
+        print(f"    [5]  Anthropic      {FG_GRAY}sk-ant-... → Claude Sonnet{R}")
         print(f"    [6]  OpenAI-kompatibel {FG_GRAY}beliebiger Anbieter{R}")
         print(f"    [7]  Lokales Modell {FG_GRAY}GGUF-Datei{R}")
         print()
@@ -770,7 +770,7 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
             model = _prompt("Modell", default=default_model) or default_model
             _flush_stdin()
             name = _prompt("Name (eindeutig)", default=default_name) or default_name
-            priority = int(_prompt("PrioritÃ¤t (1-10)", default=str(default_prio)) or str(default_prio))
+            priority = int(_prompt("Priorität (1-10)", default=str(default_prio)) or str(default_prio))
             tags = _ask_purpose()
             _spinner("Verbindung testen")
             ok, msg = _test_async(_validate_llm("openai", key, model, base_url))
@@ -786,19 +786,19 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
                 name=name, provider="openai", model=model, api_key=key,
                 base_url=base_url, priority=priority, tags=tags,
                 temperature=temperature,
-                notes=f"Zweck: {', '.join(tags)} â via Setup-Wizard",
+                notes=f"Zweck: {', '.join(tags)} – via Setup-Wizard",
             )
             registry.add(bc)
             _ok(f"Backend '{name}' gespeichert  {FG_GRAY}Tags: {', '.join(tags)}{R}")
             return True
 
         if prov_choice == "1":
-            # NVIDIA NIM â mit Live-Modell-Detection
+            # NVIDIA NIM – mit Live-Modell-Detection
             _flush_stdin()
             key = _prompt("NVIDIA NIM API-Key (nvapi-...)", secret=True)
             if not key:
                 continue
-            _spinner("VerfÃ¼gbare Modelle abrufen...")
+            _spinner("Verfügbare Modelle abrufen...")
             from piclaw.llm.api import _detect_nim_model
             loop2 = asyncio.new_event_loop()
             nim_model = loop2.run_until_complete(
@@ -839,14 +839,14 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
         elif prov_choice == "5":
             # Anthropic
             _flush_stdin()
-            key = _prompt("Anthropic API-Key (sk-ant-â¦)", secret=True)
+            key = _prompt("Anthropic API-Key (sk-ant-…)", secret=True)
             if not key:
                 continue
             _flush_stdin()
             model = _prompt("Modell", default="claude-sonnet-4-20250514") or "claude-sonnet-4-20250514"
             _flush_stdin()
             name = _prompt("Name", default="claude-fallback") or "claude-fallback"
-            priority = int(_prompt("PrioritÃ¤t", default="7") or "7")
+            priority = int(_prompt("Priorität", default="7") or "7")
             tags = _ask_purpose()
             _spinner("Verbindung testen")
             ok, msg = _test_async(_validate_llm("anthropic", key, model, "https://api.anthropic.com"))
@@ -861,7 +861,7 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
             bc = BackendConfig(
                 name=name, provider="anthropic", model=model, api_key=key,
                 base_url="https://api.anthropic.com", priority=priority, tags=tags,
-                notes=f"Zweck: {', '.join(tags)} â via Setup-Wizard",
+                notes=f"Zweck: {', '.join(tags)} – via Setup-Wizard",
             )
             registry.add(bc)
             _ok(f"Backend '{name}' gespeichert  {FG_GRAY}Tags: {', '.join(tags)}{R}")
@@ -880,14 +880,14 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
                 _prompt("Pfad zur GGUF-Datei", default=default_path) or default_path
             )
             name = _prompt("Name", default="local-gemma") or "local-gemma"
-            priority = int(_prompt("PrioritÃ¤t", default="3") or "3")
+            priority = int(_prompt("Priorität", default="3") or "3")
             tags = _ask_purpose()
 
             from pathlib import Path
 
             if not Path(model_path).exists():
                 _warn(f"Datei nicht gefunden: {model_path}")
-                _info("SpÃ¤ter herunterladen: piclaw model download")
+                _info("Später herunterladen: piclaw model download")
             else:
                 _ok(f"Modell gefunden: {model_path}")
 
@@ -899,7 +899,7 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
                 base_url="",
                 priority=priority,
                 tags=tags,
-                notes=f"Lokales GGUF â Zweck: {', '.join(tags)}",
+                notes=f"Lokales GGUF – Zweck: {', '.join(tags)}",
             )
             registry.add(bc)
             _ok(
@@ -915,8 +915,8 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
     if current:
         print(f"  Registrierte Backends ({len(current)}):")
         for b in current:
-            status = "â" if b.enabled else "â¸"
-            print(f"    {status} [{b.priority}] {b.name} â {b.provider}/{b.model[:40]}")
+            status = "✅" if b.enabled else "⏸"
+            print(f"    {status} [{b.priority}] {b.name} – {b.provider}/{b.model[:40]}")
     print()
 
 
@@ -1006,7 +1006,7 @@ def step_discord(state: WizardState, step: int, total: int) -> None:
         _skip("Discord nicht konfiguriert")
         return
 
-    _spinner("Token prÃ¼fen")
+    _spinner("Token prüfen")
     ok, msg = _test_async(_validate_discord_token(token))
     _clear_line()
     if ok:
@@ -1221,7 +1221,7 @@ def step_mqtt(state: WizardState, step: int, total: int) -> None:
         state.mark(f"mqtt -> {broker}:{port}")
         _ok(f"MQTT gespeichert: {broker}:{port}")
         if ha_disc != "n":
-            _info("Home Assistant erkennt PiClaw automatisch nach dem nÃ¤chsten Start")
+            _info("Home Assistant erkennt PiClaw automatisch nach dem nächsten Start")
     except Exception as e:
         _err(f"Speichern fehlgeschlagen: {e}")
 
@@ -1414,11 +1414,11 @@ def step_wifi(state: WizardState, step: int, total: int) -> None:
             _warn("Keine aktive WLAN-Verbindung gefunden")
             print()
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        _info("nmcli nicht verfÃ¼gbar -- WLAN manuell konfigurieren")
-        _skip("Ãbersprungen")
+        _info("nmcli nicht verfügbar -- WLAN manuell konfigurieren")
+        _skip("Übersprungen")
         return
 
-    # VerfÃ¼gbare Netzwerke scannen
+    # Verfügbare Netzwerke scannen
     try:
         _spinner("Netzwerke suchen")
         scan = subprocess.run(
@@ -1437,7 +1437,7 @@ def step_wifi(state: WizardState, step: int, total: int) -> None:
         if nets:
             print(f"\n  {FG_GRAY}Gefundene Netzwerke:{R}")
             for ssid, signal in nets[:8]:
-                bars = "ââââ"[min(3, int(signal or 0) // 25)]
+                bars = "▂▄▆█"[min(3, int(signal or 0) // 25)]
                 print(f"    {FG_GRAY}{bars}{R}  {ssid}")
     except Exception as _e:
         log.debug("wifi scan display: %s", _e)
@@ -1466,7 +1466,7 @@ def step_wifi(state: WizardState, step: int, total: int) -> None:
 
 
 def step_proactive(state: WizardState, step: int, total: int) -> None:
-    """Schritt: Proaktiver Agent â Briefings & Routinen."""
+    """Schritt: Proaktiver Agent – Briefings & Routinen."""
     _header(step, total, "Proaktiver Agent -- Briefings & Routinen", "[Auto]")
 
     print("  PiClaw kann dich automatisch informieren -- ohne dass du fragst.\n")
@@ -1486,7 +1486,7 @@ def step_proactive(state: WizardState, step: int, total: int) -> None:
     ]
 
     choices: list[str] = []
-    custom_cron: dict[str, str] = {}  # key â angepasste Cron-Expression
+    custom_cron: dict[str, str] = {}  # key → angepasste Cron-Expression
 
     print(f"  {B}Welche Routinen aktivieren?{R}")
     print(f"  {FG_GRAY}(Leerzeichen fuer keine, Enter fuer Vorschlag){R}\n")
@@ -1631,28 +1631,28 @@ def step_hardware(state: WizardState, step: int, total: int) -> None:
     except Exception as _e:
         log.debug("vcgencmd in wizard: %s", _e)
 
-    # Pi-Modell erkennen â richtigen Standard-Pin wÃ¤hlen
+    # Pi-Modell erkennen → richtigen Standard-Pin wählen
     default_pin = 14  # GPIO14 = PWM0, funktioniert auf Pi 4 + Pi 5
     try:
         cpuinfo = Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="replace")
         if "Raspberry Pi 5" in cpuinfo:
-            default_pin = 14  # Pi 5: offizieller PWM-LÃ¼fterpin
+            default_pin = 14  # Pi 5: offizieller PWM-Lüfterpin
         elif "Raspberry Pi 4" in cpuinfo:
             default_pin = 14  # Pi 4: GPIO14 (PWM0)
     except Exception:
         pass
 
     print(
-        f"\n  {FG_GRAY}Ein PWM-LÃ¼fter am GPIO-Pin wird automatisch temperaturgesteuert.{R}"
+        f"\n  {FG_GRAY}Ein PWM-Lüfter am GPIO-Pin wird automatisch temperaturgesteuert.{R}"
     )
     print(
-        f"  {FG_GRAY}Standard-Pin: GPIO{default_pin} (funktioniert fÃ¼r die meisten Pi-LÃ¼fter){R}"
+        f"  {FG_GRAY}Standard-Pin: GPIO{default_pin} (funktioniert für die meisten Pi-Lüfter){R}"
     )
-    print(f"  {FG_GRAY}Startet bei 50Â°C, 100% Drehzahl ab 75Â°C{R}")
+    print(f"  {FG_GRAY}Startet bei 50°C, 100% Drehzahl ab 75°C{R}")
 
     _flush_stdin()
     enable_fan = (
-        input(f"\n  {FG_BLUE}{ARROW}{R} LÃ¼fter angeschlossen? [j/N]: ").strip().lower()
+        input(f"\n  {FG_BLUE}{ARROW}{R} Lüfter angeschlossen? [j/N]: ").strip().lower()
     )
 
     if enable_fan == "j":
@@ -1666,7 +1666,7 @@ def step_hardware(state: WizardState, step: int, total: int) -> None:
             try:
                 pin = int(custom)
             except ValueError:
-                _warn(f"UngÃ¼ltige Eingabe, verwende GPIO{default_pin}")
+                _warn(f"Ungültige Eingabe, verwende GPIO{default_pin}")
                 pin = default_pin
 
         try:
@@ -1686,15 +1686,15 @@ def step_hardware(state: WizardState, step: int, total: int) -> None:
             with open(CONFIG_FILE, "wb") as f:
                 tomli_w.dump(raw, f)
             state.mark(f"fan -> GPIO{pin}")
-            _ok(f"LÃ¼fter aktiviert auf GPIO{pin}  (50Â°C Start / 75Â°C Vollgas)")
+            _ok(f"Lüfter aktiviert auf GPIO{pin}  (50°C Start / 75°C Vollgas)")
         except Exception as e:
             _err(f"Speichern fehlgeschlagen: {e}")
     else:
-        _skip("Kein LÃ¼fter")
+        _skip("Kein Lüfter")
 
 
 def step_api_token(state: WizardState, step: int, total: int) -> None:
-    """Schritt: API-Token fÃ¼r Web-UI."""
+    """Schritt: API-Token für Web-UI."""
     _header(step, total, "API-Token -- Web-UI Zugang", "[Token]")
     cfg = state.cfg
 
@@ -1759,22 +1759,22 @@ def step_soul(state: WizardState, step: int, total: int) -> None:
         print()
 
         action = _choice(
-            "Was mÃ¶chtest du tun?",
+            "Was möchtest du tun?",
             [
                 (
                     "e",
                     "Bearbeiten",
                     f"oeffnet $EDITOR ({os.environ.get('EDITOR', 'nano')})",
                 ),
-                ("r", "ZurÃ¼cksetzen", "Standard-Soul wiederherstellen"),
-                ("s", "Behalten", "keine Ãnderung"),
+                ("r", "Zurücksetzen", "Standard-Soul wiederherstellen"),
+                ("s", "Behalten", "keine Änderung"),
             ],
             default="s",
         )
     else:
         _warn("Noch kein Soul vorhanden")
         action = _choice(
-            "Was mÃ¶chtest du tun?",
+            "Was möchtest du tun?",
             [
                 ("e", "Eigenen Soul erstellen", "oeffnet $EDITOR"),
                 ("d", "Standard-Soul", "wird beim ersten Start erstellt"),
@@ -1790,20 +1790,20 @@ def step_soul(state: WizardState, step: int, total: int) -> None:
             import piclaw.soul as soul_mod
 
             soul_mod.reset()
-            state.mark("soul zurÃ¼ckgesetzt")
+            state.mark("soul zurückgesetzt")
             _ok("Standard-Soul wiederhergestellt")
         except Exception as e:
             _err(f"Reset fehlgeschlagen: {e}")
     else:
-        _skip("Soul unverÃ¤ndert")
+        _skip("Soul unverändert")
 
 
 def _edit_soul_in_editor(soul_path: Path) -> None:
-    """Ãffnet den Soul im Editor oder ermÃ¶glicht Inline-Eingabe."""
+    """Öffnet den Soul im Editor oder ermöglicht Inline-Eingabe."""
     editor = os.environ.get("EDITOR", "")
 
     if not editor:
-        # Suche nach gÃ¤ngigen Editoren
+        # Suche nach gängigen Editoren
         for ed in ("nano", "vim", "vi", "micro"):
             if shutil.which(ed):
                 editor = ed
@@ -1840,15 +1840,15 @@ def _edit_soul_in_editor(soul_path: Path) -> None:
 
 
 def step_summary(state: WizardState, step: int, total: int) -> None:
-    """Abschluss: Zusammenfassung und nÃ¤chste Schritte."""
+    """Abschluss: Zusammenfassung und nächste Schritte."""
     from piclaw.config import save
 
     save(state.cfg)
 
     _w()
-    _rule("â", FG_GREEN)
+    _rule("═", FG_GREEN)
     print(f"\n  {FG_GREEN}{B}" + OK_SYM + "  Konfiguration gespeichert!{R}\n")
-    _rule("â", FG_GREEN)
+    _rule("═", FG_GREEN)
     _w()
 
     if state.changed:
@@ -1901,15 +1901,15 @@ def step_summary(state: WizardState, step: int, total: int) -> None:
     _w()
 
 
-# ââ Haupt-Wizard ââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Haupt-Wizard ──────────────────────────────────────────────────
 
 
 def _block_status(name: str, cfg: object) -> tuple[str, str]:
-    """Gibt (badge, hinweis) zurÃ¼ck fÃ¼r einen Block basierend auf der Config.
+    """Gibt (badge, hinweis) zurück für einen Block basierend auf der Config.
 
-    RÃ¼ckgabe:
-      badge  â "â", "â ï¸ " oder "â¬"
-      hinweis â kurzer Klartext was fehlt (leer wenn ok)
+    Rückgabe:
+      badge  – "✅", "⚠️ " oder "⬜"
+      hinweis – kurzer Klartext was fehlt (leer wenn ok)
     """
     def _get(*attrs):
         obj = cfg
@@ -1927,7 +1927,7 @@ def _block_status(name: str, cfg: object) -> tuple[str, str]:
         tok_ok = bool(_get("api", "secret_key"))
         agent_ok = bool(_get("agent_name"))
         if llm_ok and tok_ok and agent_ok:
-            return "â", ""
+            return "✅", ""
         missing = []
         if not llm_ok:
             missing.append("LLM")
@@ -1935,7 +1935,7 @@ def _block_status(name: str, cfg: object) -> tuple[str, str]:
             missing.append("API-Token")
         if not agent_ok:
             missing.append("Agent-Name")
-        return "â ï¸ ", "fehlt: " + ", ".join(missing)
+        return "⚠️ ", "fehlt: " + ", ".join(missing)
 
     if name == "Kommunikation":
         tg_ok = bool(_get("telegram", "token") and _get("telegram", "chat_id"))
@@ -1949,8 +1949,8 @@ def _block_status(name: str, cfg: object) -> tuple[str, str]:
                 configured.append("Discord")
             if am_ok:
                 configured.append("AgentMail")
-            return "â", ", ".join(configured)
-        return "â¬", "kein Messenger konfiguriert"
+            return "✅", ", ".join(configured)
+        return "⬜", "kein Messenger konfiguriert"
 
     if name == "Smart Home":
         ha_ok = bool(_get("homeassistant", "url") and _get("homeassistant", "token"))
@@ -1961,8 +1961,8 @@ def _block_status(name: str, cfg: object) -> tuple[str, str]:
                 configured.append("Home Assistant")
             if mq_ok:
                 configured.append("MQTT")
-            return "â", ", ".join(configured)
-        return "â¬", "nicht eingerichtet"
+            return "✅", ", ".join(configured)
+        return "⬜", "nicht eingerichtet"
 
     if name == "Dienste":
         parcels_file = Path("/etc/piclaw/parcels.json")
@@ -1983,26 +1983,26 @@ def _block_status(name: str, cfg: object) -> tuple[str, str]:
         if soul_ok:
             configured.append("Soul")
         if configured:
-            return "â", ", ".join(configured)
-        return "â¬", "optional â kann spÃ¤ter eingerichtet werden"
+            return "✅", ", ".join(configured)
+        return "⬜", "optional – kann später eingerichtet werden"
 
-    return "â¬", ""
+    return "⬜", ""
 
 
 def run() -> None:
     """
     Einrichtungs-Wizard mit Blockauswahl.
-    Der User wÃ¤hlt welche Bereiche er jetzt einrichten mÃ¶chte.
-    Jeder Schritt kann innerhalb eines Blocks Ã¼bersprungen werden.
+    Der User wählt welche Bereiche er jetzt einrichten möchte.
+    Jeder Schritt kann innerhalb eines Blocks übersprungen werden.
     """
     from piclaw.config import load
 
-    # ââ Alle verfÃ¼gbaren Steps nach BlÃ¶cken ââââââââââââââââââââââ
+    # ── Alle verfügbaren Steps nach Blöcken ──────────────────────
     BLOCKS: list[tuple[str, str, list[tuple[str, object]]]] = [
         (
             "Kern",
-            "ð  Agent-Name, KI-Anbieter (LLM), Web-UI Token\n"
-            "     Mindestanforderung â ohne das startet PiClaw nicht sinnvoll.",
+            "🚀  Agent-Name, KI-Anbieter (LLM), Web-UI Token\n"
+            "     Mindestanforderung – ohne das startet PiClaw nicht sinnvoll.",
             [
                 ("Agent",     step_agent),
                 ("LLM",       step_llm),
@@ -2011,8 +2011,8 @@ def run() -> None:
         ),
         (
             "Kommunikation",
-            "ð¬  Telegram-Bot, Discord\n"
-            "     Benachrichtigungen und Chat Ã¼ber Smartphone.",
+            "💬  Telegram-Bot, Discord\n"
+            "     Benachrichtigungen und Chat über Smartphone.",
             [
                 ("Telegram",  step_telegram),
                 ("Discord",   step_discord),
@@ -2021,8 +2021,8 @@ def run() -> None:
         ),
         (
             "Smart Home",
-            "ð   Home Assistant, MQTT\n"
-            "     Nur relevant wenn ein HA-Server im Netzwerk lÃ¤uft.",
+            "🏠  Home Assistant, MQTT\n"
+            "     Nur relevant wenn ein HA-Server im Netzwerk läuft.",
             [
                 ("Home Assistant", step_homeassistant),
                 ("MQTT",           step_mqtt),
@@ -2038,8 +2038,8 @@ def run() -> None:
         ),
         (
             "Erweitert",
-            "âï¸   Weitere LLMs, Proaktiver Agent, WLAN, Hardware, Soul\n"
-            "     Feintuning â kann auch spÃ¤ter eingerichtet werden.",
+            "⚙️   Weitere LLMs, Proaktiver Agent, WLAN, Hardware, Soul\n"
+            "     Feintuning – kann auch später eingerichtet werden.",
             [
                 ("Weitere LLMs", step_llm_extra),
                 ("Proaktiv",     step_proactive),
@@ -2056,7 +2056,7 @@ def run() -> None:
         step_offset: int,
         total: int,
     ) -> int:
-        """FÃ¼hrt eine Liste von Steps aus. Gibt neue step_offset zurÃ¼ck."""
+        """Führt eine Liste von Steps aus. Gibt neue step_offset zurück."""
         for name, fn in steps:
             step_offset += 1
             try:
@@ -2074,16 +2074,16 @@ def run() -> None:
         state = WizardState(cfg=cfg)
         step_welcome(state)
 
-        # ââ Block-AuswahlmenÃ¼ âââââââââââââââââââââââââââââââââââââ
+        # ── Block-Auswahlmenü ─────────────────────────────────────
         _rule()
         _w()
-        print(f"  {B}Was mÃ¶chtest du jetzt einrichten?{R}\n")
+        print(f"  {B}Was möchtest du jetzt einrichten?{R}\n")
 
         block_badges: list[str] = []
         for i, (name, desc, _steps) in enumerate(BLOCKS, 1):
             badge, hinweis = _block_status(name, state.cfg)
             block_badges.append(badge)
-            badge_col = FG_GREEN if badge == "â" else (FG_YELLOW if "â " in badge else FG_GRAY)
+            badge_col = FG_GREEN if badge == "✅" else (FG_YELLOW if "⚠" in badge else FG_GRAY)
             badge_str = f"{badge_col}{badge}{R}" if not _NO_COLOR else badge
             hinweis_str = f"  {FG_GRAY}({hinweis}){R}" if hinweis else ""
             print(f"  {FG_CYAN}{B}{i}.{R}  {B}{name}{R}  {badge_str}{hinweis_str}")
@@ -2092,10 +2092,10 @@ def run() -> None:
             _w()
 
         total_steps = sum(len(s) for _, _, s in BLOCKS)
-        print(f"  {FG_CYAN}{B}a.{R}  {B}Alles{R}  {FG_GRAY}(alle {total_steps} Schritte â vollstÃ¤ndige Einrichtung){R}")
-        print(f"  {FG_GRAY}0.  Ãberspringen â direkt zur Zusammenfassung{R}")
+        print(f"  {FG_CYAN}{B}a.{R}  {B}Alles{R}  {FG_GRAY}(alle {total_steps} Schritte – vollständige Einrichtung){R}")
+        print(f"  {FG_GRAY}0.  Überspringen – direkt zur Zusammenfassung{R}")
         _w()
-        print(f"  {FG_GRAY}Mehrere BlÃ¶cke: Nummern mit Komma trennen, z.B. {B}1,2{R}")
+        print(f"  {FG_GRAY}Mehrere Blöcke: Nummern mit Komma trennen, z.B. {B}1,2{R}")
         _w()
 
         _flush_stdin()
@@ -2115,25 +2115,25 @@ def run() -> None:
                     if 0 <= idx < len(BLOCKS):
                         selected_blocks.append(idx)
                     else:
-                        _warn(f"Block {part} unbekannt â ignoriert")
+                        _warn(f"Block {part} unbekannt – ignoriert")
 
-        # ââ AusgewÃ¤hlte BlÃ¶cke berechnen ââââââââââââââââââââââââââ
+        # ── Ausgewählte Blöcke berechnen ──────────────────────────
         chosen_steps: list[tuple[str, object]] = []
         for idx in selected_blocks:
             _, _, steps = BLOCKS[idx]
             chosen_steps.extend(steps)
 
-        total = len(chosen_steps) + 1  # +1 fÃ¼r Zusammenfassung
+        total = len(chosen_steps) + 1  # +1 für Zusammenfassung
 
         if not chosen_steps:
-            _info("Keine BlÃ¶cke ausgewÃ¤hlt â Ã¼berspringe zur Zusammenfassung.")
+            _info("Keine Blöcke ausgewählt – überspringe zur Zusammenfassung.")
         else:
             block_names = " + ".join(BLOCKS[i][0] for i in selected_blocks)
             _ok(f"Starte: {block_names}  ({len(chosen_steps)} Schritte)")
             _w()
             _run_steps(state, chosen_steps, step_offset=0, total=total)
 
-        # ââ Hinweis auf noch offene BlÃ¶cke ââââââââââââââââââââââââââ
+        # ── Hinweis auf noch offene Blöcke ──────────────────────────
         skipped = [
             BLOCKS[i][0]
             for i in range(len(BLOCKS))
@@ -2147,7 +2147,7 @@ def run() -> None:
             for bname in skipped:
                 badge, hinweis = _block_status(bname, state.cfg)
                 hint = f"  {FG_GRAY}({hinweis}){R}" if hinweis else ""
-                print(f"     {FG_GRAY}â¢{R}  {bname}{hint}")
+                print(f"     {FG_GRAY}•{R}  {bname}{hint}")
             _w()
             print(f"  {FG_GRAY}Jederzeit nachholen mit: {B}piclaw setup{R}")
             _w()
