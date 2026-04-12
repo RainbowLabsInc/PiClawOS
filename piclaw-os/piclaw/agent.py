@@ -147,6 +147,8 @@ BASE_CAPABILITIES = """\
 
 Du hast fertig implementierte Tools die du SOFORT aufrufen MUSST:
 - marketplace_search: Durchsucht Kleinanzeigen.de, eBay.de nach Inseraten.
+- parcel_add, parcel_status, parcel_remove: Paket-Sendungsverfolgung (DHL, Hermes, DPD, GLS, UPS).
+- parcel_extract: Trackingnummern aus weitergeleiteten E-Mails/Texten extrahieren.
 - ha_turn_on, ha_turn_off, ha_toggle, ha_get_state: Home Assistant Steuerung.
 - network_scan, check_new_devices, wake_device: Netzwerk-Analyse und Wake-on-LAN.
 - shell_exec: Shell-Befehle ausfuehren.
@@ -156,8 +158,9 @@ REGELN - IMMER BEFOLGEN:
 1. NIEMALS erklaeren was du tun wuerdest - sofort das passende Tool aufrufen.
 2. NIEMALS sagen "ich habe keinen Zugriff auf X" - alle Tools sind installiert und bereit.
 3. Bei jeder Marktplatz-Anfrage: marketplace_search SOFORT aufrufen.
-4. FALSCH: "Ich empfehle dir auf kleinanzeigen.de zu suchen..."
-5. RICHTIG: [ruft marketplace_search auf und zeigt Ergebnisse]
+4. Bei Trackingnummern oder Paketfragen: parcel_add oder parcel_status SOFORT aufrufen.
+5. FALSCH: "Ich empfehle dir auf kleinanzeigen.de zu suchen..."
+6. RICHTIG: [ruft marketplace_search auf und zeigt Ergebnisse]
 
 ## Memory-Anweisungen
 
@@ -232,6 +235,11 @@ class Agent:
         from piclaw.tools import installer as installer_mod
 
         _reg(installer_mod.TOOL_DEFS, installer_mod.build_handlers())
+
+        # Paket-Tracking tools
+        from piclaw.tools import parcel_tracking as parcel_mod
+
+        _reg(parcel_mod.TOOL_DEFS, parcel_mod.HANDLERS)
 
         # Home Assistant tools (nur wenn konfiguriert)
         self._ha_client = ha_mod.get_client()
@@ -1248,6 +1256,67 @@ class Agent:
             )
         return "Sub-agent runner nicht bereit."
 
+    # ── Parcel Tracking Intent ───────────────────────────────────────
+
+    # Regex für Trackingnummer-Erkennung in natürlicher Sprache
+    _RE_PARCEL_TRACKING_NR = re.compile(
+        r"(?:^|\s)"
+        r"(1Z[A-Z0-9]{16}|00\d{10,18}|JJD\d{12,18}|JVGL\d{10,16}"
+        r"|TBA\d{10,14}|\d{10,20})"
+        r"(?:\s|$)",
+        re.IGNORECASE,
+    )
+    _RE_PARCEL_KW = re.compile(
+        r"(?i)\b(?:track|tracke|verfolge|paket|sendung|lieferung|paketstatus"
+        r"|wo ist (?:mein |das )?paket|pakete|sendungsverfolgung"
+        r"|trackingnummer|sendungsnummer|paketverfolgung)\b"
+    )
+
+    def _detect_parcel_intent(self, text: str) -> dict | None:
+        """
+        Erkennt Paket-Tracking-Intents:
+        - "Tracke 00340434161094042557"
+        - "Wo ist mein Paket?"
+        - "Pakete" / "Paketstatus"
+        - Weitergeleitete E-Mail mit Trackingnummer
+        """
+        t = text.strip()
+        t_lower = t.lower()
+
+        # 1. Explizite Trackingnummer im Text → parcel_add
+        tn_match = self._RE_PARCEL_TRACKING_NR.search(t)
+        if tn_match and self._RE_PARCEL_KW.search(t_lower):
+            return {"action": "add", "tracking_number": tn_match.group(1).strip()}
+
+        # Trackingnummer ohne Keyword, aber klar als Tracking gemeint
+        # (nur Nummer, oder "00340..." am Anfang)
+        if tn_match and len(t.split()) <= 3:
+            tn = tn_match.group(1).strip()
+            # Nur wenn es wie eine echte Trackingnummer aussieht
+            if len(tn) >= 12 or tn.upper().startswith(("1Z", "JJD", "JVGL", "TBA", "00")):
+                return {"action": "add", "tracking_number": tn}
+
+        # 2. Status-Abfrage: "Wo ist mein Paket?", "Pakete", "Paketstatus"
+        status_kw = (
+            "wo ist mein paket", "wo ist das paket", "paketstatus",
+            "meine pakete", "pakete anzeigen", "sendungsstatus",
+            "paketübersicht", "lieferstatus",
+        )
+        if any(k in t_lower for k in status_kw):
+            return {"action": "status"}
+        # Einzelwort "pakete"
+        if t_lower.strip() in ("pakete", "paket", "sendungen"):
+            return {"action": "status"}
+
+        # 3. Weitergeleitete E-Mail erkennen (langer Text mit Trackingnummern)
+        if len(t) > 100 and self._RE_PARCEL_TRACKING_NR.search(t):
+            # Enthält typische Versand-Keywords?
+            mail_kw = ("versand", "versendet", "shipped", "tracking", "sendungsnummer",
+                       "lieferung", "bestellung", "order", "dhl", "hermes", "dpd", "ups", "gls")
+            if any(k in t_lower for k in mail_kw):
+                return {"action": "extract", "text": t}
+
+        return None
 
     def _detect_marketplace_intent(self, text: str) -> dict | None:
         """Detect marketplace search intent and extract parameters directly."""
@@ -1509,6 +1578,26 @@ class Agent:
             log.info("Monitor intent detected: %s", monitor_kwargs)
             return await self._create_monitor_agent(monitor_kwargs)
 
+        # Paket-Tracking-Intent: "Tracke 00340...", "Wo ist mein Paket?", forwarded E-Mail
+        _parcel_intent = self._detect_parcel_intent(user_input)
+        if _parcel_intent:
+            action = _parcel_intent["action"]
+            log.info("Parcel-Tracking-Intent erkannt: %s", _parcel_intent)
+            if action == "add":
+                handler = self._handlers.get("parcel_add")
+                if handler:
+                    return await handler(
+                        tracking_number=_parcel_intent["tracking_number"],
+                    )
+            elif action == "status":
+                handler = self._handlers.get("parcel_status")
+                if handler:
+                    return await handler()
+            elif action == "extract":
+                handler = self._handlers.get("parcel_extract")
+                if handler:
+                    return await handler(text=_parcel_intent["text"])
+
         # Marketplace intent shortcut — call tool directly without relying on LLM tool-calling
         # This bypasses the Kimi K2 tool-calling reliability issue
         # Check history for previous marketplace context (for follow-ups like "erhöhe den Radius")
@@ -1711,6 +1800,22 @@ class Agent:
                             self._create_network_monitor_agent(300),
                             name="recreate-network-monitor"
                         )
+
+            # Paket-Monitor automatisch anlegen falls nicht vorhanden
+            if not self.sa_registry.get("Monitor_Pakete"):
+                from piclaw.agents.sa_registry import SubAgentDef
+                _parcel_agent = SubAgentDef(
+                    name="Monitor_Pakete",
+                    mission="Prüft alle aktiven Pakete auf Statusänderungen",
+                    schedule="interval:1800",  # alle 30 Min
+                    tools=["parcel_status"],
+                    notify=True,
+                    direct_tool="parcel_monitor",
+                    created_by="auto-boot",
+                )
+                self.sa_registry.add(_parcel_agent)
+                log.info("Monitor_Pakete Sub-Agent automatisch angelegt (30 Min Intervall)")
+
             create_background_task(self.sa_runner.start_all_scheduled(), name="sa-boot")
             log.info("Sub-agent scheduler started.")
         else:
