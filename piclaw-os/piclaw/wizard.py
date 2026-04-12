@@ -1027,6 +1027,151 @@ def step_discord(state: WizardState, step: int, total: int) -> None:
     _ok("Discord gespeichert")
 
 
+def step_agentmail(state: WizardState, step: int, total: int) -> None:
+    """Schritt: AgentMail konfigurieren (optional)."""
+    _header(step, total, "AgentMail -- E-Mail fuer Dameon (optional)", "[Mail]")
+    cfg = state.cfg
+
+    has_key = bool(cfg.agentmail.api_key)
+    if has_key:
+        addr = cfg.agentmail.email_address or "(Inbox noch nicht erstellt)"
+        print(f"  API-Key vorhanden: {_mask(cfg.agentmail.api_key)}")
+        print(f"  Adresse: {FG_GRAY}{addr}{R}")
+        if (
+            input(f"\n  {FG_BLUE}{ARROW}{R} Neu konfigurieren? [j/N]: ").strip().lower()
+            != "j"
+        ):
+            _skip("Behalten")
+            return
+    else:
+        print("  AgentMail gibt Dameon eine eigene E-Mail-Adresse.")
+        print("  Damit kann er Versandbestaetigungen empfangen und")
+        print("  Pakete automatisch tracken.\n")
+        print(f"  {FG_GRAY}1. Gehe zu {UL}https://agentmail.to{R}")
+        print(f"  {FG_GRAY}2. Erstelle einen Account und generiere einen API-Key{R}")
+        print(f"  {FG_GRAY}3. Kopiere den API-Key{R}\n")
+
+    api_key = _prompt("AgentMail API-Key", secret=True)
+    if not api_key:
+        _skip("AgentMail nicht konfiguriert")
+        return
+
+    cfg.agentmail.api_key = api_key
+
+    # Inbox erstellen
+    agent_name = cfg.agent_name or "Dameon"
+    default_user = agent_name.lower().replace(" ", "")
+    username = _prompt(f"Inbox-Benutzername [{default_user}]") or default_user
+
+    _spinner(f"Erstelle {username}@agentmail.to")
+    try:
+        ok, result = _test_async(_create_agentmail_inbox(api_key, agent_name, username))
+        _clear_line()
+        if ok:
+            import re as _re
+            id_match = _re.search(r"ID:\s*(\S+)", result)
+            email_match = _re.search(r"Email:\s*(\S+)", result)
+            if id_match:
+                cfg.agentmail.inbox_id = id_match.group(1)
+            if email_match:
+                cfg.agentmail.email_address = email_match.group(1)
+            _ok(f"Inbox erstellt: {cfg.agentmail.email_address}")
+        else:
+            _warn(f"Inbox-Erstellung: {result}")
+            _ok("API-Key gespeichert - Inbox kann spaeter erstellt werden")
+    except Exception as e:
+        _clear_line()
+        _warn(f"Fehler: {e}")
+        _ok("API-Key gespeichert")
+
+    state.mark("agentmail konfiguriert")
+    state.restart_needed = True
+
+
+async def _create_agentmail_inbox(api_key: str, display_name: str, username: str):
+    """Erstellt eine AgentMail-Inbox. Gibt (True, info_str) zurueck."""
+    try:
+        from agentmail import AsyncAgentMail
+    except ImportError:
+        return False, "agentmail nicht installiert. Bitte: pip install agentmail --break-system-packages"
+    client = AsyncAgentMail(api_key=api_key)
+    inbox = await client.inboxes.create(display_name=display_name, username=username)
+    return True, f"Email: {inbox.email_address}\nID: {inbox.inbox_id}"
+
+
+def step_parcel_tracking(state: WizardState, step: int, total: int) -> None:
+    """Schritt: Paket-Tracking konfigurieren (optional)."""
+    _header(step, total, "Paket-Tracking -- Sendungsverfolgung (optional)", "[Paket]")
+    cfg = state.cfg
+
+    # DHL API Key aus config.toml lesen (nicht im Dataclass)
+    import tomllib as _toml
+    from piclaw.config import CONFIG_DIR as _CD
+    _cfg_path = _CD / "config.toml"
+    _dhl_key = ""
+    if _cfg_path.exists():
+        try:
+            _raw = _toml.loads(_cfg_path.read_text(encoding="utf-8"))
+            _dhl_key = _raw.get("parcel_tracking", {}).get("dhl_api_key", "")
+        except Exception:
+            pass
+
+    print("  Dameon kann Pakete von DHL, Hermes, DPD, GLS und UPS verfolgen.")
+    print("  Trackingnummern per Telegram, Chat oder E-Mail-Weiterleitung.\n")
+
+    if cfg.agentmail.email_address:
+        print(f"  {FG_GREEN}{CHECK}{R} AgentMail aktiv: {cfg.agentmail.email_address}")
+        print(f"  {FG_GRAY}Versandbestaetigungen an diese Adresse weiterleiten{R}")
+        print(f"  {FG_GRAY}→ Dameon erkennt Trackingnummern automatisch{R}\n")
+    else:
+        print(f"  {FG_GRAY}Tipp: AgentMail einrichten fuer automatische Paketerkennung{R}\n")
+
+    if _dhl_key:
+        print(f"  DHL API-Key vorhanden: {_mask(_dhl_key)}")
+        if (
+            input(f"\n  {FG_BLUE}{ARROW}{R} Neu konfigurieren? [j/N]: ").strip().lower()
+            != "j"
+        ):
+            _skip("Behalten")
+            return
+    else:
+        print("  Optional: DHL API-Key fuer detaillierte Tracking-Events.")
+        print(f"  {FG_GRAY}Kostenlos auf {UL}https://developer.dhl.com{R}")
+        print(f"  {FG_GRAY}→ 'Shipment Tracking - Unified' API freischalten{R}")
+        print(f"  {FG_GRAY}Ohne Key funktioniert Tracking trotzdem (via Parcello){R}\n")
+
+    dhl_key = _prompt("DHL API-Key (Enter = ueberspringen)", secret=True)
+    if not dhl_key:
+        _ok("Paket-Tracking aktiv (ohne DHL API-Key)")
+        state.mark("paket-tracking konfiguriert")
+        return
+
+    # DHL Key in config.toml schreiben
+    try:
+        if _cfg_path.exists():
+            content = _cfg_path.read_text(encoding="utf-8")
+        else:
+            content = ""
+
+        if "[parcel_tracking]" in content:
+            import re as _re
+            content = _re.sub(
+                r'(dhl_api_key\s*=\s*)"[^"]*"',
+                f'\\1"{dhl_key}"',
+                content,
+            )
+        else:
+            content += f'\n[parcel_tracking]\ndhl_api_key = "{dhl_key}"\n'
+
+        _cfg_path.write_text(content, encoding="utf-8")
+        _ok("DHL API-Key gespeichert")
+    except Exception as e:
+        _warn(f"Fehler beim Speichern: {e}")
+
+    state.mark("paket-tracking + DHL konfiguriert")
+    state.restart_needed = True
+
+
 def step_mqtt(state: WizardState, step: int, total: int) -> None:
     """Schritt: MQTT / Home Assistant (optional)."""
     _header(step, total, "MQTT -- Home Assistant Integration (optional)", "[MQTT]")
@@ -1795,12 +1940,15 @@ def _block_status(name: str, cfg: object) -> tuple[str, str]:
     if name == "Kommunikation":
         tg_ok = bool(_get("telegram", "token") and _get("telegram", "chat_id"))
         dc_ok = bool(_get("discord", "token"))
-        if tg_ok or dc_ok:
+        am_ok = bool(_get("agentmail", "api_key"))
+        if tg_ok or dc_ok or am_ok:
             configured = []
             if tg_ok:
                 configured.append("Telegram")
             if dc_ok:
                 configured.append("Discord")
+            if am_ok:
+                configured.append("AgentMail")
             return "â", ", ".join(configured)
         return "â¬", "kein Messenger konfiguriert"
 
@@ -1815,6 +1963,12 @@ def _block_status(name: str, cfg: object) -> tuple[str, str]:
                 configured.append("MQTT")
             return "â", ", ".join(configured)
         return "â¬", "nicht eingerichtet"
+
+    if name == "Dienste":
+        parcels_file = Path("/etc/piclaw/parcels.json")
+        if parcels_file.exists():
+            return "\u2705", "aktiv"
+        return "\u2b1c", "optional"
 
     if name == "Erweitert":
         extra_llm = bool(_get("llm_registry"))
@@ -1860,8 +2014,9 @@ def run() -> None:
             "ð¬  Telegram-Bot, Discord\n"
             "     Benachrichtigungen und Chat Ã¼ber Smartphone.",
             [
-                ("Telegram", step_telegram),
-                ("Discord",  step_discord),
+                ("Telegram",  step_telegram),
+                ("Discord",   step_discord),
+                ("AgentMail", step_agentmail),
             ],
         ),
         (
@@ -1871,6 +2026,14 @@ def run() -> None:
             [
                 ("Home Assistant", step_homeassistant),
                 ("MQTT",           step_mqtt),
+            ],
+        ),
+        (
+            "Dienste",
+            "  Paket-Tracking (DHL, Hermes, DPD, GLS, UPS)\n"
+            "     Sendungsverfolgung mit Telegram-Benachrichtigung.",
+            [
+                ("Paket-Tracking", step_parcel_tracking),
             ],
         ),
         (
