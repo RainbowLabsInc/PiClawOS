@@ -61,6 +61,12 @@ _RE_PLATFORM_PHRASES = re.compile(
     ], key=len, reverse=True)) + r")\b"
 )
 
+_RE_PLATFORM_KLEINANZEIGEN = re.compile(r"(?i)(?:^|(?<=\W))(kleinanzeigen|kleinanzeigen\.de)(?:(?=\W)|$)")
+_RE_PLATFORM_EGUN = re.compile(r"(?i)(?:^|(?<=\W))(egun|egun\.de)(?:(?=\W)|$)")
+_RE_PLATFORM_TROOSTWIJK = re.compile(r"(?i)(?:^|(?<=\W))(troostwijk|troost)(?:(?=\W)|$)")
+_RE_PLATFORM_ZOLL = re.compile(r"(?i)(?:^|(?<=\W))(zollauktion|zoll-auktion|zoll auktion)(?:(?=\W)|$)")
+_RE_PLATFORM_WILLHABEN = re.compile(r"(?i)(?:^|(?<=\W))willhaben(?:(?=\W)|$)")
+
 _RE_STOPWORDS = re.compile(
     r"(?i)(?<![\w])(" + "|".join(re.escape(p) for p in sorted([
         "auf", "im", "in", "um", "von", "bis", "bitte", "suche", "finde",
@@ -903,7 +909,7 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Muss Troostwijk + Auktions-Kontext haben
-        if not any(k in t for k in ("troostwijk", "troost")):
+        if not _RE_PLATFORM_TROOSTWIJK.search(t):
             return None
         if not any(k in t for k in ("auktion", "auction", "neue", "überwach", "monitor",
                                      "benachrichtig", "meld", "inform")):
@@ -1142,19 +1148,19 @@ class Agent:
 
         # Plattform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if _RE_PLATFORM_KLEINANZEIGEN.search(t):
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
-        if any(k in t for k in ("egun", "egun.de")):
+        if _RE_PLATFORM_EGUN.search(t):
             platforms.append("egun")
-        if any(k in t for k in ("troostwijk", "troost")):
+        if _RE_PLATFORM_TROOSTWIJK.search(t):
             platforms.append("troostwijk")
-        if any(k in t for k in ("zollauktion", "zoll-auktion", "zoll auktion")):
+        if _RE_PLATFORM_ZOLL.search(t):
             platforms.append("zoll_auktion")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
-        if "willhaben" in t:
+        if _RE_PLATFORM_WILLHABEN.search(t):
             platforms.append("willhaben")
         if "web" in t or "internet" in t:
             platforms.append("web")
@@ -1331,17 +1337,17 @@ class Agent:
             return None
         # Platform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if _RE_PLATFORM_KLEINANZEIGEN.search(t):
             platforms.append("kleinanzeigen")
-        if any(k in t for k in ("egun", "egun.de")):
+        if _RE_PLATFORM_EGUN.search(t):
             platforms.append("egun")          # FIX: egun vor ebay prüfen (ebay-Fallback würde sonst greifen)
-        if any(k in t for k in ("troostwijk", "troost")):
+        if _RE_PLATFORM_TROOSTWIJK.search(t):
             platforms.append("troostwijk")
-        if any(k in t for k in ("zollauktion", "zoll-auktion", "zoll auktion")):
+        if _RE_PLATFORM_ZOLL.search(t):
             platforms.append("zoll_auktion")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
-        if "willhaben" in t:
+        if _RE_PLATFORM_WILLHABEN.search(t):
             platforms.append("willhaben")
         if "web" in t or "internet" in t:
             platforms.append("web")
@@ -1377,6 +1383,11 @@ class Agent:
         # PLZ + Stadtname aus Query entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
+            # Stadtname trotzdem aus Query entfernen, falls vorhanden (Leakage verhindern)
+            city_match = _RE_CITIES.search(text_clean)
+            if city_match:
+                extracted_city = _CITY_MAP[city_match.group(1).lower()]
+                query = re.sub(rf"\b{re.escape(extracted_city)}\b", " ", query, flags=re.IGNORECASE)
         if location and not plz_match:
             # Nur den explizit extrahierten Ortsnamen aus der Query entfernen
             query = re.sub(rf"\b{re.escape(location)}\b", " ", query, flags=re.IGNORECASE)
