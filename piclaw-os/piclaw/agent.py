@@ -1142,13 +1142,13 @@ class Agent:
 
         # Plattform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if "kleinanzeigen" in t:
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
-        if any(k in t for k in ("egun", "egun.de")):
+        if "egun" in t:
             platforms.append("egun")
-        if any(k in t for k in ("troostwijk", "troost")):
+        if "troost" in t:
             platforms.append("troostwijk")
         if any(k in t for k in ("zollauktion", "zoll-auktion", "zoll auktion")):
             platforms.append("zoll_auktion")
@@ -1331,11 +1331,11 @@ class Agent:
             return None
         # Platform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if "kleinanzeigen" in t:
             platforms.append("kleinanzeigen")
-        if any(k in t for k in ("egun", "egun.de")):
+        if "egun" in t:
             platforms.append("egun")          # FIX: egun vor ebay prüfen (ebay-Fallback würde sonst greifen)
-        if any(k in t for k in ("troostwijk", "troost")):
+        if "troost" in t:
             platforms.append("troostwijk")
         if any(k in t for k in ("zollauktion", "zoll-auktion", "zoll auktion")):
             platforms.append("zoll_auktion")
@@ -1352,11 +1352,14 @@ class Agent:
         plz_match = re.search(r"\b(\d{5})\b", text_clean)
         location = plz_match.group(1) if plz_match else None
 
-        # Städtenamen erkennen (Österreich + Deutschland) falls keine PLZ
-        if not location:
-            city_match = _RE_CITIES.search(text_clean)
-            if city_match:
-                location = _CITY_MAP[city_match.group(1).lower()]
+        # Städtenamen erkennen (Österreich + Deutschland)
+        extracted_city = None
+        city_match = _RE_CITIES.search(text_clean)
+        if city_match:
+            extracted_city = city_match.group(1)
+            # Use city as location if no PLZ found
+            if not location:
+                location = _CITY_MAP[extracted_city.lower()]
 
         # Radius
         radius_match = re.search(r"(\d+)\s*km", t)
@@ -1377,9 +1380,9 @@ class Agent:
         # PLZ + Stadtname aus Query entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
-        if location and not plz_match:
+        if extracted_city:
             # Nur den explizit extrahierten Ortsnamen aus der Query entfernen
-            query = re.sub(rf"\b{re.escape(location)}\b", " ", query, flags=re.IGNORECASE)
+            query = re.sub(rf"\b{re.escape(extracted_city)}\b", " ", query, flags=re.IGNORECASE)
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
         query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
         # Stoppwörter entfernen
