@@ -1142,17 +1142,17 @@ class Agent:
 
         # Plattform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if "kleinanzeigen" in t:
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
-        if any(k in t for k in ("egun", "egun.de")):
+        if "egun" in t:
             platforms.append("egun")
-        if any(k in t for k in ("troostwijk", "troost")):
+        if "troost" in t:
             platforms.append("troostwijk")
-        if any(k in t for k in ("zollauktion", "zoll-auktion", "zoll auktion")):
+        if "zoll" in t and "auktion" in t:
             platforms.append("zoll_auktion")
-        if "ebay" in t and "kleinanzeigen" not in t:
+        if "ebay" in t and "kleinanzeigen" not in t and "ebay" not in platforms:
             platforms.append("ebay")
         if "willhaben" in t:
             platforms.append("willhaben")
@@ -1331,13 +1331,13 @@ class Agent:
             return None
         # Platform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if "kleinanzeigen" in t:
             platforms.append("kleinanzeigen")
-        if any(k in t for k in ("egun", "egun.de")):
+        if "egun" in t:
             platforms.append("egun")          # FIX: egun vor ebay prüfen (ebay-Fallback würde sonst greifen)
-        if any(k in t for k in ("troostwijk", "troost")):
+        if "troost" in t:
             platforms.append("troostwijk")
-        if any(k in t for k in ("zollauktion", "zoll-auktion", "zoll auktion")):
+        if "zoll" in t and "auktion" in t:
             platforms.append("zoll_auktion")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
