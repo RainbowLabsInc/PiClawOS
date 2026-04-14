@@ -143,3 +143,10 @@ def test_city_leakage_in_query():
     assert res3["max_price"] == 50.0
     assert "rosengarten" not in res3["query"].lower()
     assert "gartentisch" in res3["query"].lower()
+
+    # Test with PLZ and City
+    res4 = agent._detect_marketplace_intent("Suche Gartentisch 21224 Rosengarten eBay")
+    assert res4 is not None
+    assert res4["location"] == "21224"
+    assert res4["query"].lower() == "gartentisch"
+    assert "rosengarten" not in res4["query"].lower()
