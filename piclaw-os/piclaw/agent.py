@@ -1352,11 +1352,10 @@ class Agent:
         plz_match = re.search(r"\b(\d{5})\b", text_clean)
         location = plz_match.group(1) if plz_match else None
 
-        # Städtenamen erkennen (Österreich + Deutschland) falls keine PLZ
-        if not location:
-            city_match = _RE_CITIES.search(text_clean)
-            if city_match:
-                location = _CITY_MAP[city_match.group(1).lower()]
+        # Städtenamen erkennen (Österreich + Deutschland) unconditionally
+        city_match = _RE_CITIES.search(text_clean)
+        if not location and city_match:
+            location = _CITY_MAP[city_match.group(1).lower()]
 
         # Radius
         radius_match = re.search(r"(\d+)\s*km", t)
@@ -1377,9 +1376,9 @@ class Agent:
         # PLZ + Stadtname aus Query entfernen
         if plz_match:
             query = query.replace(plz_match.group(1), " ")
-        if location and not plz_match:
+        if city_match:
             # Nur den explizit extrahierten Ortsnamen aus der Query entfernen
-            query = re.sub(rf"\b{re.escape(location)}\b", " ", query, flags=re.IGNORECASE)
+            query = re.sub(rf"\b{re.escape(city_match.group(1))}\b", " ", query, flags=re.IGNORECASE)
         # Radius-Angaben entfernen (z.B. "20km", "20 km")
         query = re.sub(r"\d+\s*km", " ", query, flags=re.IGNORECASE)
         # Stoppwörter entfernen
