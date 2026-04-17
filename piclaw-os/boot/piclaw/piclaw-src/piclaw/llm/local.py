@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 
 os.environ.setdefault("LLAMA_CPP_LOG_LEVEL", "0")
 os.environ.setdefault("GGML_LOG_LEVEL", "0")
-os.environ.setdefault("LLAMA_LOG_LEVEL", "4")
+os.environ.setdefault("LLAMA_LOG_LEVEL", "0")
 
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, ToolCall, LLMResponse
 
