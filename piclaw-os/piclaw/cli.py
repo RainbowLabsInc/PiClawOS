@@ -481,7 +481,8 @@ def cmd_config(args):
 
 
 def cmd_service(action):
-    os.system(f"sudo systemctl {action} piclaw-agent piclaw-api")
+    import subprocess
+    subprocess.run(["sudo", "systemctl", action, "piclaw-agent", "piclaw-api"], check=False)
 
 
 def cmd_model(args):
@@ -808,12 +809,29 @@ def cmd_soul(args):
         print()
 
     elif sub == "edit":
+        import shlex
+        import subprocess
         path = soul_mod.get_path()
         # Ensure file exists before opening
         soul_mod.load()
         editor = os.environ.get("EDITOR", "nano")
+
+        # Security validation against shell injection
+        if any(char in editor for char in ("&", "|", ";", "\n", "\r")):
+            print("❌ Invalid characters in EDITOR variable.")
+            return
+
+        try:
+            editor_cmd = shlex.split(editor)
+        except ValueError:
+            print("❌ Invalid syntax in EDITOR variable.")
+            return
+
+        if not editor_cmd:
+            editor_cmd = ["nano"]
+
         print(f"  Opening {path} in {editor}…")
-        os.system(f"{editor} {path}")
+        subprocess.call(editor_cmd + [str(path)])
         print("  Soul updated. Changes take effect in the next conversation.")
 
     elif sub == "reset":
