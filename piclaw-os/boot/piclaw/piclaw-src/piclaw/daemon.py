@@ -16,7 +16,7 @@ import logging
 import signal
 import sys
 
-from piclaw.config import load as load_cfg, LOG_DIR
+from piclaw.config import load as load_cfg
 from piclaw.agent import Agent
 
 log = logging.getLogger("piclaw.daemon")
@@ -174,14 +174,14 @@ async def _daemon_main():
 
 
 def run():
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    # Single StreamHandler only — systemd captures stdout via
+    # StandardOutput=append:/var/log/piclaw/agent.log.
+    # A second FileHandler caused a deadlock with the threaded
+    # local-model loading (llama.cpp Llama() constructor).
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(str(LOG_DIR / "agent.log")),
-        ],
+        handlers=[logging.StreamHandler(sys.stdout)],
     )
     asyncio.run(_daemon_main())
 
