@@ -98,6 +98,78 @@ class TestSubAgentRegistry:
             assert updated.schedule == "interval:3600"
             assert updated.enabled is False
 
+    # ── Regression: string numerics must not reach asyncio.wait_for ─────────
+    # Root cause of the Sauer 505 crash loop on 2026-04-17:
+    # agent.timeout was persisted as "300" (str) and fed into
+    # asyncio.wait_for(..., timeout=<str>), raising
+    # "TypeError: '<=' not supported between instances of 'str' and 'int'"
+    # on every scheduled execution.
+
+    def test_subagentdef_coerces_str_timeout_to_int(self):
+        from piclaw.agents.sa_registry import SubAgentDef
+        a = SubAgentDef(
+            name="Strings",
+            description="",
+            mission="",
+            tools=[],
+            timeout="300",
+            max_steps="7",
+        )
+        assert a.timeout == 300 and isinstance(a.timeout, int)
+        assert a.max_steps == 7 and isinstance(a.max_steps, int)
+
+    def test_subagentdef_falls_back_on_garbage_numerics(self):
+        from piclaw.agents.sa_registry import SubAgentDef
+        a = SubAgentDef(
+            name="Garbage",
+            description="",
+            mission="",
+            tools=[],
+            timeout="not-a-number",
+            max_steps=None,
+        )
+        # Fallback to dataclass defaults, never raise
+        assert a.timeout == 300
+        assert a.max_steps == 10
+
+    def test_registry_load_heals_string_numerics_from_json(self, tmp_path):
+        """Pre-existing subagents.json with string numerics must load clean."""
+        reg_file = tmp_path / "subagents.json"
+        reg_file.write_text(json.dumps({
+            "abc12345": {
+                "id": "abc12345",
+                "name": "Legacy",
+                "description": "",
+                "mission": "",
+                "tools": [],
+                "schedule": "interval:3600",
+                "timeout": "300",     # string from a historic bug
+                "max_steps": "10",    # string from a historic bug
+                "enabled": True,
+                "notify": True,
+                "created_by": "test",
+                "created_at": "2026-01-01T00:00:00",
+            }
+        }))
+        with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
+            from piclaw.agents.sa_registry import SubAgentRegistry
+            reg = SubAgentRegistry()
+            a = reg.get("Legacy")
+            assert a is not None
+            assert isinstance(a.timeout, int) and a.timeout == 300
+            assert isinstance(a.max_steps, int) and a.max_steps == 10
+
+    def test_update_coerces_string_numerics(self, tmp_path):
+        """PATCH /api/subagents/{id} with str must not re-introduce the bug."""
+        reg_file = tmp_path / "subagents.json"
+        with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
+            from piclaw.agents.sa_registry import SubAgentRegistry
+            reg = SubAgentRegistry()
+            reg.add(self._make_agent("Patchable"))
+            reg.update("Patchable", timeout="600")
+            a = reg.get("Patchable")
+            assert isinstance(a.timeout, int) and a.timeout == 600
+
     def test_persistence(self, tmp_path):
         """Data survives a registry reload."""
         reg_file = tmp_path / "subagents.json"
