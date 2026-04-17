@@ -539,16 +539,93 @@ class SubAgentRunner:
 
     # ── Callbacks ─────────────────────────────────────────────────
 
+    # Restart policy for protected agents: capped exponential backoff with a
+    # sliding 1-hour window. Values picked to recover fast from transient
+    # faults (flapping nmap, LLM 503) while preventing a crash loop from
+    # burning CPU on a Pi. Fields live on the runner instance (in-memory only
+    # – a daemon restart resets them, which is the desired behaviour).
+    _PROTECTED_RESTART_MAX_ATTEMPTS = 5
+    _PROTECTED_RESTART_WINDOW_S = 3600
+    _PROTECTED_RESTART_BASE_DELAY_S = 2
+    _PROTECTED_RESTART_MAX_DELAY_S = 60
+
     def _on_done(self, agent_id: str, task: asyncio.Task):
         self._tasks.pop(agent_id, None)   # Aufräumen damit done Tasks kein Speicherleck erzeugen
         agent = self.registry.get(agent_id)
         name = agent.name if agent else agent_id
         if task.cancelled():
             log.info("Sub-agent '%s' was cancelled.", name)
-        elif task.exception():
+            return
+        if task.exception():
             exc = task.exception()
             log.error("Sub-agent '%s' crashed: %s", name, exc, exc_info=exc)
             if agent:
                 self.registry.mark_run(agent_id, "error")
         else:
             log.debug("Sub-agent '%s' task completed.", name)
+
+        # ── Auto-restart for protected agents ──────────────────────
+        # Without this, Monitor_Netzwerk silently disappears on any unhandled
+        # exception in _run_loop (e.g. croniter parse, event-loop teardown)
+        # and the "3-layer protection" advertised in docs/subagents.md only
+        # kicks in on the next full daemon boot. This closes that gap.
+        if not agent or not agent.enabled:
+            return
+        from piclaw.agents.sa_tools import _PROTECTED_AGENTS
+        if agent.name not in _PROTECTED_AGENTS:
+            return
+
+        self._schedule_protected_restart(agent)
+
+    def _schedule_protected_restart(self, agent: "SubAgentDef") -> None:
+        """Re-arm a protected agent after an unexpected task exit.
+
+        Uses a sliding 1h window to cap restart attempts. Anything beyond the
+        cap is left for the next daemon boot – indicates a systemic issue that
+        a tight retry loop can't fix.
+        """
+        import time as _time
+
+        win_key = f"_restart_win_{agent.id}"
+        cnt_key = f"_restart_cnt_{agent.id}"
+        now = _time.time()
+
+        # Reset window if it has expired
+        if now - getattr(self, win_key, 0.0) > self._PROTECTED_RESTART_WINDOW_S:
+            setattr(self, win_key, now)
+            setattr(self, cnt_key, 0)
+
+        attempt = getattr(self, cnt_key, 0) + 1
+        setattr(self, cnt_key, attempt)
+
+        if attempt > self._PROTECTED_RESTART_MAX_ATTEMPTS:
+            log.error(
+                "Protected agent '%s' crashed %d times in %ds – giving up until "
+                "next daemon boot. Check logs for root cause.",
+                agent.name, attempt, self._PROTECTED_RESTART_WINDOW_S,
+            )
+            return
+
+        delay = min(
+            self._PROTECTED_RESTART_MAX_DELAY_S,
+            self._PROTECTED_RESTART_BASE_DELAY_S * (2 ** (attempt - 1)),
+        )
+        log.warning(
+            "Protected agent '%s' ended unexpectedly (attempt %d/%d) – "
+            "restarting in %ds.",
+            agent.name, attempt, self._PROTECTED_RESTART_MAX_ATTEMPTS, delay,
+        )
+
+        async def _delayed_restart(agent_id: str, d: int) -> None:
+            try:
+                await asyncio.sleep(d)
+                await self.start_agent(agent_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # pragma: no cover - belt & suspenders
+                log.error("Auto-restart of '%s' failed: %s", agent_id, e, exc_info=e)
+
+        create_background_task(
+            _delayed_restart(agent.id, delay),
+            name=f"protected-restart-{agent.id}",
+        )
