@@ -1,5 +1,26 @@
 # PiClaw OS – Changelog
 
+## Unreleased 🐛🔁
+
+### Sub-Agent Crash Recovery
+- **Typ-Coercion in `SubAgentDef`** – `timeout` und `max_steps` werden
+  defensiv in `int` umgewandelt, sowohl beim Laden aus `subagents.json` als
+  auch nach `PATCH /api/subagents/{id}`. Fallback auf Dataclass-Default bei
+  unbrauchbaren Werten.
+  Bug: Ein String-Wert in `timeout` ließ `asyncio.wait_for(..., timeout="300")`
+  mit `TypeError: '<=' not supported between instances of 'str' and 'int'`
+  crashen und erzeugte so einen Error-Loop der pro Interval eine Traceback-
+  Nachricht an den Messaging-Hub verschickte (Sauer 505 Fall, 2026-04-17).
+- **Auto-Restart für `_PROTECTED_AGENTS`** – `SubAgentRunner._on_done()`
+  erkennt unerwartet beendete geschützte Agenten und re-armed mit
+  Exponential-Backoff (2/4/8/16/32s, max 5 Versuche pro Stunde).
+  Bug: Monitor_Netzwerk konnte still aus dem Scheduler verschwinden wenn
+  `_run_loop` durch eine nicht abgefangene Exception endete. Die dokumentierte
+  3-Layer-Schutzarchitektur griff erst beim nächsten Daemon-Boot.
+- **Regressionstests** in `tests/test_registry.py`: 4 neue Tests decken
+  String-Coercion beim Konstruktor, Garbage-Fallback, Legacy-JSON-Heilung und
+  PATCH-Coercion ab.
+
 ## v0.17.0 – 2026-04-11 🧠🛒⚖️🔐
 
 ### Highlights

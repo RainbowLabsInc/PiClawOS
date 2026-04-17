@@ -88,6 +88,39 @@ class SubAgentDef:
     last_run: str | None = None
     last_status: str | None = None  # ok | error | running | timeout
 
+    def __post_init__(self):
+        """Tolerant type coercion.
+
+        Numeric fields may arrive as strings from three sources:
+          1. Persisted subagents.json (historical entries, old schema)
+          2. REST PATCH /api/subagents/{id} with JSON string value
+          3. Manual edits to subagents.json
+
+        When `timeout` or `max_steps` ends up as a str, asyncio.wait_for(…,
+        timeout=<str>) raises `TypeError: '<=' not supported between instances
+        of 'str' and 'int'` inside _execute(), which crashes every run of the
+        affected agent. Coerce defensively and fall back to the dataclass
+        default so a malformed value can never kill the run loop.
+        """
+        for attr, default in (("max_steps", 10), ("timeout", 300)):
+            val = getattr(self, attr)
+            if isinstance(val, int):
+                continue
+            try:
+                coerced = int(val)
+            except (TypeError, ValueError):
+                log.warning(
+                    "SubAgentDef '%s': %s=%r is not an int – falling back to %d",
+                    self.name, attr, val, default,
+                )
+                coerced = default
+            else:
+                log.info(
+                    "SubAgentDef '%s': coerced %s from %r (%s) to int %d",
+                    self.name, attr, val, type(val).__name__, coerced,
+                )
+            setattr(self, attr, coerced)
+
 
 class SubAgentRegistry:
     """Persistent CRUD store for sub-agent definitions."""
@@ -138,6 +171,9 @@ class SubAgentRegistry:
         for k, v in kwargs.items():
             if hasattr(agent, k):
                 setattr(agent, k, v)
+        # Re-run type coercion in case numeric fields arrived as strings from
+        # the REST PATCH body. Cheap and keeps the dataclass invariants stable.
+        agent.__post_init__()
         self._save()
         return True
 
