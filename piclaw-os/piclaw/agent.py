@@ -1806,6 +1806,7 @@ class Agent:
                 from piclaw.agents.sa_registry import SubAgentDef
                 _parcel_agent = SubAgentDef(
                     name="Monitor_Pakete",
+                    description="Paket-Tracking: prüft alle aktiven Pakete auf Statusänderungen",
                     mission="Prüft alle aktiven Pakete auf Statusänderungen",
                     schedule="interval:1800",  # alle 30 Min
                     tools=["parcel_status"],
