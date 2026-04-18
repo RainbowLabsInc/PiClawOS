@@ -17,7 +17,7 @@ _RE_MP_SEARCH_KW = re.compile(
     re.IGNORECASE,
 )
 _RE_MP_MARKET_KW = re.compile(
-    r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|egun|troostwijk|zoll.?auktion|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)",
+    r"(kleinanzeigen|schnäppchen|marktplatz|willhaben|egun|troostwijk|zoll.?auktion|vdb|vdb-waffen|gebraucht|inserat|anzeige|angebot|umkreis|kaufen|preis|ebay|euro|nähe|plz|ort)",
     re.IGNORECASE,
 )
 
@@ -56,7 +56,7 @@ _RE_MONITOR_PHRASES = re.compile(
 _RE_PLATFORM_PHRASES = re.compile(
     r"(?i)\b(" + "|".join(re.escape(p) for p in sorted([
         "kleinanzeigen.de", "ebay.de", "willhaben.at", "kleinanzeigen",
-        "ebay", "willhaben", "zeige mir", "zeig mir", "was kostet",
+        "ebay", "willhaben", "vdb", "vdb-waffen", "vdb-waffen.de", "zeige mir", "zeig mir", "was kostet",
         "preis für", "gibt es", "auf"
     ], key=len, reverse=True)) + r")\b"
 )
@@ -577,7 +577,7 @@ class Agent:
             return None
         if not any(k in t for k in time_kw):
             return None
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion", "inserat", "marktplatz")
+        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion", "vdb", "vdb-waffen", "inserat", "marktplatz")
         if any(k in t for k in market_kw):
             return None
 
@@ -625,7 +625,7 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion", "inserat",
+        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion", "vdb", "vdb-waffen", "inserat",
                      "anzeige", "marktplatz", "kaufen", "verkaufen",
                      "sonnenschirm", "fahrrad", "auto", "wohnung")
         if any(k in t for k in market_kw):
@@ -936,6 +936,7 @@ class Agent:
         if plz_match:
             plz = plz_match.group(1)
 
+
         # Radius: "50km", "50 km", "Umkreis von 50km", "Radius 100km", "im Umkreis 30 km"
         radius_match = re.search(
             r"(?:umkreis|radius|entfernung)?\s*(?:von\s+)?(\d+)\s*km",
@@ -1106,7 +1107,7 @@ class Agent:
             "jede stunde", "alle stunde", "jede halbe stunde",
         )
         market_kw = (
-            "kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion",
+            "kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion", "vdb", "vdb-waffen",
             "inserat", "anzeige", "kaufen",
             "marktplatz", "gebraucht", "preis", "euro", "angebot",
         )
@@ -1152,6 +1153,8 @@ class Agent:
             platforms.append("troostwijk")
         if any(k in t for k in ("zollauktion", "zoll-auktion", "zoll auktion")):
             platforms.append("zoll_auktion")
+        if any(k in t for k in ("vdb", "vdb-waffen", "vdb-waffen.de")):
+            platforms.append("vdb")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
         if "willhaben" in t:
@@ -1168,7 +1171,8 @@ class Agent:
         clean_text = re.sub(r"(?i)(?:alle|jede)\s+\d+\s*(?:min(?:uten)?|stund(?:en?)?)", " ", clean_text)
         clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
-        mp = self._detect_marketplace_intent(clean_text)
+        # "suche" voranstellen damit _detect_marketplace_intent den Intent erkennt
+        mp = self._detect_marketplace_intent("suche " + clean_text)
         if not mp or not mp.get("query"):
             return None
 
@@ -1339,6 +1343,8 @@ class Agent:
             platforms.append("troostwijk")
         if any(k in t for k in ("zollauktion", "zoll-auktion", "zoll auktion")):
             platforms.append("zoll_auktion")
+        if any(k in t for k in ("vdb", "vdb-waffen", "vdb-waffen.de")):
+            platforms.append("vdb")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
         if "willhaben" in t:
@@ -1389,6 +1395,13 @@ class Agent:
         query = re.sub(r"\.de\b", " ", query, flags=re.IGNORECASE)
         # Mehrfache Leerzeichen
         query = re.sub(r"\s+", " ", query).strip(" ,.-")
+        # Kaliber fuer VDB aus Query extrahieren
+        if "vdb" in platforms:
+            _cal_m = re.search(r"(?:im\s+)?kaliber\s+([0-9x.][^\s,;|]{1,15})", query, re.IGNORECASE)
+            if _cal_m:
+                _cal_str = _cal_m.group(1).strip()
+                query = re.sub(r"(?:im\s+)?kaliber\s+[0-9x.][^\s,;|]{0,15}", " ", query, flags=re.IGNORECASE).strip()
+                query = query + "|caliber:" + _cal_str
 
         if len(query) < 3:
             return None
