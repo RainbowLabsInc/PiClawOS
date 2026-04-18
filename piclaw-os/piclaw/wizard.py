@@ -1096,7 +1096,10 @@ async def _create_agentmail_inbox(api_key: str, display_name: str, username: str
         return False, "agentmail nicht installiert. Bitte: pip install agentmail --break-system-packages"
     client = AsyncAgentMail(api_key=api_key)
     inbox = await client.inboxes.create(display_name=display_name, username=username)
-    return True, f"Email: {inbox.email_address}\nID: {inbox.inbox_id}"
+    # AgentMail SDK exposes the address as `email`; keep `email_address` as
+    # fallback for older SDK versions.
+    addr = getattr(inbox, "email", None) or getattr(inbox, "email_address", "")
+    return True, f"Email: {addr}\nID: {inbox.inbox_id}"
 
 
 def step_parcel_tracking(state: WizardState, step: int, total: int) -> None:

@@ -112,9 +112,12 @@ async def agentmail_create_inbox(
         inbox = await client.inboxes.create(
             display_name=display_name, username=username
         )
+        # SDK models expose the address as `email` (not `email_address`).
+        # Fall back across SDK versions to stay compatible.
+        addr = getattr(inbox, "email", None) or getattr(inbox, "email_address", "")
         return (
             f"✅ Inbox created successfully.\n"
-            f"  Email: {inbox.email_address}\n"
+            f"  Email: {addr}\n"
             f"  ID:    {inbox.inbox_id}"
         )
     except Exception as e:
@@ -131,7 +134,8 @@ async def agentmail_list_inboxes(cfg: AgentMailConfig) -> str:
 
         lines = ["Active Inboxes:"]
         for ib in inboxes_res.inboxes:
-            lines.append(f"- {ib.email_address} (ID: {ib.inbox_id})")
+            addr = getattr(ib, "email", None) or getattr(ib, "email_address", "")
+            lines.append(f"- {addr} (ID: {ib.inbox_id})")
         return "\n".join(lines)
     except Exception as e:
         log.error("AgentMail list_inboxes error: %s", e)
