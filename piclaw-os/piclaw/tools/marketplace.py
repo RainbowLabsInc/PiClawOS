@@ -1600,6 +1600,13 @@ async def marketplace_search(
             location = plz_match.group(0)  # group(0) = gesamter Match (kein Capture-Group)
             log.info("PLZ %s aus Query extrahiert", location)
 
+    # VDB-Kaliber vor _clean_query extrahieren (|caliber: wird sonst entfernt)
+    _pre_caliber = None
+    if "|caliber:" in query:
+        _q_parts = query.split("|caliber:", 1)
+        query = _q_parts[0]
+        _pre_caliber = _q_parts[1].strip()
+
     # Intern bereinigen um Rauschen in der eigentlichen Suche zu vermeiden
     query = _clean_query(query)
 
@@ -1648,6 +1655,9 @@ async def marketplace_search(
             ))
         if "zoll_auktion" in platforms:
             tasks.append(_search_zoll_auktion(session, query, max_price, max_results, location, radius_km))
+        if "vdb" in platforms:
+            # _pre_caliber wurde vor _clean_query extrahiert
+            tasks.append(_search_vdb(session, query, _pre_caliber, max_price, max_results))
         if "web" in platforms:
             tasks.append(_search_web(session, query, min(max_results, 5)))
 
@@ -1698,8 +1708,8 @@ def format_results(results: dict, mode: str = "text") -> str:
     header += "─" * 50 + "\n"
 
     lines = [header]
-    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben", "egun": "eGun", "troostwijk": "Troostwijk", "troostwijk_auctions": "TW-Auktion", "zoll_auktion": "Zoll-Auktion"}
-    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️", "zoll_auktion": "⚖️"}
+    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben", "egun": "eGun", "troostwijk": "Troostwijk", "troostwijk_auctions": "TW-Auktion", "zoll_auktion": "Zoll-Auktion", "vdb": "VDB-Waffenmarkt"}
+    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️", "zoll_auktion": "⚖️", "vdb": "🔫"}
 
     for i, item in enumerate(new[:10], 1):
         emoji = platform_emoji.get(item["platform"], "🔗")
@@ -1753,7 +1763,7 @@ def format_results_telegram(results: dict) -> str:
         lines[0] += f"(max. {results['max_price']:.0f} €)"
 
     for item in new[:10]:  # Max 10 pro Nachricht
-        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️", "zoll_auktion": "⚖️"}.get(
+        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️", "zoll_auktion": "⚖️", "vdb": "🔫"}.get(
             item["platform"], "🔗"
         )
         # Markdown-Titel bereinigen (Klammern eskapen)
@@ -1776,3 +1786,122 @@ def format_results_telegram(results: dict) -> str:
     if len(new) > 10:
         lines.append(f"\n_... und {len(new) - 10} weitere_")
     return "\n".join(lines)
+
+
+# ── VDB-Waffen.de ─────────────────────────────────────────────────────────────
+
+async def _search_vdb(
+    session: aiohttp.ClientSession,
+    query: str,
+    caliber: str | None = None,
+    max_price: float | None = None,
+    max_results: int = 10,
+) -> list[dict]:
+    """
+    Sucht auf VDB-Waffenmarkt (vdb-waffen.de) – Gebraucht- und Neuwaffen.
+    Parameter:
+      s_t  = Suchbegriff
+      s_k  = Kaliber (z.B. "8x57", ".308 Win")
+      o    = Sortierung: neu = neueste zuerst
+    HTML-Struktur:
+      <a name="ITEM_ID" id="ITEM_ID">
+      <h2>Titel</h2>
+      Kaliber: X  /  Preis: X €  /  Anbieter: X
+    """
+    results: list[dict] = []
+    from urllib.parse import urlencode
+    params = {"s_t": query, "o": "neu", "v": ""}
+    if caliber:
+        params["s_k"] = caliber
+    url = "https://www.vdb-waffen.de/de/waffenmarkt/index.html?" + urlencode(params)
+
+    vdb_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "de-DE,de;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+        "Referer": "https://www.vdb-waffen.de/de/waffenmarkt/",
+    }
+
+    try:
+        async with session.get(
+            url, headers=vdb_headers, timeout=aiohttp.ClientTimeout(total=20)
+        ) as resp:
+            if resp.status != 200:
+                log.warning("VDB: HTTP %s für '%s'", resp.status, query)
+                return []
+            html = await resp.text()
+            log.debug("VDB: HTTP 200, %d Bytes", len(html))
+    except Exception as e:
+        log.warning("VDB: Fetch-Fehler: %s", e)
+        return []
+
+    # Jedes Inserat als Block extrahieren
+    # Struktur: <a name="ID">...<h2>Titel</h2>...Kaliber: X...<p class="lead preis">...PREIS EUR
+    block_re = re.compile(
+        r'<a\s+name="([a-z0-9]+)"\s+id="[a-z0-9]+"[^>]*>(.*?)'
+        r'(?=<a\s+name="|$)',
+        re.DOTALL | re.IGNORECASE,
+    )
+    title_re   = re.compile(r'<h2[^>]*>(.*?)</h2>', re.DOTALL)
+    caliber_re = re.compile(r'Kaliber:\s*([^<\n,]{1,30})', re.IGNORECASE)
+    price_re   = re.compile(r'([\d\.]+,[\d]{2})\s*EUR', re.IGNORECASE)
+    seller_re  = re.compile(r'Anbieter:.*?<strong>(.*?)</strong>', re.DOTALL | re.IGNORECASE)
+
+    seen_ids: set[str] = set()
+    for m in block_re.finditer(html):
+        item_id = m.group(1)
+        if item_id in seen_ids:
+            continue
+        seen_ids.add(item_id)
+
+        block = m.group(2)
+
+        t_m = title_re.search(block)
+        if not t_m:
+            continue
+        title = RE_HTML_TAGS.sub("", t_m.group(1)).strip()
+        if not title or len(title) < 3:
+            continue
+
+        c_m = caliber_re.search(block)
+        caliber_found = c_m.group(1).strip() if c_m else ""
+
+        p_m = price_re.search(block)
+        price_text = ""
+        price = None
+        if p_m:
+            price_text = p_m.group(1) + " €"
+            try:
+                price = float(p_m.group(1).replace(".", "").replace(",", "."))
+            except ValueError:
+                pass
+
+        if max_price and price and price > max_price:
+            continue
+
+        s_m = seller_re.search(block)
+        seller = RE_HTML_TAGS.sub("", s_m.group(1)).strip() if s_m else ""
+
+        location_str = caliber_found
+        if seller:
+            location_str = f"{location_str} | {seller}".strip(" |")
+
+        results.append({
+            "id": item_id,
+            "platform": "vdb",
+            "title": title,
+            "price": price,
+            "price_text": price_text,
+            "location": location_str,
+            "url": f"https://www.vdb-waffen.de/de/waffenmarkt/#{item_id}",
+        })
+
+        if len(results) >= max_results:
+            break
+
+    log.info("VDB: %d Inserate für '%s' (Kaliber: %s)", len(results), query, caliber or "alle")
+    return results
