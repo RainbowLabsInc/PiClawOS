@@ -1,6 +1,27 @@
 # PiClaw OS – Changelog
 
-## Unreleased 🐛🔁
+## Unreleased 🐛🔇
+
+### Daemon Silent-Crash Fix
+- **`agent.py` Monitor_Pakete Auto-Boot** – `SubAgentDef(name=..., mission=...)`
+  rief den Konstruktor ohne das Pflichtfeld `description` auf, was
+  `TypeError: SubAgentDef.__init__() missing 1 required positional argument:
+  'description'` in `agent.boot()` auslöste.
+- **`daemon.py` Visibility-Hardening** – `agent.boot()` in Try/Except mit
+  Crash-Log gewrappt. Grund: llama-cpp-python's `suppress_stdout_stderr()`
+  macht `dup2(/dev/null, 1/2)` beim Model-Load. Jede Python-Logzeile nach
+  dem Load landet im Nirvana, sobald der Logger-Handler auf `sys.stdout`
+  oder `sys.stderr` schreibt. Die `TypeError` oben war komplett unsichtbar:
+  `journalctl` leer nach `Local model loaded ✅`, systemd zeigte aber
+  `active (running)` weil der Prozess im `_cancel_all_tasks()`-Cleanup
+  hing. Sub-Agent-Scheduler, IPC-Polling, Thermal-Monitor, Proactive-Agent –
+  alle nie gestartet. Wrapper schreibt Tracebacks direkt in
+  `/etc/piclaw/crashes/daemon-boot-crash.log`.
+- **Test** – `test_monitor_pakete_auto_boot_kwargs_complete` in
+  `tests/test_registry.py` lockt die Auto-Boot-Kwargs, damit die Regression
+  nicht zurückkehrt.
+
+
 
 ### Sub-Agent Crash Recovery
 - **Typ-Coercion in `SubAgentDef`** – `timeout` und `max_steps` werden
