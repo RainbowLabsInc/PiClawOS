@@ -29,6 +29,34 @@ class TestSubAgentRegistry:
             tools=[],
         )
 
+    # ── Regression: auto-boot must pass all required SubAgentDef kwargs ────
+    # The daemon's agent.boot() auto-creates Monitor_Pakete if missing. A
+    # missing `description=` kwarg raised TypeError inside boot(), which was
+    # silently swallowed by llama-cpp-python's stdout/stderr hijack (dup2 to
+    # /dev/null during model load). The daemon appeared healthy to systemd
+    # while the sub-agent scheduler, IPC polling, Thermal monitor, etc.
+    # were never started. This test locks the kwargs so the bug cannot
+    # return unnoticed.
+    def test_monitor_pakete_auto_boot_kwargs_complete(self):
+        """Reproduces the April-2026 silent-crash bug where
+        `SubAgentDef(name=..., mission=...)` in agent.py's auto-boot block
+        raised TypeError: missing 'description'."""
+        from piclaw.agents.sa_registry import SubAgentDef
+        # These are the exact kwargs agent.py's boot() uses.
+        a = SubAgentDef(
+            name="Monitor_Pakete",
+            description="Paket-Tracking: prüft alle aktiven Pakete auf Statusänderungen",
+            mission="Prüft alle aktiven Pakete auf Statusänderungen",
+            schedule="interval:1800",
+            tools=["parcel_status"],
+            notify=True,
+            direct_tool="parcel_monitor",
+            created_by="auto-boot",
+        )
+        assert a.name == "Monitor_Pakete"
+        assert a.description  # non-empty, satisfies required positional arg
+        assert a.direct_tool == "parcel_monitor"
+
     def test_add_and_get_by_id(self, tmp_path):
         reg_file = tmp_path / "subagents.json"
         with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
