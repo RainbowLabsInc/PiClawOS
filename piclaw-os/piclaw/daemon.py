@@ -69,7 +69,36 @@ async def _daemon_main():
     # erstellt) Ergebnisse via Telegram/Discord senden können.
     # Gleiche Late-Binding-Logik wie in api.py.
     agent._telegram_send = lambda text: create_background_task(_notify_all(text), name="telegram-notify")
-    await agent.boot()
+
+    # agent.boot() kann das lokale Gemma-Modell laden; llama-cpp-python
+    # ruft intern suppress_stdout_stderr() → dup2(devnull, 1/2) → JEDE
+    # Log-Zeile nach dem Model-Load landet im /dev/null wenn der Handler
+    # auf sys.stdout oder sys.stderr schreibt (das sind jetzt devnull-FDs).
+    # Ohne diesen Wrapper war jede boot()-Exception komplett unsichtbar
+    # und der Daemon hing im Shutdown (asyncio._cancel_all_tasks) während
+    # systemd "active (running)" anzeigte. Fängt Fehler, schreibt sie auf
+    # einen dedizierten Crash-Pfad und re-raised, damit systemd restart.
+    try:
+        await agent.boot()
+    except BaseException:
+        import traceback
+        crash_path = "/var/log/piclaw/daemon-boot-crash.log"
+        try:
+            from piclaw.config import CRASH_DIR
+            CRASH_DIR.mkdir(parents=True, exist_ok=True)
+            crash_path = str(CRASH_DIR / "daemon-boot-crash.log")
+        except Exception:
+            pass
+        try:
+            with open(crash_path, "a") as f:
+                f.write(f"\n=== {__import__('datetime').datetime.now().isoformat()} ===\n")
+                traceback.print_exc(file=f)
+        except Exception:
+            pass
+        # Auch auf Journal senden (über systemd stdout/stderr kann noch
+        # schon tot sein, daher ist die Datei die primäre Quelle).
+        log.exception("FATAL: agent.boot() failed – see %s", crash_path)
+        raise
 
     log.info("piclaw-agent daemon running.")
 
