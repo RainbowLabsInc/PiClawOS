@@ -92,6 +92,7 @@ http://piclaw.local:7842
 | 📌 Kleinanzeigen.de | Kleinanzeigen | 🇩🇪 | PLZ + Umkreis + Preis |
 | 🛍️ eBay.de | Marktplatz | 🇩🇪 | PLZ + Preis |
 | 🎯 eGun.de | Jagd / Outdoor | 🇩🇪 | Preis |
+| 🎯 vdb-waffen.de/de/waffenmarkt/ | Jagd / Outdoor | 🇩🇪 | Preis |
 | 🇦🇹 willhaben.at | Kleinanzeigen | 🇦🇹 | Bundesland / Stadt |
 | 🔨 Troostwijk (Lose) | Industrie-Auktionen | 🌍 EU | Textsuche + Land |
 | 🏛️ Troostwijk (Events) | Auktions-Events | 🌍 EU | Land + Stadt + **PLZ + Radius** |
