@@ -143,3 +143,15 @@ def test_city_leakage_in_query():
     assert res3["max_price"] == 50.0
     assert "rosengarten" not in res3["query"].lower()
     assert "gartentisch" in res3["query"].lower()
+
+def test_city_leakage_with_plz():
+    from piclaw.agent import Agent
+    from piclaw.config import PiClawConfig
+    cfg = PiClawConfig()
+    agent = Agent(cfg)
+
+    res = agent._detect_marketplace_intent("Suche Gartentisch 21224 Rosengarten eBay")
+    assert res is not None
+    assert res["location"] == "21224"
+    assert "rosengarten" not in res["query"].lower()
+    assert "gartentisch" in res["query"].lower()
