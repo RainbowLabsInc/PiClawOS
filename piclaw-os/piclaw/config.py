@@ -301,5 +301,18 @@ def save(cfg: PiClawConfig):
         "agentmail": asdict(cfg.agentmail),
         "location":  asdict(cfg.location),
     })
+    # Sektionen die NICHT in der Dataclass sind aber erhalten bleiben muessen
+    # (z.B. homeassistant, mqtt - werden vom Wizard direkt geschrieben)
+    _preserve_keys = ["homeassistant", "mqtt", "parcel_tracking"]
+    if CONFIG_FILE.exists():
+        try:
+            import tomllib as _tl
+            with open(CONFIG_FILE, "rb") as _f:
+                _existing = _tl.load(_f)
+            for _k in _preserve_keys:
+                if _k in _existing and _k not in data:
+                    data[_k] = _existing[_k]
+        except Exception:
+            pass
     with open(CONFIG_FILE, "wb") as f:
         tomli_w.dump(data, f)
