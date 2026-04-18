@@ -38,7 +38,7 @@ fi
 
 # pip install -e /opt/piclaw (pyproject.toml liegt dort)
 echo "  📦 pip install -e $INSTALL_DIR ..."
-"$VENV/bin/pip" install -e "$INSTALL_DIR" -q || { echo "  ❌ pip install fehlgeschlagen"; exit 1; }
+"$VENV/bin/pip" install -e "$INSTALL_DIR/piclaw-os" -q || { echo "  ❌ pip install fehlgeschlagen"; exit 1; }
 echo "  ✅ piclaw installiert"
 
 # Rechte
