@@ -1,5 +1,18 @@
 # PiClaw OS – Changelog
 
+## Unreleased 📧
+
+### AgentMail Attribute-Fix
+- **`tools/agentmail.py` + `wizard.py`** – AgentMail SDK liefert die
+  Inbox-Adresse im Feld `inbox.email`, der Code las `inbox.email_address`
+  und erzeugte so `AttributeError: 'Inbox' object has no attribute
+  'email_address'` sobald eine reale Inbox abgefragt wurde. Defensiv
+  beide Felder: `getattr(ib, "email", None) or getattr(ib, "email_address", "")`.
+- **`cli.py` Doctor** – nutzt jetzt `cfg.agentmail.inbox_id` als primäre
+  Quelle für die Anzeige der Inbox-Adresse, mit `email_address` als
+  Fallback. Sonst zeigte Doctor dauerhaft "(keine Inbox)" obwohl die
+  Inbox existierte und per `inbox_id` korrekt konfiguriert war.
+
 ## Unreleased 🐛🔇
 
 ### Daemon Silent-Crash Fix
