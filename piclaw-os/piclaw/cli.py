@@ -320,7 +320,10 @@ def cmd_doctor():
         _dc = "✅" if cfg.discord.token else "⬜"
         _am = "⬜"
         if cfg.agentmail.api_key:
-            _am = f"✅ {cfg.agentmail.email_address}" if cfg.agentmail.email_address else "✅ (keine Inbox)"
+            # Zeige die Inbox-Adresse, egal ob unter inbox_id (neuer Wizard)
+            # oder email_address (alter Wizard) persistiert.
+            _addr = cfg.agentmail.inbox_id or cfg.agentmail.email_address
+            _am = f"✅ {_addr}" if _addr else "✅ (keine Inbox)"
         print(f"  Telegram    : {_tg}")
         print(f"  Discord     : {_dc}")
         print(f"  AgentMail   : {_am}")
