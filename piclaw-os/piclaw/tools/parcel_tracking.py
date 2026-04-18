@@ -69,7 +69,7 @@ CARRIER_PATTERNS = [
 
 # Regex zum Extrahieren von Trackingnummern aus E-Mails/Nachrichten
 RE_TRACKING_NUMBERS = re.compile(
-    r"(?:^|\s|:\s*)"  # Anfang oder nach Leerzeichen/Doppelpunkt
+    r"(?:^|\s|:\s*|[=?&/])"  # Anfang, Leerzeichen, Doppelpunkt ODER URL-Parameter
     r"("
     r"1Z[A-Z0-9]{16}"  # UPS
     r"|00\d{10,18}"  # DHL
@@ -127,6 +127,11 @@ def detect_carrier(tracking_number: str) -> str:
 
 def extract_tracking_numbers(text: str) -> list[dict]:
     """Extrahiert Trackingnummern aus einem Text (E-Mail, Nachricht etc.)."""
+    # HTML-Link-Texte zusätzlich extrahieren (<a href="...">NUMMER</a>)
+    import re as _re
+    link_texts = _re.findall(r'<a[^>]+>([^<]{8,30})</a>', text)
+    if link_texts:
+        text = text + "\n" + "\n".join(link_texts)
     matches = RE_TRACKING_NUMBERS.findall(text)
     results = []
     seen = set()
@@ -607,12 +612,13 @@ async def _scan_agentmail_inbox() -> list[str]:
         # Zeitstempel des Messages prüfen
         msg_time = getattr(msg, "created_at", None)
         if msg_time:
-            # ISO-String zu Unix-Timestamp
+            # ISO-String oder datetime zu Unix-Timestamp
             try:
                 from datetime import datetime as _dt
                 if isinstance(msg_time, str):
-                    # Versuche ISO-Format zu parsen
                     ts = _dt.fromisoformat(msg_time.replace("Z", "+00:00")).timestamp()
+                elif isinstance(msg_time, _dt):
+                    ts = msg_time.timestamp()
                 else:
                     ts = float(msg_time)
                 if ts <= last_scan:
@@ -621,16 +627,30 @@ async def _scan_agentmail_inbox() -> list[str]:
             except Exception:
                 pass  # Wenn Timestamp nicht parsbar → trotzdem verarbeiten
 
-        # Text aus E-Mail extrahieren
-        body = ""
-        if hasattr(msg, "extracted_text") and msg.extracted_text:
-            body = msg.extracted_text
-        elif hasattr(msg, "text") and msg.text:
-            body = msg.text
-        subject = getattr(msg, "subject", "") or ""
-        from_addr = getattr(msg, "from_address", "") or ""
+        # Vollen Message-Body via get() laden (list() gibt keinen Body zurück)
+        msg_id = getattr(msg, "message_id", None)
+        full_msg = msg
+        if msg_id:
+            try:
+                full_msg = await client.inboxes.messages.get(
+                    inbox_id=inbox_id, message_id=msg_id
+                )
+            except Exception as e:
+                log.warning("AgentMail get() fehlgeschlagen für %s: %s", msg_id, e)
 
-        full_text = f"{subject}\n{body}"
+        body = ""
+        if getattr(full_msg, "extracted_text", None):
+            body = full_msg.extracted_text
+        elif getattr(full_msg, "text", None):
+            body = full_msg.text
+        elif getattr(full_msg, "extracted_html", None):
+            # HTML-Fallback: Tags entfernen
+            body = re.sub(r"<[^>]+>", " ", full_msg.extracted_html)
+        subject = getattr(full_msg, "subject", "") or getattr(msg, "subject", "") or ""
+        from_addr = getattr(full_msg, "from_", "") or ""
+
+        html_body = getattr(full_msg, "html", None) or ""
+        full_text = f"{subject}\n{body}\n{html_body}"
 
         # Trackingnummern extrahieren
         found = extract_tracking_numbers(full_text)
