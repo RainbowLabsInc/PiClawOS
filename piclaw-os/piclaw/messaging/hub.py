@@ -139,7 +139,7 @@ class MessagingHub:
             try:
                 return await self._on_message(msg)
             except Exception as e:
-                log.error("Message handler error: %s", e)
+                log.exception("Message handler error: %s", e)
                 return "❌ Internal error processing message."
         return "No handler registered."
 

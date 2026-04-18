@@ -820,10 +820,21 @@ class Agent:
         # Raum-Keywords suchen
         area_words = [w for w in words if w not in
                       on_kw + off_kw + toggle_kw +
-                      ["schalte", "mach", "mache", "stell", "stelle",
+                      ("schalte", "mach", "mache", "stell", "stelle",
                        "knips", "dreh", "licht", "lampe", "leuchte",
-                       "steckdose", "schalter", "bitte"]]
+                       "steckdose", "schalter", "bitte")]
         area = " ".join(area_words).strip() if area_words else ""
+
+        # Gerätetyp aus Query ableiten (licht/rolladen/...)
+        device_hint = None
+        if any(k in t for k in ("licht", "lampe", "leuchte", "beleuchtung")):
+            device_hint = "light"
+        elif any(k in t for k in ("rolladen", "rollladen", "rollo", "jalousie")):
+            device_hint = "cover"
+        elif "ventilator" in t:
+            device_hint = "fan"
+        elif "steckdose" in t:
+            device_hint = "switch"
 
         # Entität suchen
         entity_id = None
@@ -832,6 +843,33 @@ class Agent:
             # Schaltbare Domains
             entities = [e for e in entities
                         if e.domain in ("light", "switch", "cover", "fan")]
+
+            # Nach Gerätetyp priorisieren
+            if device_hint == "light":
+                light_entities = [e for e in entities if e.domain == "light"]
+                light_switches = [e for e in entities
+                                  if e.domain == "switch"
+                                  and any(k in e.entity_id.lower()
+                                          for k in ("licht", "lampe", "leuchte"))]
+                filtered = light_entities + light_switches
+                if filtered:
+                    entities = filtered
+            elif device_hint == "cover":
+                filtered = [e for e in entities if e.domain == "cover"]
+                if filtered:
+                    entities = filtered
+            elif device_hint == "fan":
+                filtered = [e for e in entities if e.domain == "fan"]
+                if filtered:
+                    entities = filtered
+            elif device_hint == "switch":
+                filtered = [e for e in entities
+                            if e.domain == "switch"
+                            and not any(k in e.entity_id.lower()
+                                        for k in ("licht", "lampe", "leuchte", "strahler"))]
+                if filtered:
+                    entities = filtered
+
             if entities:
                 entity_id = entities[0].entity_id
 
