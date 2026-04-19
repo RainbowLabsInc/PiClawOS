@@ -10,7 +10,10 @@ def mock_agentmail_config():
 @pytest.mark.asyncio
 async def test_agentmail_create_inbox(mock_agentmail_config, monkeypatch):
     mock_client = MagicMock()
-    mock_client.inboxes.create = AsyncMock(return_value=MagicMock(email_address="agent@agentmail.to", inbox_id="ib_123"))
+    mock_inbox = MagicMock()
+    mock_inbox.email = "agent@agentmail.to"
+    mock_inbox.inbox_id = "ib_123"
+    mock_client.inboxes.create = AsyncMock(return_value=mock_inbox)
 
     # We need to mock the client creation inside the tool
     async def mock_get_client(cfg):
@@ -50,7 +53,9 @@ async def test_agentmail_send_email(mock_agentmail_config, monkeypatch):
 @pytest.mark.asyncio
 async def test_agentmail_list_inboxes(mock_agentmail_config, monkeypatch):
     mock_client = MagicMock()
-    mock_inbox = MagicMock(email_address="agent@agentmail.to", inbox_id="ib_123")
+    mock_inbox = MagicMock()
+    mock_inbox.email = "agent@agentmail.to"
+    mock_inbox.inbox_id = "ib_123"
     mock_client.inboxes.list = AsyncMock(return_value=MagicMock(inboxes=[mock_inbox]))
 
     async def mock_get_client(cfg):
