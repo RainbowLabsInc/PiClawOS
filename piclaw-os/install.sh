@@ -150,7 +150,7 @@ PKGS=(
     sqlite3 nodejs npm
     network-manager
     i2c-tools
-    curl wget git
+    curl wget git acl
     htop
 )
 info "Installiere Pakete: ${PKGS[*]}"
@@ -324,6 +324,9 @@ WDEOF
 
 chown "piclaw-watchdog":"piclaw-watchdog" "$CONFIG_DIR/watchdog.toml"
 chmod 640 "$CONFIG_DIR/watchdog.toml"
+
+# Watchdog Lese-Rechte für Integrity Checks gewähren
+setfacl -m u:piclaw-watchdog:r "$CONFIG_DIR/config.toml" /etc/sudoers /etc/ssh/sshd_config /etc/systemd/system/piclaw-*.service 2>/dev/null || true
 
 # ── CLI-Tool einrichten ───────────────────────────────────────────
 section "CLI-Tool einrichten"
