@@ -894,10 +894,13 @@ class LLMHealthMonitor:
                 from piclaw.tools.agentmail import agentmail_send_email
                 # Markdown-Formatierung entfernen für E-Mail
                 clean_msg = msg.replace("*", "").replace("`", "").replace("_", "")
+
+                recipient = _cfg.agentmail.email_address or "admin@localhost"
+
                 await agentmail_send_email(
                     cfg=_cfg.agentmail,
                     inbox_id=_cfg.agentmail.inbox_id,
-                    to=[_cfg.agentmail.email_address],  # An sich selbst (ins Archiv)
+                    to=[recipient],  # An sich selbst (ins Archiv) oder Fallback
                     subject="PiClaw Health Monitor",
                     text=clean_msg,
                 )
