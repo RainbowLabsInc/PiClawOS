@@ -90,3 +90,59 @@ Nach Update-Runde via Dameon:
 
 ## 🏠 HA-Entities Küche (für device_hint Regression-Tests)
 ## 🔑 LLM Backends
+
+
+---
+
+## 📡 CYD/HaleHound-Integration (Geplant)
+
+Hardware: ESP32-2432S028 „Cheap Yellow Display" mit HaleHound-CYD Firmware (https://github.com/JesseCHale/HaleHound-CYD)
+Anschluss: USB-Serial an Pi 5 (UART0, 115200 Baud)
+
+### Serielle Befehlsschnittstelle (Patch erforderlich)
+
+HaleHound hat keine native Serial-CLI. Patch-Aufwand: ~50–100 Zeilen C++ in `HaleHound-CYD.ino`.
+
+| Befehl | Funktion | HaleHound-Modul |
+|---|---|---|
+| `DEAUTH <BSSID> <ch>` | Gerät aus WLAN werfen | WiFi Deauther |
+| `LOCKDOWN` | Auth Flood + Deauth gleichzeitig → alle WLAN-Verbindungen kappen | Auth Flood + Deauther |
+| `COUNTER_DEAUTH <BSSID> <ch>` | Rück-Deauth bei erkanntem Angriff auf eigenes Netz | WiFi Deauther |
+| `SCAN_STATIONS` | Verbundene Clients auflisten (MAC + RSSI) | Station Scanner |
+| `PROBE_SNIFF <sek>` | Geräte die sich nähern erkennen (Probe Requests) | Probe Sniffer |
+| `BLE_SCAN` | BLE-Geräte in der Nähe | BLE Scanner |
+| `AIRTAG_SCAN` | Apple FindMy / AirTag Tracker-Detektion | AirTag Detect |
+| `AP_SCAN` | Nachbar-APs (Baseline + neue APs erkennen) | WiFi Scanner |
+| `SUBGHZ_REPLAY <profil>` | Gespeichertes SubGHz-Signal abspielen (Tor/Garage) | SubGHz Replay |
+| `STATUS` | CYD Heartbeat / bereit? | – |
+
+### Garagentor / Hoftor per Telegram
+
+- Tore nutzen **Festcode** (kein Rolling Code) → CC1101-Replay funktioniert
+- - Benötigt: CC1101 HW-863 Modul an CYD (VSPI, CS=GPIO27)
+  - - Flow: Telegram-Befehl → Dameon → Serial `SUBGHZ_REPLAY garage` → CYD sendet Signal
+    - - Signal einmalig mit HaleHound Replay-Modul aufnehmen und als Profil auf SD-Karte speichern
+     
+      - ### LOCKDOWN-Modus
+     
+      - Notfall-Killswitch: Dameon erkennt kritisches Ereignis oder manueller Telegram-Befehl.
+      - - CYD startet Auth Flood + Deauth gleichzeitig
+        - - Alle WLAN-Verbindungen im Umkreis brechen zusammen (inkl. eigene Geräte!)
+          - - Eigener Zugriff danach nur noch per LAN-Kabel oder direkt am Pi
+            - - Aufheben: `LOCKDOWN_STOP` oder CYD-Neustart
+             
+              - ### Rück-Deauth bei Angriff
+             
+              - - Dameon Monitor erkennt Deauth-Angriff auf eigenes Netz (Quelle-BSSID/MAC bekannt)
+                - - Automatisch oder per Telegram-Bestätigung: `COUNTER_DEAUTH <MAC> <ch>`
+                  - - CYD sendet Deauth-Storm zurück an Angreifer-Gerät
+                   
+                    - ### Aufwand-Schätzung
+                   
+                    - | Task | Aufwand |
+                    - |---|---|
+                    - | Serial-Command-Parser in HaleHound patchen | 2–3 Std |
+                    - | Dameon-Tool `cyd_command(cmd)` via pyserial | 1 Std |
+                    - | SubGHz-Profile aufnehmen (Garage + Hoftor) | 30 Min |
+                    - | LOCKDOWN-Intent in Dameon + Telegram | 1 Std |
+                    - | Rück-Deauth-Erkennung + Counter-Logik | 2 Std |
