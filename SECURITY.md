@@ -32,6 +32,8 @@ HTTPS, VPN) aus dem Internet erreichbar sein.
 |---|---|---|
 | `/etc/piclaw/config.toml` | `600 (piclaw:piclaw)` | API-Keys, Token, Passwörter |
 | `/etc/piclaw/watchdog.toml` | `640 (piclaw-watchdog:piclaw-watchdog)` | Watchdog-Konfiguration |
+
+> **Hinweis:** Der `piclaw-watchdog` User hat via ACL (`setfacl`) Leserechte auf kritische Systemdateien (wie `config.toml`, `/etc/sudoers`, `/etc/ssh/sshd_config`, `systemd-units`) für Integrity-Checks.
 | `/var/log/piclaw/*.log` | `640` | Logs – keine API-Keys (gemaskert) |
 
 ### Sub-Agent Sandbox

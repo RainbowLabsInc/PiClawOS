@@ -64,9 +64,11 @@ async def test_installer_confirm_tool(tmp_path, monkeypatch):
 async def test_watchdog_installer_hang(tmp_path, monkeypatch):
     from piclaw.agents.watchdog import Watchdog
 
-    # Mock INSTALLER_LOCK_FILE
+    # Mock INSTALLER_LOCK_FILE and WATCHDOG_LOG_DIR
     lock_file = tmp_path / "piclaw_installer.lock"
     monkeypatch.setattr("piclaw.agents.watchdog.INSTALLER_LOCK_FILE", lock_file)
+    log_dir = tmp_path / "log"
+    monkeypatch.setattr("piclaw.agents.watchdog.WATCHDOG_LOG_DIR", log_dir)
 
     # Create an "old" lock file
     lock_file.write_text("lock")
