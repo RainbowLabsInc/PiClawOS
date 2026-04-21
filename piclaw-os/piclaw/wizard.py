@@ -1454,9 +1454,11 @@ def step_wifi(state: WizardState, step: int, total: int) -> None:
     _spinner(f"Verbinde mit '{ssid}'")
     try:
         cmd = ["nmcli", "dev", "wifi", "connect", ssid]
+        input_data = None
         if password:
-            cmd += ["password", password]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            cmd.append("--ask")
+            input_data = f"{password}\n"
+        result = subprocess.run(cmd, input=input_data, capture_output=True, text=True, timeout=20)
         _clear_line()
         if result.returncode == 0:
             _ok(f"Verbunden mit '{ssid}'")
