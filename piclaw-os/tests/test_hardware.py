@@ -427,13 +427,14 @@ class TestSensorReading:
         assert "ERROR" in s
         assert "CRC fail" in s
 
-    def test_ds18b20_no_hardware(self):
+    @pytest.mark.asyncio
+    async def test_ds18b20_no_hardware(self):
         """DS18B20 reader returns graceful error when /sys/bus/w1 absent."""
         from piclaw.hardware.sensors import SensorDef, _read_ds18b20
         with patch("piclaw.hardware.sensors.Path") as mp:
             mp.return_value.exists.return_value = False
             sensor  = SensorDef(name="t", type="DS18B20", config={})
-            reading = _read_ds18b20(sensor)
+            reading = await _read_ds18b20(sensor)
         assert reading.error is not None
         assert "1-Wire" in reading.error or "w1" in reading.error.lower() or reading.error
 
