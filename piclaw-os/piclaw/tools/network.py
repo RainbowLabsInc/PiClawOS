@@ -39,14 +39,21 @@ TOOL_DEFS = [
 ]
 
 
-async def _run(cmd: list[str], timeout: int = 15) -> str:
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+async def _run(cmd: list[str], timeout: int = 15, input_data: str | None = None) -> str:
+    kwargs = {
+        "stdout": asyncio.subprocess.PIPE,
+        "stderr": asyncio.subprocess.PIPE,
+    }
+    if input_data is not None:
+        kwargs["stdin"] = asyncio.subprocess.PIPE
+
+    proc = await asyncio.create_subprocess_exec(*cmd, **kwargs)
+
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        if input_data is not None:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(input=input_data.encode()), timeout=timeout)
+        else:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
         proc.kill()
         return "[TIMEOUT]"
@@ -80,9 +87,11 @@ async def wifi_scan() -> str:
 
 async def wifi_connect(ssid: str, password: str = "") -> str:
     cmd = ["nmcli", "dev", "wifi", "connect", ssid]
+    input_data = None
     if password:
-        cmd.extend(["password", password])
-    return await _run(cmd, timeout=30)
+        cmd.append("--ask")
+        input_data = f"{password}\n"
+    return await _run(cmd, timeout=30, input_data=input_data)
 
 
 async def wifi_disconnect() -> str:
