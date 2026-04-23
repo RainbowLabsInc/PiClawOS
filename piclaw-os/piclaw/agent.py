@@ -53,6 +53,10 @@ _RE_MONITOR_PHRASES = re.compile(
     ], key=len, reverse=True)) + r")\b"
 )
 
+_RE_NET_MARKET_KW = re.compile(r'(?:kleinanzeigen|zoll\-auktion|sonnenschirm|zollauktion|troostwijk|vdb\-waffen|marktplatz|willhaben|verkaufen|inserat|anzeige|fahrrad|wohnung|kaufen|ebay|egun|auto|vdb)')
+_RE_NET_SPECIFIC_KW = re.compile(r'(?:unbekanntes\ gerät|wer\ ist\ im\ netz|neue\ verbindung|welche\ geräte|fremdes\ gerät|ip\ adresse|netzwerk|network|device|router|gerät|wlan|wifi|nmap|lan)')
+_RE_NET_MONITOR_KW = re.compile(r'(?:überwach|beobacht|monitor|scan)')
+
 _RE_PLATFORM_PHRASES = re.compile(
     r"(?i)\b(" + "|".join(re.escape(p) for p in sorted([
         "kleinanzeigen.de", "ebay.de", "willhaben.at", "kleinanzeigen",
@@ -625,24 +629,11 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion", "vdb", "vdb-waffen", "inserat",
-                     "anzeige", "marktplatz", "kaufen", "verkaufen",
-                     "sonnenschirm", "fahrrad", "auto", "wohnung")
-        if any(k in t for k in market_kw):
+        if _RE_NET_MARKET_KW.search(t):
             return False
 
         # Netzwerk-spezifische Keywords müssen vorhanden sein
-        network_specific = (
-            "netzwerk", "network", "gerät", "device", "router",
-            "lan", "wlan", "wifi", "nmap", "ip adresse",
-            "wer ist im netz", "welche geräte", "neue verbindung",
-            "fremdes gerät", "unbekanntes gerät",
-        )
-        monitor_kw = ("überwach", "beobacht", "monitor", "scan")
-
-        has_network = any(k in t for k in network_specific)
-        has_monitor = any(k in t for k in monitor_kw)
-        return has_network and has_monitor
+        return bool(_RE_NET_SPECIFIC_KW.search(t) and _RE_NET_MONITOR_KW.search(t))
 
     async def _create_cron_agent(self, intent: dict) -> str:
         """Erstellt einen zeitgesteuerten Sub-Agenten basierend auf erkanntem Intent."""
