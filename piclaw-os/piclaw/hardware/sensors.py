@@ -185,14 +185,13 @@ async def read_sensor(sensor: SensorDef) -> SensorReading:
     Dispatches to the appropriate driver based on sensor.type.
     All drivers degrade gracefully if hardware not available.
     """
-    loop = asyncio.get_running_loop()
     try:
         if sensor.type == TYPE_DHT22:
-            return await loop.run_in_executor(None, lambda: _read_dht22(sensor))
+            return await _read_dht22(sensor)
         elif sensor.type == TYPE_DS18B20:
-            return await loop.run_in_executor(None, lambda: _read_ds18b20(sensor))
+            return await _read_ds18b20(sensor)
         elif sensor.type == TYPE_BMP280:
-            return await loop.run_in_executor(None, lambda: _read_bmp280(sensor))
+            return await _read_bmp280(sensor)
         elif sensor.type == TYPE_SHT40:
             return await _read_sht40(sensor)
         elif sensor.type == TYPE_BH1750:
@@ -200,7 +199,7 @@ async def read_sensor(sensor: SensorDef) -> SensorReading:
         elif sensor.type == TYPE_ADS1115:
             return await _read_ads1115(sensor)
         elif sensor.type == TYPE_INA219:
-            return await loop.run_in_executor(None, lambda: _read_ina219(sensor))
+            return await _read_ina219(sensor)
         elif sensor.type == TYPE_PIR:
             return await _read_pir(sensor)
         elif sensor.type == TYPE_ULTRASONIC:
@@ -221,140 +220,148 @@ async def read_sensor(sensor: SensorDef) -> SensorReading:
 # ── DHT22 / DHT11 ─────────────────────────────────────────────────
 
 
-def _read_dht22(sensor: SensorDef) -> SensorReading:
+async def _read_dht22(sensor: SensorDef) -> SensorReading:
     pin = sensor.config.get("pin", 4)
-    try:
-        import adafruit_dht
-        import board
-
-        pin_obj = getattr(board, f"D{pin}")
-        dht = adafruit_dht.DHT22(pin_obj, use_pulseio=False)
+    def _do_read():
         try:
-            temp = dht.temperature
-            hum = dht.humidity
-            dht.exit()
-            return SensorReading(
-                sensor_name=sensor.name,
-                values={"temp_c": round(temp, 1), "humidity_pct": round(hum, 1)},
-            )
-        except RuntimeError as e:
-            dht.exit()
-            return SensorReading(
-                sensor_name=sensor.name,
-                values={},
-                error=f"DHT read failed (retry): {e}",
-            )
-    except ImportError:
-        # Fallback: try Adafruit_DHT legacy
-        try:
-            import Adafruit_DHT
+            import adafruit_dht
+            import board
 
-            sensor_type = Adafruit_DHT.DHT22
-            hum, temp = Adafruit_DHT.read_retry(sensor_type, pin)
-            if temp is not None and hum is not None:
+            pin_obj = getattr(board, f"D{pin}")
+            dht = adafruit_dht.DHT22(pin_obj, use_pulseio=False)
+            try:
+                temp = dht.temperature
+                hum = dht.humidity
+                dht.exit()
                 return SensorReading(
                     sensor_name=sensor.name,
                     values={"temp_c": round(temp, 1), "humidity_pct": round(hum, 1)},
                 )
-            return SensorReading(
-                sensor_name=sensor.name,
-                values={},
-                error="DHT returned None (check wiring)",
-            )
+            except RuntimeError as e:
+                dht.exit()
+                return SensorReading(
+                    sensor_name=sensor.name,
+                    values={},
+                    error=f"DHT read failed (retry): {e}",
+                )
         except ImportError:
-            return SensorReading(
-                sensor_name=sensor.name,
-                values={},
-                error="adafruit_dht or Adafruit_DHT library required",
-            )
+            # Fallback: try Adafruit_DHT legacy
+            try:
+                import Adafruit_DHT
+
+                sensor_type = Adafruit_DHT.DHT22
+                hum, temp = Adafruit_DHT.read_retry(sensor_type, pin)
+                if temp is not None and hum is not None:
+                    return SensorReading(
+                        sensor_name=sensor.name,
+                        values={"temp_c": round(temp, 1), "humidity_pct": round(hum, 1)},
+                    )
+                return SensorReading(
+                    sensor_name=sensor.name,
+                    values={},
+                    error="DHT returned None (check wiring)",
+                )
+            except ImportError:
+                return SensorReading(
+                    sensor_name=sensor.name,
+                    values={},
+                    error="adafruit_dht or Adafruit_DHT library required",
+                )
+        except Exception as e:
+            return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
+    return await asyncio.to_thread(_do_read)
 
 
 # ── DS18B20 1-Wire ────────────────────────────────────────────────
 
 
-def _read_ds18b20(sensor: SensorDef) -> SensorReading:
+async def _read_ds18b20(sensor: SensorDef) -> SensorReading:
     device_id = sensor.config.get("device_id")
-    # Search /sys/bus/w1/devices/ for DS18B20 sensors
-    w1_path = Path("/sys/bus/w1/devices")
-    if not w1_path.exists():
-        return SensorReading(
-            sensor_name=sensor.name,
-            values={},
-            error="1-Wire not enabled. Add 'dtoverlay=w1-gpio' to /boot/config.txt",
-        )
-    try:
-        # Find all DS18B20 devices (start with 28-)
-        devices = list(w1_path.glob("28-*"))
-        if not devices:
+    def _do_read():
+        # Search /sys/bus/w1/devices/ for DS18B20 sensors
+        w1_path = Path("/sys/bus/w1/devices")
+        if not w1_path.exists():
             return SensorReading(
                 sensor_name=sensor.name,
                 values={},
-                error="No DS18B20 sensors found on 1-Wire bus",
+                error="1-Wire not enabled. Add 'dtoverlay=w1-gpio' to /boot/config.txt",
             )
-        # Select specific device or first found
-        if device_id:
-            target = w1_path / device_id
-        else:
-            target = devices[0]
-        raw = (target / "w1_slave").read_text(encoding="utf-8", errors="replace")
-        if "YES" not in raw:
+        try:
+            # Find all DS18B20 devices (start with 28-)
+            devices = list(w1_path.glob("28-*"))
+            if not devices:
+                return SensorReading(
+                    sensor_name=sensor.name,
+                    values={},
+                    error="No DS18B20 sensors found on 1-Wire bus",
+                )
+            # Select specific device or first found
+            if device_id:
+                target = w1_path / device_id
+            else:
+                target = devices[0]
+            raw = (target / "w1_slave").read_text(encoding="utf-8", errors="replace")
+            if "YES" not in raw:
+                return SensorReading(
+                    sensor_name=sensor.name, values={}, error="DS18B20 CRC check failed"
+                )
+            temp_str = raw.split("t=")[1].strip()
+            temp = int(temp_str) / 1000.0
             return SensorReading(
-                sensor_name=sensor.name, values={}, error="DS18B20 CRC check failed"
+                sensor_name=sensor.name,
+                values={"temp_c": round(temp, 2), "device": str(target.name)},
             )
-        temp_str = raw.split("t=")[1].strip()
-        temp = int(temp_str) / 1000.0
-        return SensorReading(
-            sensor_name=sensor.name,
-            values={"temp_c": round(temp, 2), "device": str(target.name)},
-        )
-    except Exception as e:
-        return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
+        except Exception as e:
+            return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
+    return await asyncio.to_thread(_do_read)
 
 
 # ── BMP280 / BME280 ────────────────────────────────────────────────
 
 
-def _read_bmp280(sensor: SensorDef) -> SensorReading:
+async def _read_bmp280(sensor: SensorDef) -> SensorReading:
     bus_num = sensor.config.get("i2c_bus", 1)
     address = sensor.config.get("address", 0x76)
-    try:
-        import smbus2
-        import bme280
-
-        bus = smbus2.SMBus(bus_num)
-        calibration = bme280.load_calibration_params(bus, address)
-        data = bme280.sample(bus, address, calibration)
-        values = {
-            "temp_c": round(data.temperature, 2),
-            "pressure_hpa": round(data.pressure, 2),
-        }
-        if hasattr(data, "humidity") and data.humidity:
-            values["humidity_pct"] = round(data.humidity, 1)
-        return SensorReading(sensor_name=sensor.name, values=values)
-    except ImportError:
-        # Try adafruit-circuitpython-bmp280
+    def _do_read():
         try:
-            import board
-            import busio
-            import adafruit_bmp280
+            import smbus2
+            import bme280
 
-            i2c = busio.I2C(board.SCL, board.SDA)
-            bmp = adafruit_bmp280.Adafruit_BMP280_I2C(i2c, address=address)
-            return SensorReading(
-                sensor_name=sensor.name,
-                values={
-                    "temp_c": round(bmp.temperature, 2),
-                    "pressure_hpa": round(bmp.pressure, 2),
-                },
-            )
+            bus = smbus2.SMBus(bus_num)
+            calibration = bme280.load_calibration_params(bus, address)
+            data = bme280.sample(bus, address, calibration)
+            values = {
+                "temp_c": round(data.temperature, 2),
+                "pressure_hpa": round(data.pressure, 2),
+            }
+            if hasattr(data, "humidity") and data.humidity:
+                values["humidity_pct"] = round(data.humidity, 1)
+            return SensorReading(sensor_name=sensor.name, values=values)
         except ImportError:
-            return SensorReading(
-                sensor_name=sensor.name,
-                values={},
-                error="smbus2+bme280 or adafruit-circuitpython-bmp280 required",
-            )
-    except Exception as e:
-        return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
+            # Try adafruit-circuitpython-bmp280
+            try:
+                import board
+                import busio
+                import adafruit_bmp280
+
+                i2c = busio.I2C(board.SCL, board.SDA)
+                bmp = adafruit_bmp280.Adafruit_BMP280_I2C(i2c, address=address)
+                return SensorReading(
+                    sensor_name=sensor.name,
+                    values={
+                        "temp_c": round(bmp.temperature, 2),
+                        "pressure_hpa": round(bmp.pressure, 2),
+                    },
+                )
+            except ImportError:
+                return SensorReading(
+                    sensor_name=sensor.name,
+                    values={},
+                    error="smbus2+bme280 or adafruit-circuitpython-bmp280 required",
+                )
+        except Exception as e:
+            return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
+    return await asyncio.to_thread(_do_read)
 
 
 # ── SHT40 / SHT31 ─────────────────────────────────────────────────
@@ -452,36 +459,38 @@ async def _read_ads1115(sensor: SensorDef) -> SensorReading:
 # ── INA219 Current/Power ──────────────────────────────────────────
 
 
-def _read_ina219(sensor: SensorDef) -> SensorReading:
+async def _read_ina219(sensor: SensorDef) -> SensorReading:
     bus_num = sensor.config.get("i2c_bus", 1)
     address = sensor.config.get("address", 0x40)
     shunt_ohm = sensor.config.get("shunt_ohm", 0.1)
-    try:
-        from ina219 import INA219, DeviceRangeError
-
-        ina = INA219(shunt_ohm, busnum=bus_num, address=address)
-        ina.configure()
+    def _do_read():
         try:
+            from ina219 import INA219, DeviceRangeError
+
+            ina = INA219(shunt_ohm, busnum=bus_num, address=address)
+            ina.configure()
+            try:
+                return SensorReading(
+                    sensor_name=sensor.name,
+                    values={
+                        "voltage_v": round(ina.voltage(), 3),
+                        "current_ma": round(ina.current(), 1),
+                        "power_mw": round(ina.power(), 1),
+                    },
+                )
+            except DeviceRangeError:
+                return SensorReading(
+                    sensor_name=sensor.name,
+                    values={},
+                    error="INA219 measurement out of range",
+                )
+        except ImportError:
             return SensorReading(
-                sensor_name=sensor.name,
-                values={
-                    "voltage_v": round(ina.voltage(), 3),
-                    "current_ma": round(ina.current(), 1),
-                    "power_mw": round(ina.power(), 1),
-                },
+                sensor_name=sensor.name, values={}, error="pi-ina219 library required"
             )
-        except DeviceRangeError:
-            return SensorReading(
-                sensor_name=sensor.name,
-                values={},
-                error="INA219 measurement out of range",
-            )
-    except ImportError:
-        return SensorReading(
-            sensor_name=sensor.name, values={}, error="pi-ina219 library required"
-        )
-    except Exception as e:
-        return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
+        except Exception as e:
+            return SensorReading(sensor_name=sensor.name, values={}, error=str(e))
+    return await asyncio.to_thread(_do_read)
 
 
 # ── PIR Motion Sensor ─────────────────────────────────────────────
