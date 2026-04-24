@@ -145,6 +145,15 @@ async def _daemon_main():
     except Exception as e:
         log.warning("Proaktiver Agent konnte nicht starten: %s", e)
 
+    # ── Metrics Engine ─────────────────────────────────────────────
+    try:
+        from piclaw.metrics import start_collector
+
+        await start_collector()
+        log.info("Metrics collector started.")
+    except Exception as e:
+        log.warning("Metrics collector could not start: %s", e)
+
     # ── Thermal Monitor ────────────────────────────────────────────
     try:
         from piclaw.hardware.thermal import run_thermal_monitor
