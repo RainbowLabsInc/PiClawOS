@@ -60,6 +60,9 @@ _RE_AGENT_START_KW = re.compile(r'(reaktiviere|aktiviere|starte|start)')
 _RE_AGENT_REMOVE_KW = re.compile(r'(entfern|delete|remove|lösch)')
 _RE_LLM_DISCOVER_KW = re.compile(r'(neue\ modelle\ finden|neue\ modelle\ suchen|backends\ entdecken|modelle\ entdecken|discover\ backends|backends\ finden|backends\ suchen|finde\ neue\ llm|neue\ backends|llm\ autonomie|llm\ discover|find\ new\ llm|llm\ suchen|llm\ finden|api\ finden|api\ suchen|gratis\ api|freie\ api|neue\ api|neue\ llm)')
 _RE_MONITOR_KW = re.compile(r'(halte\ die\ augen\ offen|jede\ halbe\ stunde|check\ regelmäßig|halte\ ausschau|benachrichtig|sag\ mir\ wenn|sag\ bescheid|automatisch|jede\ stunde|alle\ stunde|schick\ mir|regelmäßig|informier|stündlich|überwach|beobacht|monitor|notify|alert|watch|meld)')
+_RE_NET_MARKET_KW = re.compile(r'(?:kleinanzeigen|zoll\-auktion|sonnenschirm|zollauktion|troostwijk|vdb\-waffen|marktplatz|willhaben|verkaufen|inserat|anzeige|fahrrad|wohnung|kaufen|ebay|egun|auto|vdb)')
+_RE_NET_SPECIFIC_KW = re.compile(r'(?:unbekanntes\ gerät|wer\ ist\ im\ netz|neue\ verbindung|welche\ geräte|fremdes\ gerät|ip\ adresse|netzwerk|network|device|router|gerät|wlan|wifi|nmap|lan)')
+_RE_NET_MONITOR_KW = re.compile(r'(?:überwach|beobacht|monitor|scan)')
 
 _RE_PLATFORM_PHRASES = re.compile(
     r"(?i)\b(" + "|".join(re.escape(p) for p in sorted([
@@ -634,24 +637,11 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Marktplatz-Keywords → definitiv kein Netzwerk-Monitor
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion", "vdb", "vdb-waffen", "inserat",
-                     "anzeige", "marktplatz", "kaufen", "verkaufen",
-                     "sonnenschirm", "fahrrad", "auto", "wohnung")
-        if any(k in t for k in market_kw):
+        if _RE_NET_MARKET_KW.search(t):
             return False
 
         # Netzwerk-spezifische Keywords müssen vorhanden sein
-        network_specific = (
-            "netzwerk", "network", "gerät", "device", "router",
-            "lan", "wlan", "wifi", "nmap", "ip adresse",
-            "wer ist im netz", "welche geräte", "neue verbindung",
-            "fremdes gerät", "unbekanntes gerät",
-        )
-        monitor_kw = ("überwach", "beobacht", "monitor", "scan")
-
-        has_network = any(k in t for k in network_specific)
-        has_monitor = any(k in t for k in monitor_kw)
-        return has_network and has_monitor
+        return bool(_RE_NET_SPECIFIC_KW.search(t) and _RE_NET_MONITOR_KW.search(t))
 
     async def _create_cron_agent(self, intent: dict) -> str:
         """Erstellt einen zeitgesteuerten Sub-Agenten basierend auf erkanntem Intent."""
