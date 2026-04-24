@@ -53,6 +53,14 @@ _RE_MONITOR_PHRASES = re.compile(
     ], key=len, reverse=True)) + r")\b"
 )
 
+_RE_AGENT_STATUS_KW = re.compile(r'(laufende|running|welche|status|aktive|liste|zeig|alle|show|list|was)')
+_RE_AGENT_NOUN_KW = re.compile(r'(sub\-agent|subagent|monitor|aufgabe|agent|task|job)')
+_RE_AGENT_STOP_KW = re.compile(r'(deaktiviere|halte\ an|stopp|beend|pause|stop)')
+_RE_AGENT_START_KW = re.compile(r'(reaktiviere|aktiviere|starte|start)')
+_RE_AGENT_REMOVE_KW = re.compile(r'(entfern|delete|remove|lösch)')
+_RE_LLM_DISCOVER_KW = re.compile(r'(neue\ modelle\ finden|neue\ modelle\ suchen|backends\ entdecken|modelle\ entdecken|discover\ backends|backends\ finden|backends\ suchen|finde\ neue\ llm|neue\ backends|llm\ autonomie|llm\ discover|find\ new\ llm|llm\ suchen|llm\ finden|api\ finden|api\ suchen|gratis\ api|freie\ api|neue\ api|neue\ llm)')
+_RE_MONITOR_KW = re.compile(r'(halte\ die\ augen\ offen|jede\ halbe\ stunde|check\ regelmäßig|halte\ ausschau|benachrichtig|sag\ mir\ wenn|sag\ bescheid|automatisch|jede\ stunde|alle\ stunde|schick\ mir|regelmäßig|informier|stündlich|überwach|beobacht|monitor|notify|alert|watch|meld)')
+
 _RE_PLATFORM_PHRASES = re.compile(
     r"(?i)\b(" + "|".join(re.escape(p) for p in sorted([
         "kleinanzeigen.de", "ebay.de", "willhaben.at", "kleinanzeigen",
@@ -1137,21 +1145,13 @@ class Agent:
             r"wenn.*inserat", r"wenn.*neu", r"jede.*stunde", r"alle.*stunde",
             r"jede.*halbe", r"alle\s+\d+\s*min",
         ]
-        monitor_kw = (
-            "überwach", "beobacht", "benachrichtig", "informier", "meld",
-            "sag mir wenn", "sag bescheid", "schick mir", "check regelmäßig",
-            "halte ausschau", "halte die augen offen",
-            "alert", "monitor", "watch", "notify",
-            "stündlich", "regelmäßig", "automatisch",
-            "jede stunde", "alle stunde", "jede halbe stunde",
-        )
         market_kw = (
             "kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion", "vdb", "vdb-waffen",
             "inserat", "anzeige", "kaufen",
             "marktplatz", "gebraucht", "preis", "euro", "angebot",
         )
 
-        _has_monitor_kw = any(k in t for k in monitor_kw)
+        _has_monitor_kw = bool(_RE_MONITOR_KW.search(t))
         if not _has_monitor_kw:
             # Regex-Patterns als Fallback prüfen
             _has_monitor_kw = any(re.search(p, t) for p in _regex_patterns)
@@ -1526,14 +1526,7 @@ class Agent:
 
         # Agent-Status-Shortcut: "zeig Agenten", "welche Jobs laufen" etc.
         _t = user_input.lower()
-        _agent_status_kw = (
-            "zeig", "liste", "welche", "was", "status", "laufende", "aktive",
-            "alle", "show", "list", "running",
-        )
-        _agent_noun_kw = (
-            "agent", "job", "monitor", "subagent", "sub-agent", "task", "aufgabe",
-        )
-        if any(k in _t for k in _agent_status_kw) and any(k in _t for k in _agent_noun_kw):
+        if _RE_AGENT_STATUS_KW.search(_t) and _RE_AGENT_NOUN_KW.search(_t):
             handler = self._handlers.get("agent_list")
             if handler:
                 log.info("Agent-Status-Shortcut ausgelöst")
@@ -1542,25 +1535,22 @@ class Agent:
         # Agent-Stop/Start/Remove-Shortcut: "Stopp den Monitor_X", "Lösch den X" etc.
         # Geschützte Agenten (Sicherheitsarchitektur) sind via sa_tools._PROTECTED_AGENTS gesichert
         import re as _re
-        _stop_kw   = ("stopp", "stop", "beend", "pause", "halte an", "deaktiviere")
-        _start_kw  = ("start", "starte", "aktiviere", "reaktiviere")
-        _remove_kw = ("lösch", "entfern", "delete", "remove")
         _agent_name_match = _re.search(
             r"\b(Monitor_\w+|SearchAssistant|[A-Z][a-zA-Z0-9_]{4,}|[0-9a-f]{6,12})\b", user_input
         )
         if _agent_name_match:
             _agent_name = _agent_name_match.group(1)
-            if any(k in _t for k in _stop_kw):
+            if _RE_AGENT_STOP_KW.search(_t):
                 handler = self._handlers.get("agent_stop")
                 if handler:
                     log.info("Agent-Stop-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
-            elif any(k in _t for k in _remove_kw):
+            elif _RE_AGENT_REMOVE_KW.search(_t):
                 handler = self._handlers.get("agent_remove")
                 if handler:
                     log.info("Agent-Remove-Shortcut: %s", _agent_name)
                     return await handler(name=_agent_name)
-            elif any(k in _t for k in _start_kw):
+            elif _RE_AGENT_START_KW.search(_t):
                 handler = self._handlers.get("agent_start")
                 if handler:
                     log.info("Agent-Start-Shortcut: %s", _agent_name)
@@ -1578,15 +1568,7 @@ class Agent:
         # braucht, ist das lokale Modell zu schwach für Tool-Calling.
         # Deshalb: Regex-basierter Shortcut → direkt llm_discover() aufrufen.
         _t_llm = user_input.lower()
-        _llm_discover_patterns = (
-            "finde neue llm", "llm discover", "neue backends", "neue api",
-            "backends finden", "backends suchen", "backends entdecken",
-            "llm suchen", "llm finden", "api finden", "api suchen",
-            "neue modelle finden", "neue modelle suchen", "modelle entdecken",
-            "llm autonomie", "discover backends", "find new llm",
-            "neue llm", "freie api", "gratis api",
-        )
-        if any(k in _t_llm for k in _llm_discover_patterns):
+        if _RE_LLM_DISCOVER_KW.search(_t_llm):
             log.info("LLM-Discover-Shortcut ausgeführt (kein LLM nötig)")
             if "llm_discover" in self._handlers:
                 result = await self._handlers["llm_discover"]()
