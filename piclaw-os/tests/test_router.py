@@ -44,7 +44,7 @@ class TestLLMRegistryFindByTags:
             reg.add(make_backend("general", ["general"],           priority=5))
             reg.add(make_backend("writer",  ["writing", "creative"], priority=6))
             reg.add(make_backend("disabled", ["coding"],           enabled=False))
-            return reg
+            yield reg
 
     def test_find_returns_matching_backends(self, reg):
         results = reg.find_by_tags(["coding"])

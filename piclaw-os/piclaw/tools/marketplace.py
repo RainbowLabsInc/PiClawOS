@@ -840,6 +840,67 @@ async def _search_troostwijk(
     return results
 
 
+# ── Geocoding-Hilfsfunktionen (Nominatim/OSM) ────────────────────────────────
+
+_GEOCODE_CACHE: dict[str, tuple[float, float] | None] = {}
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Luftlinienentfernung in km zwischen zwei Koordinatenpaaren (Haversine)."""
+    import math
+    R = 6371.0
+    φ1, φ2 = math.radians(lat1), math.radians(lat2)
+    dφ = math.radians(lat2 - lat1)
+    dλ = math.radians(lon2 - lon1)
+    a = math.sin(dφ / 2) ** 2 + math.cos(φ1) * math.cos(φ2) * math.sin(dλ / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+async def _nominatim_query(
+    session: aiohttp.ClientSession, params: dict
+) -> tuple[float, float] | None:
+    """Ruft Nominatim ab und gibt (lat, lon) zurück oder None bei Fehler."""
+    try:
+        async with session.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={**params, "format": "json", "limit": "1"},
+            headers={"User-Agent": "PiClaw/1.0 (contact@piclaw.de)"},
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json(content_type=None)
+            if data:
+                return float(data[0]["lat"]), float(data[0]["lon"])
+    except Exception as exc:
+        log.debug("Nominatim Fehler: %s", exc)
+    return None
+
+
+async def _plz_to_coords(
+    session: aiohttp.ClientSession, plz: str, country: str
+) -> tuple[float, float] | None:
+    """Geocodiert eine PLZ → (lat, lon). Ergebnis wird prozessweit gecacht."""
+    key = f"plz:{country}:{plz}"
+    if key in _GEOCODE_CACHE:
+        return _GEOCODE_CACHE[key]
+    result = await _nominatim_query(session, {"postalcode": plz, "country": country})
+    _GEOCODE_CACHE[key] = result
+    return result
+
+
+async def _city_to_coords(
+    session: aiohttp.ClientSession, city: str, country_code: str
+) -> tuple[float, float] | None:
+    """Geocodiert einen Stadtnamen → (lat, lon). Ergebnis wird prozessweit gecacht."""
+    key = f"city:{country_code.lower()}:{city.lower()}"
+    if key in _GEOCODE_CACHE:
+        return _GEOCODE_CACHE[key]
+    result = await _nominatim_query(session, {"city": city, "country": country_code.lower()})
+    _GEOCODE_CACHE[key] = result
+    return result
+
+
 async def _search_troostwijk_auctions(
     session: aiohttp.ClientSession,
     country: str = "de",
@@ -877,6 +938,13 @@ async def _search_troostwijk_auctions(
     if plz and radius_km:
         origin_coords = await _plz_to_coords(session, plz, country_lc)
         if not origin_coords:
+            if not city_filter:
+                log.warning(
+                    "Troostwijk Radius: PLZ %s/%s nicht geocodierbar, kein city_filter – "
+                    "überspringe Lauf um ungefiltertes Ergebnis zu vermeiden",
+                    country_lc, plz,
+                )
+                return []
             log.warning(
                 "Troostwijk Radius: PLZ %s/%s konnte nicht geocodiert werden – "
                 "Fallback auf city_filter",
@@ -1663,7 +1731,9 @@ async def marketplace_search(
 
         results_list = await asyncio.gather(*tasks, return_exceptions=True)
         for r in results_list:
-            if isinstance(r, list):
+            if isinstance(r, Exception):
+                log.error("marketplace_search: Plattform-Fehler: %s", r)
+            elif isinstance(r, list):
                 all_results.extend(r)
 
     # Neue filtern
@@ -1745,11 +1815,11 @@ def format_results(results: dict, mode: str = "text") -> str:
 def _telegram_url(url: str) -> str:
     """Bereinigt eine URL für Telegram-Markdown-Links.
 
-    Telegram MarkdownV1 bricht bei Sonderzeichen in URLs (?, =, &).
-    Lösung: Fragezeichen und Ampersand URL-encoden damit Telegram
-    den kompletten Link erkennt.
+    Nur ')' muss escaped werden – das einzige Zeichen das einen
+    MarkdownV1-Link [text](url) vorzeitig schließt.
+    ? = & sind standard URL-Zeichen und dürfen nicht encoded werden.
     """
-    return url.replace("?", "%3F").replace("&", "%26").replace("=", "%3D")
+    return url.replace(")", "%29")
 
 
 def format_results_telegram(results: dict) -> str:

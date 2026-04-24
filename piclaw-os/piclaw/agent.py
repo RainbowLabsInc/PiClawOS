@@ -556,6 +556,7 @@ class Agent:
             request = user_input.strip()[10:].strip()
             from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
 
+            INSTALLER_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
             INSTALLER_LOCK_FILE.write_text(request, encoding="utf-8")
             return await self._delegate_to_installer(request)
 
@@ -1456,6 +1457,7 @@ class Agent:
         from piclaw.agents.watchdog import INSTALLER_LOCK_FILE
 
         try:
+            INSTALLER_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
             INSTALLER_LOCK_FILE.write_text(request, encoding="utf-8")
         except Exception as e:
             log.warning("Could not create installer lock: %s", e)

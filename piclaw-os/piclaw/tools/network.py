@@ -21,12 +21,13 @@ TOOL_DEFS = [
         name="wifi_connect",
         description=(
             "Connect to a WiFi network by SSID. Uses saved credentials if available. "
-            "If no saved credentials exist, tell the user to run 'nmcli dev wifi connect SSID password PASS' directly on the Pi terminal."
+            "Optionally accepts a password for new networks."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "ssid": {"type": "string", "description": "Network name (SSID)"},
+                "password": {"type": "string", "description": "WiFi password (optional, for new networks)"},
             },
             "required": ["ssid"],
         },
@@ -39,14 +40,16 @@ TOOL_DEFS = [
 ]
 
 
-async def _run(cmd: list[str], timeout: int = 15) -> str:
+async def _run(cmd: list[str], timeout: int = 15, input_data: str | None = None) -> str:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
+        stdin=asyncio.subprocess.PIPE if input_data is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        stdin_bytes = input_data.encode() if input_data is not None else None
+        stdout, stderr = await asyncio.wait_for(proc.communicate(stdin_bytes), timeout=timeout)
     except TimeoutError:
         proc.kill()
         return "[TIMEOUT]"
@@ -79,9 +82,11 @@ async def wifi_scan() -> str:
 
 
 async def wifi_connect(ssid: str, password: str = "") -> str:
-    cmd = ["nmcli", "dev", "wifi", "connect", ssid]
     if password:
-        cmd.extend(["password", password])
+        # Pass password via stdin to prevent exposure in process list (ps aux)
+        cmd = ["nmcli", "--ask", "dev", "wifi", "connect", ssid]
+        return await _run(cmd, timeout=30, input_data=password + "\n")
+    cmd = ["nmcli", "dev", "wifi", "connect", ssid]
     return await _run(cmd, timeout=30)
 
 
