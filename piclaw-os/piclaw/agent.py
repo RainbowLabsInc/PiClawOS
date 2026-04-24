@@ -85,6 +85,14 @@ _RE_STOPWORDS = re.compile(
     ], key=len, reverse=True)) + r")(?![\w])"
 )
 
+# Vorcompilierte Regex für _detect_marketplace_intent Plattform-Erkennung
+_RE_PLATFORM_KLEINANZEIGEN = re.compile(r"(kleinanzeigen\.de|kleinanzeigen)", re.IGNORECASE)
+_RE_PLATFORM_EGUN = re.compile(r"(egun\.de|egun)", re.IGNORECASE)
+_RE_PLATFORM_TROOSTWIJK = re.compile(r"(troostwijk|troost)", re.IGNORECASE)
+_RE_PLATFORM_ZOLL = re.compile(r"(zoll-auktion|zoll auktion|zollauktion)", re.IGNORECASE)
+_RE_PLATFORM_WILLHABEN = re.compile(r"(willhaben)", re.IGNORECASE)
+_RE_PLATFORM_WEB = re.compile(r"(internet|web)", re.IGNORECASE)
+
 
 from collections.abc import Callable
 
@@ -589,8 +597,7 @@ class Agent:
             return None
         if not any(k in t for k in time_kw):
             return None
-        market_kw = ("kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion", "vdb", "vdb-waffen", "inserat", "marktplatz")
-        if any(k in t for k in market_kw):
+        if _RE_MP_MARKET_KW.search(t):
             return None
 
         # Zeit extrahieren
@@ -940,7 +947,7 @@ class Agent:
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
         # Muss Troostwijk + Auktions-Kontext haben
-        if not any(k in t for k in ("troostwijk", "troost")):
+        if not _RE_PLATFORM_TROOSTWIJK.search(t):
             return None
         if not any(k in t for k in ("auktion", "auction", "neue", "überwach", "monitor",
                                      "benachrichtig", "meld", "inform")):
@@ -1147,7 +1154,7 @@ class Agent:
             _has_monitor_kw = any(re.search(p, t) for p in _regex_patterns)
         if not _has_monitor_kw:
             return None
-        if not any(k in t for k in market_kw):
+        if not _RE_MP_MARKET_KW.search(t):
             return None
 
         # Intervall aus Text extrahieren (default 1h)
@@ -1172,23 +1179,23 @@ class Agent:
 
         # Plattform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if _RE_PLATFORM_KLEINANZEIGEN.search(t):
             platforms.append("kleinanzeigen")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
-        if any(k in t for k in ("egun", "egun.de")):
+        if _RE_PLATFORM_EGUN.search(t):
             platforms.append("egun")
-        if any(k in t for k in ("troostwijk", "troost")):
+        if _RE_PLATFORM_TROOSTWIJK.search(t):
             platforms.append("troostwijk")
-        if any(k in t for k in ("zollauktion", "zoll-auktion", "zoll auktion")):
+        if _RE_PLATFORM_ZOLL.search(t):
             platforms.append("zoll_auktion")
         if any(k in t for k in ("vdb", "vdb-waffen", "vdb-waffen.de")):
             platforms.append("vdb")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
-        if "willhaben" in t:
+        if _RE_PLATFORM_WILLHABEN.search(t):
             platforms.append("willhaben")
-        if "web" in t or "internet" in t:
+        if _RE_PLATFORM_WEB.search(t):
             platforms.append("web")
         if not platforms:
             platforms = ["kleinanzeigen", "ebay"]
@@ -1364,21 +1371,21 @@ class Agent:
             return None
         # Platform
         platforms = []
-        if any(k in t for k in ("kleinanzeigen", "kleinanzeigen.de")):
+        if _RE_PLATFORM_KLEINANZEIGEN.search(t):
             platforms.append("kleinanzeigen")
-        if any(k in t for k in ("egun", "egun.de")):
+        if _RE_PLATFORM_EGUN.search(t):
             platforms.append("egun")          # FIX: egun vor ebay prüfen (ebay-Fallback würde sonst greifen)
-        if any(k in t for k in ("troostwijk", "troost")):
+        if _RE_PLATFORM_TROOSTWIJK.search(t):
             platforms.append("troostwijk")
-        if any(k in t for k in ("zollauktion", "zoll-auktion", "zoll auktion")):
+        if _RE_PLATFORM_ZOLL.search(t):
             platforms.append("zoll_auktion")
         if any(k in t for k in ("vdb", "vdb-waffen", "vdb-waffen.de")):
             platforms.append("vdb")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
-        if "willhaben" in t:
+        if _RE_PLATFORM_WILLHABEN.search(t):
             platforms.append("willhaben")
-        if "web" in t or "internet" in t:
+        if _RE_PLATFORM_WEB.search(t):
             platforms.append("web")
         if not platforms:
             platforms = ["kleinanzeigen", "ebay"]
