@@ -39,3 +39,6 @@ DEV_REFERENCE.md
 
 # Interne Rebuild-Referenz (kein Release-Artefakt)
 venv/
+
+# Auto-generierter Mirror (wird durch 'make sync' erstellt, nicht manuell pflegen)
+boot/piclaw/piclaw-src/piclaw/
