@@ -7,6 +7,7 @@ Requires 'nmap' to be installed on the host.
 import asyncio
 import json
 import logging
+import ipaddress
 import re
 import socket
 from dataclasses import dataclass, asdict
@@ -114,6 +115,29 @@ async def _run_nmap(args: list[str]) -> str:
         return f"[ERROR] Network scan failed: {e}"
 
 
+def _is_valid_ip_or_host(target: str) -> bool:
+    if target.startswith("-"):
+        return False
+    try:
+        ipaddress.ip_address(target)
+        return True
+    except ValueError:
+        pass
+    if re.match(r"^[a-zA-Z0-9.-]+$", target):
+        return True
+    return False
+
+
+def _is_valid_network(net: str) -> bool:
+    if net.startswith("-"):
+        return False
+    try:
+        ipaddress.ip_network(net, strict=False)
+        return True
+    except ValueError:
+        return False
+
+
 async def _get_local_range() -> str:
     """Attempts to find the local network range (default fallback: 192.168.1.0/24)."""
     try:
@@ -135,6 +159,9 @@ async def _get_local_range() -> str:
 async def scan_devices(ip_range: str = "") -> list[NetworkDevice]:
     if not ip_range:
         ip_range = await _get_local_range()
+    elif not _is_valid_network(ip_range):
+        logger.warning("Invalid ip_range provided: %s", ip_range)
+        return []
 
     # -sn: Ping scan (no port scan)
     output = await _run_nmap(["-sn", ip_range])
@@ -166,6 +193,8 @@ async def scan_devices(ip_range: str = "") -> list[NetworkDevice]:
 
 
 async def port_scan(ip: str, fast: bool = True) -> str:
+    if not _is_valid_ip_or_host(ip):
+        return f"❌ Invalid IP address or hostname format: {ip}"
     args = ["-F", ip] if fast else [ip]
     return await _run_nmap(args)
 
@@ -204,6 +233,8 @@ async def check_new_devices() -> list[NetworkDevice]:
 
 
 async def ping_host(host: str) -> bool:
+    if not _is_valid_ip_or_host(host):
+        return False
     try:
         proc = await asyncio.create_subprocess_exec(
             "ping", "-c", "1", "-W", "2", host, stdout=asyncio.subprocess.DEVNULL
