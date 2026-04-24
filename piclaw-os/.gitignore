@@ -38,3 +38,4 @@ GAPS.md
 DEV_REFERENCE.md
 
 # Interne Rebuild-Referenz (kein Release-Artefakt)
+venv/
