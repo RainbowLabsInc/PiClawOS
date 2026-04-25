@@ -1,10 +1,10 @@
 """
 PiClaw OS – SmartRouter
-Manages automatic switching between local (Phi-3) and API backends.
+Manages automatic switching between local (Gemma 4 E2B) and API backends.
 
 State machine:
   BOOTING   → checks API connectivity in parallel while local model loads
-  LOCAL     → running on Phi-3 Mini (no API key / offline / API down)
+  LOCAL     → running on Gemma 4 E2B (no API key / offline / API down)
   API       → running on cloud API (Anthropic / OpenAI)
   SWITCHING → transitioning between backends (brief window)
 
@@ -52,7 +52,7 @@ class RouterStatus:
 
     def summary(self) -> str:
         mode = {
-            BackendState.LOCAL: "🟡 Offline / Local (Phi-3 Mini)",
+            BackendState.LOCAL: "🟡 Offline / Local (Gemma 4 E2B)",
             BackendState.API: "🟢 Online / Cloud API",
             BackendState.BOOTING: "⚪ Booting…",
             BackendState.SWITCHING: "🔄 Switching…",
@@ -153,7 +153,7 @@ class SmartRouter(LLMBackend):
         else:
             reason = "no API key" if not self._api else "API unreachable"
             log.info("API not available (%s) → LOCAL mode.", reason)
-            self._set_state(BackendState.LOCAL, "local (Phi-3 Mini)")
+            self._set_state(BackendState.LOCAL, "local (Gemma 4 E2B)")
             # Make sure local model finishes loading
             await local_task
 
@@ -166,7 +166,7 @@ class SmartRouter(LLMBackend):
         log.info("SmartRouter boot complete: %s", self.status.state.value)
 
     async def _preload_local(self):
-        """Load Phi-3 Mini into RAM in the background."""
+        """Load Gemma 4 E2B into RAM in the background."""
         try:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._local._load)
@@ -232,7 +232,7 @@ class SmartRouter(LLMBackend):
                 log.error("Failed to load local model: %s", e)
                 self._set_state(BackendState.LOCAL, "local (unavailable)")
                 return
-        self._set_state(BackendState.LOCAL, "local (Phi-3 Mini)")
+        self._set_state(BackendState.LOCAL, "local (Gemma 4 E2B)")
         self.status.switch_count += 1
         log.warning("Switched to LOCAL mode. Reason: %s", reason or "API failure")
         self._start_recheck()
@@ -327,7 +327,7 @@ class SmartRouter(LLMBackend):
         """Prepend offline notice to system prompt."""
         new = list(messages)
         notice = (
-            "⚠️  OFFLINE MODE: You are running as a local Phi-3 Mini model. "
+            "⚠️  OFFLINE MODE: You are running as a local Gemma 4 E2B model. "
             "Cloud API is unavailable. Be concise and honest about limitations. "
             "For complex tasks, ask the user to check their internet connection "
             "or API key with: piclaw config set llm.api_key <key>"

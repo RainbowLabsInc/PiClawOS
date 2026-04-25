@@ -61,11 +61,43 @@ def _detect_format(model_path: Path) -> str:
     return "phi3"
 
 
+# ── OpenAI-format conversion helpers (für create_chat_completion) ─────────────
+
+def _to_oai_messages(messages: list) -> list[dict]:
+    """Konvertiert Message-Objekte in OpenAI-kompatibles Format."""
+    result = []
+    for m in messages:
+        if m.role == "tool":
+            result.append({
+                "role": "tool",
+                "content": m.content,
+                "tool_call_id": m.tool_call_id or "unknown",
+            })
+        else:
+            result.append({"role": m.role, "content": m.content or ""})
+    return result
+
+
+def _to_oai_tools(tools: list) -> list[dict]:
+    """Konvertiert ToolDefinition-Objekte in OpenAI-kompatibles Format."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.parameters,
+            },
+        }
+        for t in (tools or [])
+    ]
+
+
+# ── Legacy prompt builders (für ältere Modelle ohne GGUF-Chat-Template) ───────
+
 def _build_prompt(messages: list, model_path: Path) -> str:
-    """Universeller Prompt-Builder fuer verschiedene Modell-Formate."""
+    """Universeller Prompt-Builder fuer aeltere Modell-Formate (nicht Gemma 4)."""
     fmt = _detect_format(model_path)
-    if fmt == "gemma4":
-        return _build_gemma4_prompt(messages)
     if fmt == "gemma":
         return _build_gemma_prompt(messages)
     if fmt == "qwen3":
@@ -73,34 +105,6 @@ def _build_prompt(messages: list, model_path: Path) -> str:
     if fmt == "tinyllama":
         return _build_tinyllama_prompt(messages)
     return _build_phi3_prompt(messages)
-
-
-def _build_gemma4_prompt(messages: list) -> str:
-    """Gemma 4 Chat-Format mit nativer System-Role-Unterstuetzung.
-
-    <start_of_turn>system
-    ...<end_of_turn>
-    <start_of_turn>user
-    ...<end_of_turn>
-    <start_of_turn>model
-    """
-    parts = []
-    system_injected = False
-    for m in messages:
-        if m.role == "system":
-            parts.append(f"<start_of_turn>system\n{m.content}<end_of_turn>")
-            system_injected = True
-        elif m.role == "user":
-            if not system_injected:
-                parts.append(f"<start_of_turn>system\n{OFFLINE_SYSTEM}<end_of_turn>")
-                system_injected = True
-            parts.append(f"<start_of_turn>user\n{m.content}<end_of_turn>")
-        elif m.role == "assistant":
-            parts.append(f"<start_of_turn>model\n{m.content}<end_of_turn>")
-        elif m.role == "tool":
-            parts.append(f"<start_of_turn>user\nTool-Ergebnis: {m.content}<end_of_turn>")
-    parts.append("<start_of_turn>model")
-    return "\n".join(parts)
 
 
 def _build_gemma_prompt(messages: list) -> str:
@@ -203,9 +207,9 @@ def _simple_tool_parse(text: str, tools: list) -> list:
 
 
 def _stop_tokens(model_path: Path) -> list:
-    """Stop-Tokens je nach Modell-Format."""
+    """Stop-Tokens je nach Modell-Format (nur fuer den Legacy-Pfad)."""
     fmt = _detect_format(model_path)
-    if fmt in ("gemma4", "gemma"):
+    if fmt == "gemma":
         return ["<end_of_turn>", "<start_of_turn>"]
     if fmt == "qwen3":
         return ["<|im_end|>", "<|endoftext|>", "<|im_start|>"]
@@ -217,7 +221,9 @@ def _stop_tokens(model_path: Path) -> list:
 class LocalBackend(LLMBackend):
     """Gemma 4 E2B Q4_K_M via llama-cpp-python.
 
-    Natives Tool Calling, 128K Kontext, Apache 2.0-Lizenz.
+    Gemma 4 nutzt create_chat_completion mit nativem Tool Calling.
+    Aeltere Modelle (Qwen3, TinyLlama, Phi-3) verwenden manuelle Prompt-
+    Builder + _simple_tool_parse als Fallback.
     Optimiert fuer Raspberry Pi 5 (CPU-only, ~1.5 GB RAM, 5-8 tok/s).
     Laedt lazy beim ersten Aufruf, entlaedt via .unload().
     Fallback: qwen3-1.7b-q4_k_m.gguf falls Gemma 4 nicht vorhanden.
@@ -296,51 +302,101 @@ class LocalBackend(LLMBackend):
     def is_loaded(self) -> bool:
         return self._loaded
 
+    def _infer_native(self, messages: list, tools: list | None) -> tuple[str, list]:
+        """Gemma 4: create_chat_completion mit nativem Tool Calling."""
+        oai_messages = _to_oai_messages(messages)
+        kwargs: dict = dict(
+            messages=oai_messages,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+        )
+        if tools:
+            kwargs["tools"] = _to_oai_tools(tools)
+            kwargs["tool_choice"] = "auto"
+
+        result = self._llm.create_chat_completion(**kwargs)
+        msg = result["choices"][0].get("message", {})
+        content = (msg.get("content") or "").strip()
+
+        parsed_calls = []
+        for tc in (msg.get("tool_calls") or []):
+            fn = tc.get("function", {})
+            try:
+                args = json.loads(fn.get("arguments", "{}"))
+            except Exception:
+                args = {}
+            parsed_calls.append(ToolCall(
+                id=tc.get("id", f"local_{len(parsed_calls)}"),
+                name=fn.get("name", ""),
+                arguments=args,
+            ))
+
+        return content, parsed_calls
+
+    def _infer_legacy(self, messages: list, tools: list | None) -> tuple[str, list]:
+        """Aeltere Modelle: manueller Prompt-Builder + Regex-Tool-Parser."""
+        import re
+        prompt = _build_prompt(messages, self.model_path)
+        result = self._llm(
+            prompt,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            stop=_stop_tokens(self.model_path),
+            echo=False,
+        )
+        choices = result.get("choices") or []
+        if not choices:
+            raise ValueError(f"llama.cpp returned no choices: {result}")
+        text = (choices[0].get("text") or "").strip()
+        tool_calls = _simple_tool_parse(text, tools) if tools else []
+        if tool_calls:
+            text = re.sub(r"```json.*?```", "", text, flags=re.DOTALL).strip()
+        return text, tool_calls
+
     async def chat(self, messages, tools=None, stream=False):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._load)
-        prompt = _build_prompt(messages, self.model_path)
+        fmt = _detect_format(self.model_path)
 
         def _infer():
             with self._lock:
-                result = self._llm(
-                    prompt,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    stop=_stop_tokens(self.model_path),
-                    echo=False,
-                )
-            choices = result.get("choices") or []
-            if not choices:
-                raise ValueError(f"llama.cpp returned no choices: {result}")
-            return (choices[0].get("text") or "").strip()
+                if fmt == "gemma4":
+                    return self._infer_native(messages, tools)
+                return self._infer_legacy(messages, tools)
 
-        text = await loop.run_in_executor(None, _infer)
-        tool_calls = _simple_tool_parse(text, tools) if tools else []
-        if tool_calls:
-            import re
-            text = re.sub(r"```json.*?```", "", text, flags=re.DOTALL).strip()
+        text, tool_calls = await loop.run_in_executor(None, _infer)
         finish = "tool_calls" if tool_calls else "stop"
         return LLMResponse(content=text, tool_calls=tool_calls, finish_reason=finish)
 
     async def stream_chat(self, messages, tools=None):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._load)
-        prompt = _build_prompt(messages, self.model_path)
+        fmt = _detect_format(self.model_path)
 
         def _stream_infer():
             with self._lock:
-                for chunk in self._llm(
-                    prompt,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    stop=_stop_tokens(self.model_path),
-                    stream=True,
-                    echo=False,
-                ):
-                    yield (chunk.get("choices") or [{}])[0].get("text") or ""
+                if fmt == "gemma4":
+                    for chunk in self._llm.create_chat_completion(
+                        messages=_to_oai_messages(messages),
+                        max_tokens=self.max_tokens,
+                        temperature=self.temperature,
+                        stream=True,
+                    ):
+                        delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                        yield delta.get("content") or ""
+                else:
+                    prompt = _build_prompt(messages, self.model_path)
+                    for chunk in self._llm(
+                        prompt,
+                        max_tokens=self.max_tokens,
+                        temperature=self.temperature,
+                        stop=_stop_tokens(self.model_path),
+                        stream=True,
+                        echo=False,
+                    ):
+                        yield (chunk.get("choices") or [{}])[0].get("text") or ""
 
-        queue = asyncio.Queue()
+        queue: asyncio.Queue = asyncio.Queue()
 
         def _run():
             try:
