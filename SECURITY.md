@@ -1,7 +1,7 @@
 # 🔐 PiClaw OS – Security Documentation
 
-> Letzte Aktualisierung: 2026-04-05 (Session 9)  
-> Version: v0.15.5
+> Letzte Aktualisierung: 2026-04-24  
+> Version: v0.17.0
 
 ---
 
@@ -46,6 +46,66 @@ Zwei-Tier-System in `piclaw/agents/sandbox.py`:
 ---
 
 ## Bekannte Schwachstellen & Status
+
+### 🔴 Kritisch – Behoben in v0.17.0
+
+#### SEC-7: WiFi-Passwort in Prozessliste – `network.py` ✅ BEHOBEN
+**Beschreibung:** `wifi_connect()` übergab das WiFi-Passwort als CLI-Argument an `nmcli`:
+`nmcli dev wifi connect <SSID> password <PASSWORT>`. Das Passwort war damit für alle
+lokalen User über `ps aux` oder `/proc/<pid>/cmdline` lesbar, solange der Verbindungsaufbau
+lief.
+
+**Impact:** Klartext-Passwort-Diebstahl durch jeden lokalen Benutzer oder Prozess.
+
+**Fix (Commit `86c6a22`):** `--ask`-Flag + Übergabe via stdin:
+```python
+cmd = ["nmcli", "--ask", "dev", "wifi", "connect", ssid]
+return await _run(cmd, timeout=30, input_data=password + "\n")
+```
+Passwort erscheint nicht mehr als Prozessargument.
+
+---
+
+#### SEC-8: WiFi-Passwort in Prozessliste – `wizard.py` ✅ BEHOBEN
+**Beschreibung:** Gleiche Schwachstelle wie SEC-7 im Setup-Wizard (`step_wifi()`).
+`subprocess.run(["nmcli", ..., "password", password])` – Passwort sichtbar in `ps aux`.
+
+**Impact:** Wie SEC-7, trifft Nutzer während des initialen Setups.
+
+**Fix (Commit `e013dab`):** `subprocess.run(..., input=password+"\n")` mit `--ask`-Flag.
+Die Fixes wurden separat entdeckt – SEC-7 in `network.py` wurde zuerst behoben,
+`wizard.py` war in der initialen Review übersehen worden.
+
+---
+
+#### SEC-9: Argument-Injection in `network_monitor.py` (nmap/ping) ✅ BEHOBEN
+**Beschreibung:** Die Funktionen `scan_devices()`, `port_scan()` und `ping_host()` leiteten
+Benutzereingaben (IP-Range, IP-Adresse, Hostname) ohne Validierung direkt als Argumente
+an `nmap` und `ping` weiter. Ein Angreifer konnte über den LLM-gesteuerten Agent
+präparierte Strings einspeisen (z.B. `192.168.1.0/24 --script malicious`).
+
+**Impact:** Argument-Injection in externe Prozesse via Agent-Eingaben.
+
+**Fix (Commit `800ae27`):** Strikte Eingabevalidierung vor jedem Prozessaufruf:
+- IP-Adressen: `ipaddress.ip_address()` / `ipaddress.ip_network()`
+- Hostnames: Regex `^[a-zA-Z0-9._-]+$`
+- Ungültige Eingaben werden mit Fehlermeldung abgelehnt, kein Prozessstart
+
+---
+
+### 🟡 Mittel – Behoben in v0.17.0
+
+#### SEC-10: `subprocess_shell` in `watchdog.py` ✅ BEHOBEN
+**Beschreibung:** `_check_services()` nutzte `asyncio.create_subprocess_shell()` mit einem
+f-String: `f"systemctl is-active {svc} 2>/dev/null"`. Obwohl `WATCHED_SERVICES` hardcoded
+ist, öffnete dies grundsätzlich Shell-Injection – etwa wenn die Liste je dynamisch befüllt würde.
+
+**Impact:** Theore­tische Shell-Injection bei dynamischen Service-Namen; schlechte Praxis.
+
+**Fix (Commit `86c6a22`):** Umgestellt auf `asyncio.create_subprocess_exec("systemctl", "is-active", svc)` –
+kein Shell-Kontext, kein Injection-Risiko.
+
+---
 
 ### 🔴 Kritisch – Behoben in v0.15.5
 
@@ -205,6 +265,10 @@ Achtung: Diese Software wird aktuell von einem Micro-Team in ihrer Freizeit entw
 
 | Version | Fix | Commit |
 |---|---|---|
+| v0.17.0 | SEC-7: WiFi-Passwort in Prozessliste (`network.py` → stdin/--ask) | `86c6a22` |
+| v0.17.0 | SEC-8: WiFi-Passwort in Prozessliste (`wizard.py` → stdin/--ask) | `e013dab` |
+| v0.17.0 | SEC-9: Argument-Injection in `network_monitor.py` (nmap/ping Validation) | `800ae27` |
+| v0.17.0 | SEC-10: subprocess_shell → subprocess_exec in `watchdog.py` | `86c6a22` |
 | v0.17.0 | Path-Traversal in `write_workspace_file` (PR #123) | `2b7ac6b` |
 | v0.17.0 | IP-Validierung in `network_security.py` (PR #128) | `2ca758d` |
 | v0.17.0 | Command-Injection in `updater.py` via shlex.quote (PR #132) | `2838785` |
