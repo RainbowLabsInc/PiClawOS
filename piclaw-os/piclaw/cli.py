@@ -328,23 +328,21 @@ def cmd_doctor():
         print(f"  Discord     : {_dc}")
         print(f"  AgentMail   : {_am}")
 
-        try:
-            import aiohttp
+        import importlib.util
 
+        if importlib.util.find_spec("aiohttp"):
             print("  aiohttp     : ✅")
-        except ImportError:
+        else:
             print("  aiohttp     : ❌")
-        try:
-            import fastapi
 
+        if importlib.util.find_spec("fastapi"):
             print("  fastapi     : ✅")
-        except ImportError:
+        else:
             print("  fastapi     : ❌")
-        try:
-            import scrapling  # noqa: F401
 
+        if importlib.util.find_spec("scrapling"):
             print("  scrapling   : ✅")
-        except ImportError:
+        else:
             print("  scrapling   : ❌  (pip install scrapling)")
 
         # ── System-Checks (Invarianten) ──────────────────────────
