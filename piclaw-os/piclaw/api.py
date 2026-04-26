@@ -774,8 +774,8 @@ async def api_camera_snapshot(_: str = Depends(require_auth)):
 async def api_camera_image(filename: str, _: str = Depends(require_auth)):
     """Liefert ein aufgenommenes Bild."""
     from piclaw.hardware.camera import CAPTURE_DIR
-    path = CAPTURE_DIR / filename
-    if not path.exists() or not path.is_relative_to(CAPTURE_DIR):
+    path = (CAPTURE_DIR / filename).resolve()
+    if not path.exists() or not path.is_relative_to(CAPTURE_DIR.resolve()):
         raise HTTPException(status_code=404, detail="Bild nicht gefunden")
     from fastapi.responses import FileResponse
     return FileResponse(path, media_type="image/jpeg")
