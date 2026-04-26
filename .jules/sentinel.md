@@ -1,0 +1,4 @@
+## 2025-02-19 - [Fix Path Traversal in Camera Image Endpoint]
+**Vulnerability:** Path traversal in `piclaw/api.py` allows arbitrary file read by exploiting `pathlib.Path.is_relative_to()`. Passing a filename like `../../etc/passwd` to `CAPTURE_DIR / filename` results in `/tmp/camera/../../etc/passwd`, which lexically evaluates as relative to `/tmp/camera`, even though it resolves outside the directory.
+**Learning:** `pathlib.Path.is_relative_to()` performs purely lexical matching and does not resolve `..` sequences or symbolic links. Relying on it directly for security boundaries is dangerous and insufficient.
+**Prevention:** Always call `.resolve()` on both the constructed path and the base directory prior to checking `.is_relative_to()` to ensure the canonical absolute path securely resides within the intended directory constraint.
