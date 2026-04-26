@@ -42,3 +42,4 @@ venv/
 
 # Auto-generierter Mirror (wird durch 'make sync' erstellt, nicht manuell pflegen)
 boot/piclaw/piclaw-src/piclaw/
+venv/

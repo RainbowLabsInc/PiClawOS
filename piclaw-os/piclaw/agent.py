@@ -64,6 +64,30 @@ _RE_NET_MARKET_KW = re.compile(r'(?:kleinanzeigen|zoll\-auktion|sonnenschirm|zol
 _RE_NET_SPECIFIC_KW = re.compile(r'(?:unbekanntes\ gerät|wer\ ist\ im\ netz|neue\ verbindung|welche\ geräte|fremdes\ gerät|ip\ adresse|netzwerk|network|device|router|gerät|wlan|wifi|nmap|lan)')
 _RE_NET_MONITOR_KW = re.compile(r'(?:überwach|beobacht|monitor|scan)')
 
+_RE_CRON_CREATE_KW = re.compile(r"(neuen agenten|einen agenten|einen job|einen task|erstell|create|mach|baue)")
+_RE_CRON_TIME_KW = re.compile(r"(jede woche|jeden tag|taeglich|morgens|abends|nachts|taegl|cron|uhr|um )")
+_RE_TASK_HARDWARE_KW = re.compile(r"(temperatur|hardware|pi info|wärme|temp|cpu)")
+_RE_TASK_SERVICE_KW = re.compile(r"(service|dienst|status)")
+_RE_HA_CMD_KW = re.compile(r"(steckdose|schalter|schalte|leuchte|mache|stelle|licht|lampe|knips|stell|mach|dreh)")
+_RE_HA_ON_KW = re.compile(r"(einschalten|anschalten|einmachen|anmachen|ein|an|on)")
+_RE_HA_OFF_KW = re.compile(r"(ausschalten|ausknipsen|ausmachen|löschen|aus|off)")
+_RE_HA_TOGGLE_KW = re.compile(r"(umschalten|wechseln|toggle)")
+_RE_HA_LIGHT_KW = re.compile(r"(beleuchtung|leuchte|licht|lampe)")
+_RE_HA_COVER_KW = re.compile(r"(rollladen|rolladen|jalousie|rollo)")
+_RE_TW_AUCTION_KW = re.compile(r"(benachrichtig|inform|auktion|auction|überwach|monitor|neue|meld)")
+_RE_TW_INTERVAL_30M = re.compile(r"(halbstündlich|30 min|30min)")
+_RE_TW_INTERVAL_24H = re.compile(r"(einmal am tag|täglich|24h)")
+_RE_MON_INTERVAL_30M = re.compile(r"(halbstündlich|halbe stunde|jede halbe|30 min|30min)")
+_RE_MON_INTERVAL_15M = re.compile(r"(15 min|15min)")
+_RE_MON_INTERVAL_2H = re.compile(r"(alle zwei|2 stund|2h)")
+_RE_VDB_KW = re.compile(r"(vdb-waffen\.de|vdb-waffen|vdb)")
+_RE_PARCEL_STATUS_KW = re.compile(r"(wo ist mein paket|wo ist das paket|pakete anzeigen|sendungsstatus|paketübersicht|lieferstatus|paketstatus|meine pakete)")
+_RE_PARCEL_MAIL_KW = re.compile(r"(sendungsnummer|bestellung|lieferung|versendet|tracking|versand|shipped|hermes|order|dhl|dpd|ups|gls)")
+_RE_NET_INTERVAL_1H = re.compile(r"(stündlich|1 stunde|60 min)")
+_RE_NET_INTERVAL_10M = re.compile(r"(10 min|10min)")
+_RE_NET_INTERVAL_30M = re.compile(r"(30 min|30min)")
+_RE_FOLLOWUP_KW = re.compile(r"(vergrößer|wiederhol|erweiter|breiter|nochmal|größer|radius|erhöh|weiter|mehr)")
+
 _RE_PLATFORM_PHRASES = re.compile(
     r"(?i)\b(" + "|".join(re.escape(p) for p in sorted([
         "kleinanzeigen.de", "ebay.de", "willhaben.at", "kleinanzeigen",
@@ -588,14 +612,9 @@ class Agent:
 
         t = text.lower()
 
-        create_kw = ("erstell", "create", "mach", "baue", "neuen agenten",
-                     "einen job", "einen task", "einen agenten")
-        time_kw = ("uhr", "taeglich", "taegl", "jeden tag", "jede woche",
-                   "morgens", "abends", "nachts", "cron", "um ")
-
-        if not any(k in t for k in create_kw):
+        if not _RE_CRON_CREATE_KW.search(t):
             return None
-        if not any(k in t for k in time_kw):
+        if not _RE_CRON_TIME_KW.search(t):
             return None
         if _RE_MP_MARKET_KW.search(t):
             return None
@@ -662,7 +681,7 @@ class Agent:
         name = f"CronJob_{hour:02d}{minute:02d}"
         # Tool-Auswahl basierend auf Aufgabe
         t = task.lower()
-        if any(k in t for k in ("temperatur", "temp", "cpu", "hardware", "pi info", "wärme")):
+        if _RE_TASK_HARDWARE_KW.search(t):
             tools = ["thermal_status", "pi_info", "memory_log"]
             mission = (
                 f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
@@ -674,7 +693,7 @@ class Agent:
                 f"4. Protokolliere das Ergebnis mit memory_log.\n\n"
                 f"WICHTIG: Antworte ausschliesslich auf Deutsch."
             )
-        elif any(k in t for k in ("service", "dienst", "status")):
+        elif _RE_TASK_SERVICE_KW.search(t):
             tools = ["service_status", "service_list", "memory_log"]
             mission = (
                 f"Du bist ein autonomer Hintergrund-Agent auf einem Raspberry Pi 5.\n"
@@ -797,23 +816,17 @@ class Agent:
             return None
 
         # Intent erkennen
-        on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
-        off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
-        toggle_kw = ("toggle", "umschalten", "wechseln")
-        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter")
-
         # Muss mindestens ein Befehlswort enthalten
-        if not any(k in t for k in cmd_kw):
+        if not _RE_HA_CMD_KW.search(t):
             return None
 
         # Richtung bestimmen
         action = None
-        if any(k in t for k in on_kw):
+        if _RE_HA_ON_KW.search(t):
             action = "on"
-        elif any(k in t for k in off_kw):
+        elif _RE_HA_OFF_KW.search(t):
             action = "off"
-        elif any(k in t for k in toggle_kw):
+        elif _RE_HA_TOGGLE_KW.search(t):
             action = "toggle"
         else:
             return None  # Kein klarer On/Off Intent
@@ -833,9 +846,9 @@ class Agent:
 
         # Gerätetyp aus Query ableiten (licht/rolladen/...)
         device_hint = None
-        if any(k in t for k in ("licht", "lampe", "leuchte", "beleuchtung")):
+        if _RE_HA_LIGHT_KW.search(t):
             device_hint = "light"
-        elif any(k in t for k in ("rolladen", "rollladen", "rollo", "jalousie")):
+        elif _RE_HA_COVER_KW.search(t):
             device_hint = "cover"
         elif "ventilator" in t:
             device_hint = "fan"
@@ -855,8 +868,7 @@ class Agent:
                 light_entities = [e for e in entities if e.domain == "light"]
                 light_switches = [e for e in entities
                                   if e.domain == "switch"
-                                  and any(k in e.entity_id.lower()
-                                          for k in ("licht", "lampe", "leuchte"))]
+                                  and _RE_HA_LIGHT_KW.search(e.entity_id.lower())]
                 filtered = light_entities + light_switches
                 if filtered:
                     entities = filtered
@@ -871,8 +883,8 @@ class Agent:
             elif device_hint == "switch":
                 filtered = [e for e in entities
                             if e.domain == "switch"
-                            and not any(k in e.entity_id.lower()
-                                        for k in ("licht", "lampe", "leuchte", "strahler"))]
+                            and not _RE_HA_LIGHT_KW.search(e.entity_id.lower())
+                            and "strahler" not in e.entity_id.lower()]
                 if filtered:
                     entities = filtered
 
@@ -949,15 +961,14 @@ class Agent:
         # Muss Troostwijk + Auktions-Kontext haben
         if not _RE_PLATFORM_TROOSTWIJK.search(t):
             return None
-        if not any(k in t for k in ("auktion", "auction", "neue", "überwach", "monitor",
-                                     "benachrichtig", "meld", "inform")):
+        if not _RE_TW_AUCTION_KW.search(t):
             return None
 
         # Intervall (default: 1h)
         interval_sec = 3600
-        if any(k in t for k in ("30 min", "30min", "halbstündlich")):
+        if _RE_TW_INTERVAL_30M.search(t):
             interval_sec = 1800
-        elif any(k in t for k in ("täglich", "24h", "einmal am tag")):
+        elif _RE_TW_INTERVAL_24H.search(t):
             interval_sec = 86400
         m_iv = re.search(r"(?:alle|jede)\s+(\d+)\s*(min|stund)", t)
         if m_iv:
@@ -1159,13 +1170,13 @@ class Agent:
 
         # Intervall aus Text extrahieren (default 1h)
         interval_sec = 3600
-        if any(k in t for k in ("30 min", "30min", "halbstündlich", "halbe stunde", "jede halbe")):
+        if _RE_MON_INTERVAL_30M.search(t):
             interval_sec = 1800
-        elif any(k in t for k in ("15 min", "15min")):
+        elif _RE_MON_INTERVAL_15M.search(t):
             interval_sec = 900
-        elif any(k in t for k in ("2 stund", "2h", "alle zwei")):
+        elif _RE_MON_INTERVAL_2H.search(t):
             interval_sec = 7200
-        elif any(k in t for k in ("täglich", "einmal am tag", "24h")):
+        elif _RE_TW_INTERVAL_24H.search(t):
             interval_sec = 86400
         # Explizite "alle N min/stunde" Extraktion
         _interval_match = re.search(r"(?:alle|jede)\s+(\d+)\s*(min|stund)", t)
@@ -1189,7 +1200,7 @@ class Agent:
             platforms.append("troostwijk")
         if _RE_PLATFORM_ZOLL.search(t):
             platforms.append("zoll_auktion")
-        if any(k in t for k in ("vdb", "vdb-waffen", "vdb-waffen.de")):
+        if _RE_VDB_KW.search(t):
             platforms.append("vdb")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
@@ -1337,12 +1348,7 @@ class Agent:
                 return {"action": "add", "tracking_number": tn}
 
         # 2. Status-Abfrage: "Wo ist mein Paket?", "Pakete", "Paketstatus"
-        status_kw = (
-            "wo ist mein paket", "wo ist das paket", "paketstatus",
-            "meine pakete", "pakete anzeigen", "sendungsstatus",
-            "paketübersicht", "lieferstatus",
-        )
-        if any(k in t_lower for k in status_kw):
+        if _RE_PARCEL_STATUS_KW.search(t_lower):
             return {"action": "status"}
         # Einzelwort "pakete"
         if t_lower.strip() in ("pakete", "paket", "sendungen"):
@@ -1351,9 +1357,7 @@ class Agent:
         # 3. Weitergeleitete E-Mail erkennen (langer Text mit Trackingnummern)
         if len(t) > 100 and self._RE_PARCEL_TRACKING_NR.search(t):
             # Enthält typische Versand-Keywords?
-            mail_kw = ("versand", "versendet", "shipped", "tracking", "sendungsnummer",
-                       "lieferung", "bestellung", "order", "dhl", "hermes", "dpd", "ups", "gls")
-            if any(k in t_lower for k in mail_kw):
+            if _RE_PARCEL_MAIL_KW.search(t_lower):
                 return {"action": "extract", "text": t}
 
         return None
@@ -1379,7 +1383,7 @@ class Agent:
             platforms.append("troostwijk")
         if _RE_PLATFORM_ZOLL.search(t):
             platforms.append("zoll_auktion")
-        if any(k in t for k in ("vdb", "vdb-waffen", "vdb-waffen.de")):
+        if _RE_VDB_KW.search(t):
             platforms.append("vdb")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
@@ -1586,11 +1590,11 @@ class Agent:
             _t2 = user_input.lower()
             # Intervall aus Text
             _interval = 300  # default 5 Min
-            if any(k in _t2 for k in ("stündlich", "1 stunde", "60 min")):
+            if _RE_NET_INTERVAL_1H.search(_t2):
                 _interval = 3600
-            elif any(k in _t2 for k in ("10 min", "10min")):
+            elif _RE_NET_INTERVAL_10M.search(_t2):
                 _interval = 600
-            elif any(k in _t2 for k in ("30 min", "30min")):
+            elif _RE_NET_INTERVAL_30M.search(_t2):
                 _interval = 1800
             _m = _re2.search(r"(\d+)\s*min", _t2)
             if _m:
@@ -1665,20 +1669,7 @@ class Agent:
 
         # Follow-up detection: "erhöhe", "vergrößer", "erweitere", "nochmal", "zeig mehr"
         if not mp_kwargs and _prev_mp_context:
-            followup_kw = (
-                "erhöh",
-                "vergrößer",
-                "erweiter",
-                "nochmal",
-                "mehr",
-                "radius",
-                "breiter",
-                "größer",
-                "weiter",
-                "nochmal",
-                "wiederhol",
-            )
-            if any(k in user_input.lower() for k in followup_kw):
+            if _RE_FOLLOWUP_KW.search(user_input.lower()):
                 mp_kwargs = dict(_prev_mp_context)
                 # Update radius if mentioned
                 new_radius = re.search(r"(\d+)\s*km", user_input)
