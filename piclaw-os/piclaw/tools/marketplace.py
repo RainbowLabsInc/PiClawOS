@@ -111,9 +111,7 @@ _noise_words = [
     "preis",
     "günstig",
     "billig",
-    "suche",
     "verkaufe",
-    "bitte",
     "gerade",
     "aktuell",
     "inserate",
@@ -1762,6 +1760,42 @@ async def marketplace_search(
     }
 
 
+_PLATFORM_EMOJI = {
+    "kleinanzeigen": "📌",
+    "ebay": "🛍️",
+    "web": "🌐",
+    "willhaben": "🇦🇹",
+    "egun": "🎯",
+    "troostwijk": "🔨",
+    "troostwijk_auctions": "🏛️",
+    "zoll_auktion": "⚖️",
+    "vdb": "🔫",
+}
+
+_PLATFORM_LABEL = {
+    "kleinanzeigen": "Kleinanzeigen",
+    "ebay": "eBay",
+    "web": "Web",
+    "willhaben": "Willhaben",
+    "egun": "eGun",
+    "troostwijk": "Troostwijk",
+    "troostwijk_auctions": "TW-Auktion",
+    "zoll_auktion": "Zoll-Auktion",
+    "vdb": "VDB-Waffenmarkt",
+}
+
+
+def _escape_md_title(title: str, max_len: int) -> str:
+    return (
+        title
+        .replace("*", "\\*")
+        .replace("_", "\\_")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+        [:max_len]
+    )
+
+
 def format_results(results: dict, mode: str = "text") -> str:
     """Formatiert Ergebnisse. mode='text' für Terminal, 'telegram' für Telegram-Markdown."""
     new = results.get("new", [])
@@ -1778,32 +1812,22 @@ def format_results(results: dict, mode: str = "text") -> str:
     header += "─" * 50 + "\n"
 
     lines = [header]
-    platform_label = {"kleinanzeigen": "Kleinanzeigen", "ebay": "eBay", "web": "Web", "willhaben": "Willhaben", "egun": "eGun", "troostwijk": "Troostwijk", "troostwijk_auctions": "TW-Auktion", "zoll_auktion": "Zoll-Auktion", "vdb": "VDB-Waffenmarkt"}
-    platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️", "zoll_auktion": "⚖️", "vdb": "🔫"}
-
     for i, item in enumerate(new[:10], 1):
-        emoji = platform_emoji.get(item["platform"], "🔗")
-        plat = platform_label.get(item["platform"], item["platform"])
+        emoji = _PLATFORM_EMOJI.get(item["platform"], "🔗")
+        plat = _PLATFORM_LABEL.get(item["platform"], item["platform"])
         price = f"  💶 {item['price_text']}" if item.get("price_text") else ""
         loc = f"  📍 {item['location']}" if item.get("location") else ""
         url = item.get("url", "")
-        # Markdown-Titel bereinigen (Klammern eskapen)
-        safe_title = (
-            item["title"]
-            .replace("*", "\\*")
-            .replace("_", "\\_")
-            .replace("[", "\\[")
-            .replace("]", "\\]")
-            [:70]
-        )
+        safe_title = _escape_md_title(item["title"], 70)
 
-        lines.append(f"{i}. {emoji} [{plat}] {safe_title}")
+        if url:
+            lines.append(f"{i}. {emoji} [{plat}] [{safe_title}]({url})")
+        else:
+            lines.append(f"{i}. {emoji} [{plat}] {safe_title}")
         if price:
             lines.append(f"   {price.strip()}")
         if loc:
             lines.append(f"   {loc.strip()}")
-        if url:
-            lines.append(f"   🔗 {url}")
         lines.append("")
 
     if len(new) > 10:
@@ -1833,25 +1857,13 @@ def format_results_telegram(results: dict) -> str:
         lines[0] += f"(max. {results['max_price']:.0f} €)"
 
     for item in new[:10]:  # Max 10 pro Nachricht
-        platform_emoji = {"kleinanzeigen": "📌", "ebay": "🛍️", "web": "🌐", "willhaben": "🇦🇹", "egun": "🎯", "troostwijk": "🔨", "troostwijk_auctions": "🏛️", "zoll_auktion": "⚖️", "vdb": "🔫"}.get(
-            item["platform"], "🔗"
-        )
-        # Markdown-Titel bereinigen (Klammern eskapen)
-        safe_title = (
-            item["title"]
-            .replace("*", "\\*")   # MarkdownV1: * escaped
-            .replace("_", "\\_")   # MarkdownV1: _ escaped
-            .replace("[", "\\[")
-            .replace("]", "\\]")
-            [:60]
-        )
+        emoji = _PLATFORM_EMOJI.get(item["platform"], "🔗")
+        safe_title = _escape_md_title(item["title"], 60)
         safe_url = _telegram_url(item["url"])
 
         price_str = f" · {item['price_text']}" if item.get("price_text") else ""
         loc_str = f" · {item['location']}" if item.get("location") else ""
-        lines.append(
-            f"{platform_emoji} [{safe_title}]({safe_url}){price_str}{loc_str}"
-        )
+        lines.append(f"{emoji} [{safe_title}]({safe_url}){price_str}{loc_str}")
 
     if len(new) > 10:
         lines.append(f"\n_... und {len(new) - 10} weitere_")

@@ -76,14 +76,15 @@ _PROVIDER_SIGNUP_URLS = {
 _FREE_TIER_MODELS = {
     "api.groq.com": [
         # Groq Free Tier: Rate-Limits, aber keine Kosten
+        "openai/gpt-oss-120b",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "qwen/qwen3-32b",
         "llama-3.3-70b-versatile",
         "llama-3.3-70b-specdec",
         "llama-3.1-70b-versatile",
         "llama-3.1-8b-instant",
         "gemma2-9b-it",
         "kimi-k2-instruct",
-        "openai/gpt-oss-120b",
-        "qwen/qwen3-32b",
     ],
     "integrate.api.nvidia.com": [
         # NVIDIA NIM: Free-Tier mit 1000 Requests/Tag
@@ -264,7 +265,9 @@ class LLMHealthMonitor:
     def _check_all_backends_down(self):
         """Prüft ob ALLE API-Backends ausgefallen sind → startet Auto-Discovery."""
         all_backends = self.registry.list_all() if hasattr(self.registry, "list_all") else []
-        api_backends = [b for b in all_backends if b.provider not in ("local",)]
+        # Nur aktivierte Backends zählen – deaktivierte haben 0 Fehler und
+        # würden sonst fälschlicherweise als "up" gewertet.
+        api_backends = [b for b in all_backends if b.provider not in ("local",) and b.enabled]
 
         if not api_backends:
             return

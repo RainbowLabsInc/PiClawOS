@@ -497,7 +497,7 @@ class OpenAIBackend(LLMBackend):
     async def stream_chat(self, messages, tools=None) -> AsyncIterator[str]:
         payload = {
             "model": self.model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": self._build_messages(messages),
             "temperature": self.temperature,
             "stream": True,
         }

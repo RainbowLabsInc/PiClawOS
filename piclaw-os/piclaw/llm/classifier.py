@@ -133,6 +133,14 @@ PATTERN_RULES: list[tuple[str, list[str], float]] = [
     ),
     (r"\b(je|tu|vous|merci|bonjour|s\'il vous plaît|est-ce que)\b", ["french"], 0.70),
     (r"\b(hola|gracias|por favor|cómo|qué|está|también)\b", ["spanish"], 0.70),
+    # ── Web-Suche (allgemeine Internet-Suche, kein Marketplace) ──────
+    (
+        r"\b(suche|such|finde|find|was kostet|wo kaufen|wo bekomme|wo erhältlich|"
+        r"bester preis|günstigsten|günstig|preisvergleich|"
+        r"search for|find me|where to buy|best price)\b",
+        ["web_search", "research"],
+        0.82,
+    ),
     # ── Research & information ────────────────────────────────────
     (
         r"\b(research|recherche|find out|what is|what are|how does|erkläre|explain)\b",

@@ -88,7 +88,7 @@ class SmartRouter(LLMBackend):
         # Instantiate backends
         self._local = LocalBackend(
             model_path=DEFAULT_MODEL_PATH,
-            n_ctx=4096,
+            n_ctx=12288,
             n_threads=4,
             max_tokens=1024,
             temperature=cfg.llm.temperature,

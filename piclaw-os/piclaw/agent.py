@@ -12,6 +12,19 @@ from datetime import datetime
 import re
 
 # Vorcompilierte Regex für Marketplace-Intent-Erkennung
+# Web-Suche-Intent: allgemeine "wo kaufen / wo erhältlich"-Fragen ohne Marktplatz-Nennung
+_RE_WEB_BUY_KW = re.compile(
+    r"\b(wo\s+(kann|kann\s+ich|bekomme\s+ich|kaufe\s+ich|krieg\s+ich|ist|gibts|gibt\s+es)|"
+    r"wo\s+(?:ist|sind)\s+(?:\w+\s+){0,4}(?:erhältlich|verfügbar|zu\s+kaufen|zu\s+haben)|"
+    r"(?:wo|bei\s+wem)\s+(?:kaufen|bestellen|erwerben)|"
+    r"where\s+(?:to\s+buy|can\s+i\s+(?:buy|get|order)))",
+    re.IGNORECASE,
+)
+_RE_WEB_BUY_NO_MARKET = re.compile(
+    r"(kleinanzeigen|willhaben|ebay|egun|troostwijk|zoll.?auktion|gebraucht|inserat)",
+    re.IGNORECASE,
+)
+
 _RE_MP_SEARCH_KW = re.compile(
     r"(durchsuche|was kostet|preis für|look for|gibt es|schaue|search|suche|finde|schau|liste|such|find|zeig)",
     re.IGNORECASE,
@@ -333,8 +346,10 @@ class Agent:
         _marketplace_tool = _TD(
             name="marketplace_search",
             description=(
-                "Sucht auf Marktplätzen (Kleinanzeigen.de, eBay.de, Web) nach Inseraten. "
-                "Beispiel: 'Suche nach Raspberry Pi 5 unter 100€ in Hamburg auf Kleinanzeigen'"
+                "Sucht nach Gebraucht- und Privatverkauf-Inseraten auf Kleinanzeigen.de, eBay.de und ähnlichen Marktplätzen. "
+                "NUR verwenden wenn der User explizit einen dieser Marktplätze nennt ODER nach Gebrauchtware / Privatverkauf sucht. "
+                "NICHT verwenden für allgemeine 'wo kaufen'- oder 'wo erhältlich'-Fragen ohne Marktplatz-Nennung — dafür web_suche nutzen. "
+                "Beispiel: 'Suche Raspberry Pi 5 auf Kleinanzeigen unter 80€ in München'"
             ),
             parameters={
                 "type": "object",
@@ -378,7 +393,7 @@ class Agent:
                 max_price=kw.get("max_price"),
                 location=kw.get("location"),
                 radius_km=kw.get("radius_km"),
-                max_results=int(kw.get("max_results", 10)),
+                max_results=int(kw.get("max_results") or 10),
                 notify_all=kw.get("notify_all", True),
             )
             formatted = format_results(result)
@@ -399,6 +414,14 @@ class Agent:
 
         _reg([_marketplace_tool], {"marketplace_search": _marketplace_handler})
         log.info("Marketplace-Tool registriert (Kleinanzeigen, eBay, Web)")
+
+        # ── Web-Suche Tool (allgemeine Internet-Suche, kein Marketplace) ──────
+        try:
+            from piclaw.tools import suche as suche_mod
+            _reg(suche_mod.TOOL_DEFS, suche_mod.HANDLERS)
+            log.info("Web-Suche Tool registriert (sources/price-Modus)")
+        except Exception as _e:
+            log.warning("Web-Suche Tool nicht geladen: %s", _e)
 
     def _build_soul_tools(self):
         """Inline soul management tools."""
@@ -1630,6 +1653,23 @@ class Agent:
                 handler = self._handlers.get("parcel_extract")
                 if handler:
                     return await handler(text=_parcel_intent["text"])
+
+        # Web-Suche-Shortcut: "wo kaufen/erhältlich" ohne Marktplatz → direkt web_suche
+        # Direktimport als Fallback falls Handler-Registry leer (z.B. stiller Import-Fehler)
+        if _RE_WEB_BUY_KW.search(user_input) and not _RE_WEB_BUY_NO_MARKET.search(user_input):
+            _ws_handler = self._handlers.get("web_suche")
+            if _ws_handler is None:
+                try:
+                    from piclaw.tools.suche import web_suche as _web_suche_fn
+                    _ws_handler = lambda **kw: _web_suche_fn(
+                        query=kw.get("query", ""), mode=kw.get("mode", "sources")
+                    )
+                    log.warning("Web-Suche-Shortcut: Handler via Direktimport geladen")
+                except Exception as _e:
+                    log.error("Web-Suche-Shortcut: Direktimport fehlgeschlagen: %s", _e)
+            if _ws_handler is not None:
+                log.info("Web-Suche-Shortcut: '%s'", user_input[:60])
+                return await _ws_handler(query=user_input, mode="sources")
 
         # Marketplace intent shortcut — call tool directly without relying on LLM tool-calling
         # This bypasses the Kimi K2 tool-calling reliability issue

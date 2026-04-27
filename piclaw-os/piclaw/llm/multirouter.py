@@ -100,7 +100,7 @@ class MultiLLMRouter(LLMBackend):
                 _model_path = _candidate
         self._local = LocalBackend(
             model_path=_model_path,
-            n_ctx=4096,
+            n_ctx=12288,
             n_threads=4,
         )
         self._local_loaded = False
@@ -525,42 +525,26 @@ class MultiLLMRouter(LLMBackend):
                 and cfg.name != "local-fallback"
             ):
                 log.warning("Switching to local fallback after stream failure")
-                # Try next API backend first before going local
-                candidates = self.registry.list_enabled()
-                next_api = next(
-                    (
-                        b
-                        for b in candidates
-                        if b.name != cfg.name
-                        and b.provider != "local"
-                        and not self._health.get(
-                            b.name, BackendHealth(b.name)
-                        ).is_degraded
-                    ),
-                    None,
-                )
-                if next_api:
-                    log.info("Trying next API backend: %s", next_api.name)
+                # Alle API-Backends der Reihe nach probieren (nach Priorität)
+                tried_names = {cfg.name}
+                api_candidates = [
+                    b for b in self.registry.list_enabled()
+                    if b.name not in tried_names
+                    and b.provider != "local"
+                    and not self._health.get(b.name, BackendHealth(b.name)).is_degraded
+                ]
+                for next_api in api_candidates:
+                    tried_names.add(next_api.name)
+                    log.info("Streaming fallback: trying '%s'", next_api.name)
                     try:
                         instance2 = self._get_instance(next_api)
                         async for token in instance2.stream_chat(messages, tools=tools):
                             yield token
                         return
                     except Exception as _e2:
-                        log.warning("Next API backend also failed: %r", _e2)
-                # All APIs failed → lokaler Fallback nur wenn explizit konfiguriert
-                _primary_provider = cfg.provider if hasattr(cfg, "provider") else "api"
-                _local_configured = (
-                    self.global_cfg and
-                    self.global_cfg.llm.backend in ("local", "ollama")
-                )
-                if not _local_configured:
-                    yield "\n\n⚠️ Cloud-APIs nicht erreichbar. Bitte API-Key prüfen: piclaw setup\n\n"
-                    return
-                if _primary_provider == "ollama":
-                    yield "\n\n⚠️ Ollama antwortet nicht – Gemma 2B übernimmt (Ollama lädt noch?)\n\n"
-                else:
-                    yield "\n\n⚠️ Cloud-APIs nicht erreichbar – lokales Modell übernimmt…\n\n"
+                        log.warning("Streaming fallback '%s' failed: %r", next_api.name, _e2)
+                # Alle API-Backends erschöpft → lokales Modell als letzter Ausweg
+                yield "\n\n⚠️ Cloud-APIs nicht erreichbar – lokales Modell übernimmt…\n\n"
                 try:
                     async for token in self._local.stream_chat(messages):
                         yield token
