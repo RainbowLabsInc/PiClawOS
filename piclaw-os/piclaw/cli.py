@@ -1503,6 +1503,22 @@ def cmd_camera(args: list):
         except Exception as e:
             print(f"  ❌ Fehler: {e}")
 
+    elif sub == "timelapse_start":
+        from piclaw.hardware.camera import TimelapseConfig, _timelapse_ctrl
+        name = args[1] if len(args) > 1 else "cli_lapse"
+        interval = int(args[2]) if len(args) > 2 else 60
+        cfg = TimelapseConfig(name=name, interval_s=interval)
+        print(f"  ⏳ Starte Zeitraffer '{name}' alle {interval}s…")
+        msg = asyncio.run(_timelapse_ctrl.start(cfg))
+        print(f"  {msg}")
+
+    elif sub == "timelapse_stop":
+        from piclaw.hardware.camera import _timelapse_ctrl
+        name = args[1] if len(args) > 1 else "cli_lapse"
+        print(f"  🛑 Stoppe Zeitraffer '{name}'…")
+        msg = asyncio.run(_timelapse_ctrl.stop(name))
+        print(f"  {msg}")
+
     else:  # snapshot
         from piclaw.hardware.camera import capture_snapshot
 

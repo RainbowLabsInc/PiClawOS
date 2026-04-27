@@ -94,10 +94,9 @@ def test_format_results_item_details():
         ]
     }
     output = format_results(results)
-    assert "1. 🛍️ [eBay] Full Item" in output
+    assert "1. 🛍️ [eBay] [Full Item](http://example.com)" in output
     assert "💶 10 €" in output
     assert "📍 Hamburg" in output
-    assert "🔗 http://example.com" in output
 
     assert "2. 🛍️ [eBay] Minimal Item" in output
     # Ensure no empty lines for missing details by checking the structure
