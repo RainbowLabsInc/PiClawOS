@@ -46,7 +46,7 @@ class APIConfig:
     host: str = "0.0.0.0"
     port: int = 7842  # PiClaw web UI
     secret_key: str = ""  # JWT signing key, generated on first boot
-    cors_origins: list = field(default_factory=lambda: ["*"])
+    cors_origins: list = field(default_factory=lambda: ["http://localhost:7842", "http://127.0.0.1:7842", "http://piclaw.local:7842"])
     https: bool = False
 
 

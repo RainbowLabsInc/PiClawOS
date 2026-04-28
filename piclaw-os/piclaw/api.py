@@ -36,7 +36,7 @@ from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.api")
 
-_cfg:   PiClawConfig = None
+_cfg:   PiClawConfig = load_cfg()
 _agent: Agent        = None
 _hub                 = None   # MessagingHub
 
@@ -51,7 +51,6 @@ async def _agent_message_handler(msg: IncomingMessage) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _cfg, _agent, _hub
-    _cfg = load_cfg()
 
     # ── Token: generate once, persist in config ────────────────────
     if not _cfg.api.secret_key:
@@ -84,7 +83,7 @@ app = FastAPI(title="PiClaw OS", version="0.8.0", docs_url=None, lifespan=lifesp
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cfg.api.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
