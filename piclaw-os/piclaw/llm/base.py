@@ -11,6 +11,7 @@ class Message:
     content: str
     tool_call_id: str | None = None
     tool_name: str | None = None
+    tool_calls: list | None = None   # gesetzt wenn role="assistant" nach Tool-Call
 
 
 @dataclass

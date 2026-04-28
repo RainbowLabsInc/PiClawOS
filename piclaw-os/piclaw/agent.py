@@ -1792,7 +1792,11 @@ class Agent:
                 self._save_crash("llm_chat", traceback.format_exc())
                 return f"❌ LLM error: {e}"
 
-            messages.append(Message(role="assistant", content=response.content or ""))
+            messages.append(Message(
+                role="assistant",
+                content=response.content or "",
+                tool_calls=response.tool_calls if response.tool_calls else None,
+            ))
 
             if not response.tool_calls:
                 final_reply = response.content or "(empty response)"

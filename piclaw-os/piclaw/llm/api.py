@@ -406,7 +406,7 @@ class OpenAIBackend(LLMBackend):
         }
 
     def _build_messages(self, messages) -> list[dict]:
-        """Konvertiert Message-Objekte in OpenAI-Format inkl. tool_results."""
+        """Konvertiert Message-Objekte in OpenAI-Format inkl. tool_results und tool_calls."""
         out = []
         for m in messages:
             if m.role == "tool":
@@ -418,6 +418,26 @@ class OpenAIBackend(LLMBackend):
                         "content": m.content,
                     }
                 )
+            elif m.role == "assistant" and getattr(m, "tool_calls", None):
+                # Assistant-Nachricht mit Tool-Calls: tool_calls-Array muss mitgesendet werden,
+                # sonst schlägt die nachfolgende role=tool Nachricht mit 400 fehl (Groq, OpenAI).
+                msg: dict = {"role": "assistant", "content": m.content or ""}
+                msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": (
+                                json.dumps(tc.arguments)
+                                if isinstance(tc.arguments, dict)
+                                else tc.arguments
+                            ),
+                        },
+                    }
+                    for tc in m.tool_calls
+                ]
+                out.append(msg)
             else:
                 out.append({"role": m.role, "content": m.content or ""})
         return out
@@ -499,6 +519,7 @@ class OpenAIBackend(LLMBackend):
             "model": self.model,
             "messages": self._build_messages(messages),
             "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
             "stream": True,
         }
         async with aiohttp.ClientSession(timeout=self.timeout) as s:
@@ -507,7 +528,11 @@ class OpenAIBackend(LLMBackend):
                 headers=self._headers(),
                 json=payload,
             ) as r:
-                r.raise_for_status()
+                if r.status >= 400:
+                    body = await r.text()
+                    raise RuntimeError(
+                        f"OpenAI/NIM stream error {r.status}: {body[:500]}"
+                    )
                 async for raw in r.content:
                     line = raw.strip().decode()
                     if line.startswith("data: "):

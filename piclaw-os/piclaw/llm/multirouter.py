@@ -391,10 +391,24 @@ class MultiLLMRouter(LLMBackend):
         if tried is None:
             tried = set()
 
-        # Build ordered candidate list: primary first, then remaining by tag match
+        # Build ordered candidate list:
+        #   1. primary backend (tag-matched, highest priority)
+        #   2. other tag-matched candidates
+        #   3. all remaining enabled API backends (so e.g. HA failover reaches general backends)
         candidates_by_tag = self.registry.find_by_tags(classification.tags)
-        # Deduplicate, primary first
-        ordered = [primary] + [b for b in candidates_by_tag if b.name != primary.name]
+        tag_names = {b.name for b in candidates_by_tag}
+        extra_api = [
+            b
+            for b in self.registry.list_enabled()
+            if b.provider != "local"
+            and b.name != primary.name
+            and b.name not in tag_names
+        ]
+        ordered = (
+            [primary]
+            + [b for b in candidates_by_tag if b.name != primary.name]
+            + extra_api
+        )
 
         last_exc: Exception | None = None
         for cfg in ordered:
