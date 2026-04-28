@@ -4,7 +4,7 @@
 
 **Dein autonomer KI-Assistent für den Raspberry Pi**
 
-[![Version](https://img.shields.io/badge/version-0.17.0-blue?style=flat-square)](https://github.com/RainbowLabsInc/PiClawOS/releases)
+[![Version](https://img.shields.io/badge/version-0.17.1-blue?style=flat-square)](https://github.com/RainbowLabsInc/PiClawOS/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%205-red?style=flat-square)](https://www.raspberrypi.com)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -33,6 +33,7 @@ PiClaw OS verwandelt einen Raspberry Pi in einen intelligenten Assistenten, der 
 | 🏠 | **Home Assistant** | REST + WebSocket, 11 Tools, Echtzeit-Push bei Bewegung/Alarm |
 | 🌐 | **Web-Dashboard** | Agents · Memory · Soul · Hardware · Metriken · Kamera · Chat |
 | 🔒 | **Tokenlos** | Marktplatz-Monitore laufen **ohne LLM-Aufrufe** – null API-Kosten im Betrieb |
+| 🌐 | **Web-Suche** | DuckDuckGo-Integration mit echten Shop-URLs – Quellen- und Preis-Modus |
 | 🔧 | **Self-Update** | `piclaw update` – Git-Pull + Neustart in einem Befehl |
 | 📴 | **Offline-Fallback** | Gemma 4 E2B läuft lokal auf dem Pi – kein Internet nötig |
 
@@ -219,7 +220,7 @@ Mehr Details: [SECURITY.md](SECURITY.md)
 
 ## 🗺️ Roadmap
 
-- **v0.17** ← *Aktuell* — LLM Autonomie, Troostwijk Umkreis, Zoll-Auktion, Security-PRs
+- **v0.17.1** ← *Aktuell* — Web-Suche (DDG), LLM-Router-Stabilität (streaming 400 fix), Fallback-Chain, Sub-Agent Crash Recovery
 - **v0.18** — IPC-Reload (kein Neustart bei neuem Sub-Agent)
 - **v0.19** — Marketplace: Query-Extraktion verbessern, Willhaben Kategorie-Filter
 - **v1.0** — Frische Installation < 10 Minuten, alle Tests grün
