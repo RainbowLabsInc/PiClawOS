@@ -88,6 +88,7 @@ class Watchdog:
         self._hostname       = socket.gethostname()
         self._integrity_base: dict[str, str] = {}
         self._service_fail_counts: dict[str, int] = {}
+        self._perm_denied_warned: set[str] = {}  # log PermissionError nur 1× pro Pfad
         self._cfg            = self._load_config()
         WATCHDOG_LOG_DIR.mkdir(parents=True, exist_ok=True)
         init_watchdog_db()
@@ -309,11 +310,15 @@ class Watchdog:
                                       "changed" if changed else "ok")
                 self._integrity_base[str(path)] = sha
             except PermissionError:
-                log.error(
-                    "Integrity check PERMISSION DENIED: %s – "
-                    "fix: sudo setfacl -m u:piclaw-watchdog:r %s",
-                    path, path,
-                )
+                # Nur einmalig warnen – nicht bei jedem 5-Minuten-Check
+                key = str(path)
+                if key not in self._perm_denied_warned:
+                    self._perm_denied_warned.add(key)
+                    log.warning(
+                        "Integrity check PERMISSION DENIED: %s – "
+                        "fix: sudo setfacl -m u:piclaw-watchdog:r %s",
+                        path, path,
+                    )
             except Exception as e:
                 log.error("Integrity check %s: %s", path, e)
         return alerts
