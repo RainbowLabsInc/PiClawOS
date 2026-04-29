@@ -1820,14 +1820,13 @@ def format_results(results: dict, mode: str = "text") -> str:
         url = item.get("url", "")
         safe_title = _escape_md_title(item["title"], 70)
 
-        if url:
-            lines.append(f"{i}. {emoji} [{plat}] [{safe_title}]({url})")
-        else:
-            lines.append(f"{i}. {emoji} [{plat}] {safe_title}")
+        lines.append(f"{i}. {emoji} [{plat}] {safe_title}")
         if price:
             lines.append(f"   {price.strip()}")
         if loc:
             lines.append(f"   {loc.strip()}")
+        if url:
+            lines.append(f"   🔗 {url}")
         lines.append("")
 
     if len(new) > 10:

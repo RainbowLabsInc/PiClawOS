@@ -1212,7 +1212,7 @@ class Agent:
             platforms.append("troostwijk")
         if _RE_PLATFORM_ZOLL.search(t):
             platforms.append("zoll_auktion")
-        if any(k in t for k in ("vdb", "vdb-waffen", "vdb-waffen.de")):
+        if "vdb" in t:
             platforms.append("vdb")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
@@ -1402,7 +1402,7 @@ class Agent:
             platforms.append("troostwijk")
         if _RE_PLATFORM_ZOLL.search(t):
             platforms.append("zoll_auktion")
-        if any(k in t for k in ("vdb", "vdb-waffen", "vdb-waffen.de")):
+        if "vdb" in t:
             platforms.append("vdb")
         if "ebay" in t and "kleinanzeigen" not in t:
             platforms.append("ebay")
