@@ -308,7 +308,11 @@ async def restore_backup(
                     continue
 
                 rel_name = member.name[len("config/") :]
-                dest = CONFIG_DIR / rel_name
+                dest = (CONFIG_DIR / rel_name).resolve()
+
+                if not dest.is_relative_to(CONFIG_DIR.resolve()):
+                    errors.append(f"{rel_name}: Path traversal detected")
+                    continue
 
                 if dry_run:
                     restored.append(str(dest))
