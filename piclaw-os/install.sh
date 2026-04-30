@@ -12,7 +12,7 @@
 #   - SSH-Zugang oder direkte Verbindung
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/youruser/piclaw-os/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/RainbowLabsInc/PiClawOS/main/piclaw-os/install.sh | bash
 #   # or locally:
 #   bash install.sh
 #   bash install.sh --api-key sk-ant-XXXXXXXXX --telegram-token 12345:ABCDE
@@ -33,7 +33,7 @@ INSTALL_DIR="/opt/piclaw"
 CONFIG_DIR="/etc/piclaw"
 LOG_DIR="/var/log/piclaw"
 PICLAW_USER="piclaw"
-REPO_URL="https://github.com/youruser/piclaw-os"   # ← EDIT if self-hosting
+REPO_URL="https://github.com/RainbowLabsInc/PiClawOS"   # ← EDIT if self-hosting (fork)
 
 # ── CLI args ──────────────────────────────────────────────────────
 API_KEY=""

@@ -34,7 +34,7 @@ Flashen wie Raspberry Pi OS, per SSH einloggen, und mit einem Agenten sprechen, 
 # 2. SSH einloggen
 ssh pi@raspberrypi.local
 # 3. PiClaw installieren
-curl -fsSL https://raw.githubusercontent.com/youruser/piclaw-os/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/RainbowLabsInc/PiClawOS/main/piclaw-os/install.sh | sudo bash
 # 4. Einrichten
 piclaw setup
 # 5. Loslegen
@@ -62,8 +62,8 @@ Für ein vollständiges `.img`-File das direkt geflasht werden kann.
 
 ```powershell
 # Kurzversion mit Docker Desktop (PowerShell):
-git clone https://github.com/youruser/piclaw-os
-cd piclaw-os
+git clone https://github.com/RainbowLabsInc/PiClawOS
+cd PiClawOS
 .\build\docker-build.ps1
 # Ausgabe: piclaw-os-arm64.img  (→ mit Balena Etcher flashen)
 ```

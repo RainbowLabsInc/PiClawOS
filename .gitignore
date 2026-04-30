@@ -29,4 +29,22 @@ Thumbs.db
 # Secrets (werden in /etc/piclaw gespeichert)
 config.toml
 secrets.toml
+*.env
+.env.local
+*.key
+*.pem
 venv/
+
+# Persönliche Soul (nicht für Releases)
+SOUL.md
+
+# Laufzeit-Daten
+marketplace_seen.json
+*.db
+*.sqlite
+*.log
+
+# Interne Entwicklerdokumente
+SNAPSHOT.md
+GAPS.md
+DEV_REFERENCE.md

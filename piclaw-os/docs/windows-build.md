@@ -38,8 +38,8 @@ docker --version
 
 ```powershell
 # PowerShell oder Windows Terminal
-git clone https://github.com/youruser/piclaw-os
-cd piclaw-os
+git clone https://github.com/RainbowLabsInc/PiClawOS
+cd PiClawOS
 ```
 
 > Noch kein Git? [git-scm.com/download/win](https://git-scm.com/download/win)
@@ -138,8 +138,8 @@ sudo apt update && sudo apt install -y \
 
 # Repository klonen (WICHTIG: im Linux-Dateisystem, nicht in /mnt/c/!)
 cd ~
-git clone https://github.com/youruser/piclaw-os
-cd piclaw-os
+git clone https://github.com/RainbowLabsInc/PiClawOS
+cd PiClawOS
 
 # cloud-init editieren
 nano cloud-init/user-data.yml

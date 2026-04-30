@@ -162,7 +162,7 @@ Dameon sendet **von sich aus** Nachrichten, wenn:
 **Netzwerk:**
 ```
 > Scanne das Netzwerk nach allen Geräten
-> Wer ist 192.168.1.42?
+> Wer ist 192.168.1.x?
 > Blockiere 185.220.101.5
 > Deploye eine Labyrinth-Falle auf Port 2222
 ```

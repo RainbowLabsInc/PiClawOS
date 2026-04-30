@@ -286,7 +286,7 @@ if [[ -d "$SRC_DIR" ]]; then
 elif [[ "$INTERNET" == "true" ]]; then
     # Online-Installation: von GitHub klonen
     info "Klone Repository von GitHub..."
-    REPO_URL="https://github.com/youruser/piclaw-os"
+    REPO_URL="https://github.com/RainbowLabsInc/PiClawOS"
     git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" 2>/dev/null || \
         die "Repository-Klon fehlgeschlagen.\nBitte piclaw-src/ Ordner neben install.sh legen fuer Offline-Installation."
     ok "Code von GitHub geklont"
