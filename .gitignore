@@ -30,3 +30,4 @@ Thumbs.db
 config.toml
 secrets.toml
 venv/
+venv

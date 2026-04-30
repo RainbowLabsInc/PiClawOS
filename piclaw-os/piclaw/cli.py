@@ -809,12 +809,14 @@ def cmd_soul(args):
         print()
 
     elif sub == "edit":
+        import subprocess
+        import shlex
         path = soul_mod.get_path()
         # Ensure file exists before opening
         soul_mod.load()
         editor = os.environ.get("EDITOR", "nano")
         print(f"  Opening {path} in {editor}…")
-        os.system(f"{editor} {path}")
+        subprocess.call(shlex.split(editor) + [str(path)])
         print("  Soul updated. Changes take effect in the next conversation.")
 
     elif sub == "reset":
