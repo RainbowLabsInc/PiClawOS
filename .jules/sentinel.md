@@ -3,6 +3,11 @@
 **Learning:** `pathlib.Path.is_relative_to()` performs purely lexical matching and does not resolve `..` sequences or symbolic links. Relying on it directly for security boundaries is dangerous and insufficient.
 **Prevention:** Always call `.resolve()` on both the constructed path and the base directory prior to checking `.is_relative_to()` to ensure the canonical absolute path securely resides within the intended directory constraint.
 
+## 2025-02-20 - [Fix Zip Slip / Path Traversal in Backup Restore]
+**Vulnerability:** Path traversal (Zip Slip) in `piclaw/backup.py` allows arbitrary file overwrite during backup restoration. The code computed the destination path by stripping `"config/"` from the archive member name and appending it to `CONFIG_DIR`. A malicious archive containing a member like `config/../../../../etc/passwd` would resolve to `/etc/passwd` during write operations.
+**Learning:** Archive file names (from tar or zip) are unstrustworthy user input. Naively joining them to a base directory without absolute path resolution and bounds checking creates severe Zip Slip vulnerabilities.
+**Prevention:** Always use `.resolve()` to canonicalize the target destination path and verify it remains within the intended extraction directory using `.is_relative_to(BASE_DIR.resolve())` before extracting or writing files.
+
 ## 2024-04-30 - [Fix command injection in EDITOR]
 **Vulnerability:** User input from the `EDITOR` environment variable was directly concatenated into an `os.system()` call (`os.system(f"{editor} {path}")`), allowing for command injection if an attacker controls the `EDITOR` variable.
 **Learning:** Even internal CLI tools or scripts that appear to just open an editor can be exploited if they use `os.system` without sanitizing environment variables. When using `shlex.split`, split ONLY the command/executable portion and append the explicit un-escaped file path to the resulting list (e.g., `shlex.split(editor) + [str(path)]`). This prevents unmatched quotes or spaces in the file path from breaking the tokenization process.
