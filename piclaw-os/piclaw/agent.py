@@ -844,14 +844,17 @@ class Agent:
         # Raum/Gerät extrahieren – alles zwischen Befehlswort und Richtungswort
         # Stopwörter entfernen
         stop = {"das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
-                "bitte", "mal", "doch", "jetzt", "sofort", "kurz", "einmal"}
+                "mal", "doch", "jetzt", "sofort", "kurz", "einmal"}
         words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
+
+        # Precomputed set for fast exclusion in area keyword filtering
+        exclude_area_kw = set(on_kw + off_kw + toggle_kw +
+                              ("schalte", "mach", "mache", "stell", "stelle",
+                               "knips", "dreh", "licht", "lampe", "leuchte",
+                               "steckdose", "schalter", "bitte"))
+
         # Raum-Keywords suchen
-        area_words = [w for w in words if w not in
-                      on_kw + off_kw + toggle_kw +
-                      ("schalte", "mach", "mache", "stell", "stelle",
-                       "knips", "dreh", "licht", "lampe", "leuchte",
-                       "steckdose", "schalter", "bitte")]
+        area_words = [w for w in words if w not in exclude_area_kw]
         area = " ".join(area_words).strip() if area_words else ""
 
         # Gerätetyp aus Query ableiten (licht/rolladen/...)
