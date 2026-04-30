@@ -820,23 +820,30 @@ class Agent:
             return None
 
         # Intent erkennen
-        on_kw  = ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen")
-        off_kw = ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen")
-        toggle_kw = ("toggle", "umschalten", "wechseln")
-        cmd_kw = ("schalte", "mach", "mache", "stell", "stelle", "knips", "dreh",
-                  "licht", "lampe", "leuchte", "steckdose", "schalter")
 
+        # Performance-Optimierung: Verwendung nativer Chained 'in' Checks
+        # Vermeidet den Overhead von Generator-Expressions in diesem Hot-Path.
         # Muss mindestens ein Befehlswort enthalten
-        if not any(k in t for k in cmd_kw):
+        if not (
+            "schalte" in t or "mach" in t or "mache" in t or "stell" in t or
+            "stelle" in t or "knips" in t or "dreh" in t or "licht" in t or
+            "lampe" in t or "leuchte" in t or "steckdose" in t or "schalter" in t
+        ):
             return None
 
         # Richtung bestimmen
         action = None
-        if any(k in t for k in on_kw):
+        if (
+            "ein" in t or "an" in t or "on" in t or "einschalten" in t or
+            "anmachen" in t or "anschalten" in t or "einmachen" in t
+        ):
             action = "on"
-        elif any(k in t for k in off_kw):
+        elif (
+            "aus" in t or "off" in t or "ausschalten" in t or "ausmachen" in t or
+            "ausknipsen" in t or "löschen" in t
+        ):
             action = "off"
-        elif any(k in t for k in toggle_kw):
+        elif "toggle" in t or "umschalten" in t or "wechseln" in t:
             action = "toggle"
         else:
             return None  # Kein klarer On/Off Intent
@@ -848,7 +855,9 @@ class Agent:
         words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
         # Raum-Keywords suchen
         area_words = [w for w in words if w not in
-                      on_kw + off_kw + toggle_kw +
+                      ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen") +
+                      ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen") +
+                      ("toggle", "umschalten", "wechseln") +
                       ("schalte", "mach", "mache", "stell", "stelle",
                        "knips", "dreh", "licht", "lampe", "leuchte",
                        "steckdose", "schalter", "bitte")]
@@ -856,9 +865,9 @@ class Agent:
 
         # Gerätetyp aus Query ableiten (licht/rolladen/...)
         device_hint = None
-        if any(k in t for k in ("licht", "lampe", "leuchte", "beleuchtung")):
+        if "licht" in t or "lampe" in t or "leuchte" in t or "beleuchtung" in t:
             device_hint = "light"
-        elif any(k in t for k in ("rolladen", "rollladen", "rollo", "jalousie")):
+        elif "rolladen" in t or "rollladen" in t or "rollo" in t or "jalousie" in t:
             device_hint = "cover"
         elif "ventilator" in t:
             device_hint = "fan"
