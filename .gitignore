@@ -34,6 +34,7 @@ secrets.toml
 *.key
 *.pem
 venv/
+venv
 
 # Persönliche Soul (nicht für Releases)
 SOUL.md
