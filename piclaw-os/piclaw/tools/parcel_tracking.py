@@ -819,10 +819,18 @@ async def parcel_monitor_check() -> str:
     Wird vom Sub-Agent Monitor_Pakete als direct_tool aufgerufen.
     Gibt nur geänderte Pakete zurück (für Telegram-Benachrichtigung).
     """
-    # 1. AgentMail-Inbox auf neue Versandbestätigungen scannen
+    # 1. AgentMail-Inbox auf neue Versandbestätigungen scannen.
+    # Mit Hard-Timeout: wir haben einen Boot-Hang gesehen, bei dem der
+    # Inbox-Scan den ganzen Sub-Agent blockiert hat (~30 min). try/except
+    # alleine fängt das nicht ab da kein Crash stattfindet, sondern ein
+    # await ohne Rückkehr. asyncio.wait_for trennt das sauber.
     inbox_notifications = []
     try:
-        inbox_notifications = await _scan_agentmail_inbox()
+        inbox_notifications = await asyncio.wait_for(
+            _scan_agentmail_inbox(), timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        log.warning("AgentMail Inbox-Scan: Timeout nach 15s — überspringe")
     except Exception as e:
         log.warning("AgentMail Inbox-Scan Fehler: %s", e)
 
