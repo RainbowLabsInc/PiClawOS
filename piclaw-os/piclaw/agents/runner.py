@@ -186,6 +186,23 @@ class SubAgentRunner:
         """Main loop for the sub-agent, respecting its schedule."""
         schedule = agent.schedule.strip()
 
+        # ── Boot-Stagger ───────────────────────────────────────────────
+        # Beim Daemon-Start werden ALLE Sub-Agents praktisch gleichzeitig
+        # gestartet. Dadurch knallen 9+ Tasks sofort in HTTP/Scrapling/LLM
+        # rein und blockieren sich gegenseitig (gesehen: 5 von 9 Sub-Agents
+        # über mehrere Minuten ohne Completion). Wir verteilen den ersten
+        # Run deterministisch über 0..30s anhand des Agent-ID-Hash.
+        # Bei "once"-Agents (one-shot) und "cron" überspringen wir das.
+        if schedule.startswith(("interval:", "continuous")):
+            try:
+                stagger = (hash(agent.id) % 30) + 1  # 1..30s, deterministisch
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(stop.wait(), timeout=stagger)
+                if stop.is_set():
+                    return
+            except Exception:
+                pass  # Stagger-Failure soll nicht den Run blockieren
+
         if schedule == "once":
             await self._execute(agent)
 
