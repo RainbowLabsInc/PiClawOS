@@ -432,22 +432,11 @@ class SubAgentRunner:
         """
         Paket-Monitor: Prüft alle aktiven Pakete auf Statusänderungen.
         Kein mission-JSON nötig – liest direkt aus parcels.json.
+        Inbox-Scan ist NICHT mehr Teil davon (siehe parcel_inbox_import).
         """
-        log.info("Sub-agent 'Monitor_Pakete': _run_parcel_monitor entered")
         try:
             from piclaw.tools.parcel_tracking import parcel_monitor_check
-            log.info("Sub-agent 'Monitor_Pakete': import done, awaiting parcel_monitor_check")
-            # Defensiver Hard-Timeout: standalone läuft die Funktion in 1-2s.
-            # Bei Boot-Stress mit parallelen Sub-Agents sahen wir Hänger >5min,
-            # wo der äußere agent.timeout (300s) auch nicht greift. 60s reicht
-            # locker für den realen Use-Case und schützt vor Deadlock-artigen
-            # Boot-Issues.
-            result = await asyncio.wait_for(parcel_monitor_check(), timeout=60.0)
-            log.info("Sub-agent 'Monitor_Pakete': returned %d Zeichen", len(result) if result else 0)
-            return result
-        except asyncio.TimeoutError:
-            log.warning("Sub-agent 'Monitor_Pakete': 60s timeout — überspringe diesen Run")
-            return "__NO_NEW_RESULTS__"
+            return await parcel_monitor_check()
         except Exception as e:
             log.exception("Sub-agent 'Monitor_Pakete': Fehler %s", e)
             return f"[ERROR] parcel_monitor Fehler: {e}"

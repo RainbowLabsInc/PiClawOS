@@ -812,49 +812,43 @@ async def _scan_agentmail_inbox() -> list[str]:
     return notifications
 
 
-def _sync_scan_agentmail_inbox() -> list[str]:
+async def parcel_inbox_import() -> str:
     """
-    Synchroner Wrapper für _scan_agentmail_inbox() — startet einen frischen
-    Event-Loop im aufrufenden Thread. Wird via run_in_executor() vom
-    parcel_monitor_check aus dem Daemon-Loop heraus aufgerufen, damit ein
-    blockierender SDK-Aufruf das Daemon-Loop nicht einfriert.
+    Scannt die AgentMail-Inbox einmalig nach neuen Versandbestätigungen und
+    fügt gefundene Trackingnummern zur Verfolgung hinzu.
+
+    Bewusst NICHT Teil von parcel_monitor_check — der Inbox-Scan ist netzwerk-
+    abhängig und hat unter Boot-Stress den ganzen Sub-Agent blockiert (sogar
+    asyncio.wait_for griff nicht). Status-Updates müssen jederzeit durchlaufen,
+    Inbox-Imports sind on-demand vom Nutzer oder über separate Routine.
+
+    Tool-Name: parcel_inbox_import
+    Beispiel-Aufruf vom Agent: "Scanne meine Mails nach neuen Tracking-Nummern"
     """
     try:
-        return asyncio.run(_scan_agentmail_inbox())
+        notifications = await _scan_agentmail_inbox()
     except Exception as e:
-        log.warning("Inbox-Scan im Thread: %s", e)
-        return []
+        log.warning("AgentMail Inbox-Scan Fehler: %s", e)
+        return f"❌ Inbox-Scan fehlgeschlagen: {e}"
+
+    if not notifications:
+        return "📭 Keine neuen Trackingnummern in der Inbox gefunden."
+
+    return "📬 Neue Pakete aus E-Mails:\n\n" + "\n\n".join(notifications)
 
 
 async def parcel_monitor_check() -> str:
     """
     Prüft alle aktiven Pakete auf Statusänderungen.
-    Scannt auch die AgentMail-Inbox auf neue Trackingnummern (im Thread, nicht blockierend).
     Wird vom Sub-Agent Monitor_Pakete als direct_tool aufgerufen.
     Gibt nur geänderte Pakete zurück (für Telegram-Benachrichtigung).
-    """
-    # 1. AgentMail-Inbox in einem THREAD scannen, nicht im Event-Loop.
-    # Beim Boot-Stress haben wir gesehen, dass der AgentMail-SDK-Aufruf
-    # (vermutlich httpx-Internals oder sync-DNS) das Event-Loop für mehrere
-    # Minuten blockiert hat — selbst asyncio.wait_for() greift dann nicht mehr,
-    # weil das Loop selbst angehalten ist. Lösung: in Thread-Pool ausführen,
-    # so kann eine blockierende SDK-Operation nicht das Loop einfrieren.
-    inbox_notifications = []
-    try:
-        loop = asyncio.get_running_loop()
-        inbox_notifications = await asyncio.wait_for(
-            loop.run_in_executor(None, _sync_scan_agentmail_inbox),
-            timeout=12.0,
-        )
-        log.debug("Inbox-Scan: %d neue Pakete gefunden", len(inbox_notifications))
-    except asyncio.TimeoutError:
-        log.warning(
-            "AgentMail Inbox-Scan: Timeout nach 12s — überspringe diesen Cycle"
-        )
-    except Exception as e:
-        log.warning("AgentMail Inbox-Scan Fehler: %s — überspringe", e)
 
-    # 2. Alle aktiven Pakete auf Statusänderungen prüfen
+    Hinweis: Der Inbox-Scan ist NICHT mehr Teil dieses Checks. Er lief vorher
+    bei jedem 30-min-Cycle gegen AgentMail und blockierte beim Pi-Boot-Stress
+    den ganzen Sub-Agent. Stattdessen wird die Inbox via parcel_inbox_import
+    on-demand gescannt (entweder durch User-Anfrage oder separates Schedule).
+    """
+    # Alle aktiven Pakete auf Statusänderungen prüfen
     data = _load_parcels()
     if not data["parcels"]:
         return "__NO_NEW_RESULTS__"
@@ -898,13 +892,10 @@ async def parcel_monitor_check() -> str:
 
     _save_parcels(data)
 
-    # Inbox-Funde + Statusänderungen zusammenführen
-    all_notifications = inbox_notifications + changes
-
-    if not all_notifications:
+    if not changes:
         return "__NO_NEW_RESULTS__"
 
-    return "\n\n".join(all_notifications)
+    return "\n\n".join(changes)
 
 
 # ── Formatierung ─────────────────────────────────────────────────────────────
@@ -1057,6 +1048,17 @@ TOOL_DEFS = [
             "required": ["text"],
         },
     ),
+    _TD(
+        name="parcel_inbox_import",
+        description=(
+            "Scannt die AgentMail-Inbox auf neue Versandbestätigungen und fügt "
+            "gefundene Trackingnummern zur Verfolgung hinzu. Nutze dies wenn "
+            "der User sagt 'Scanne meine Mails nach Paketen' oder 'Gibt es "
+            "neue Pakete in der Mail-Inbox'. Läuft NICHT mehr automatisch im "
+            "Monitor-Cycle (war Quelle eines Boot-Hangs)."
+        ),
+        parameters={"type": "object", "properties": {}},
+    ),
 ]
 
 
@@ -1083,11 +1085,15 @@ def build_handlers() -> dict:
             text=kw.get("text", ""),
         )
 
+    async def _inbox_import(**kw):
+        return await parcel_inbox_import()
+
     return {
         "parcel_add": _add,
         "parcel_status": _status,
         "parcel_remove": _remove,
         "parcel_extract": _extract,
+        "parcel_inbox_import": _inbox_import,
     }
 
 
