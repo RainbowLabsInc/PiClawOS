@@ -812,27 +812,47 @@ async def _scan_agentmail_inbox() -> list[str]:
     return notifications
 
 
+def _sync_scan_agentmail_inbox() -> list[str]:
+    """
+    Synchroner Wrapper für _scan_agentmail_inbox() — startet einen frischen
+    Event-Loop im aufrufenden Thread. Wird via run_in_executor() vom
+    parcel_monitor_check aus dem Daemon-Loop heraus aufgerufen, damit ein
+    blockierender SDK-Aufruf das Daemon-Loop nicht einfriert.
+    """
+    try:
+        return asyncio.run(_scan_agentmail_inbox())
+    except Exception as e:
+        log.warning("Inbox-Scan im Thread: %s", e)
+        return []
+
+
 async def parcel_monitor_check() -> str:
     """
     Prüft alle aktiven Pakete auf Statusänderungen.
-    Scannt auch die AgentMail-Inbox auf neue Trackingnummern.
+    Scannt auch die AgentMail-Inbox auf neue Trackingnummern (im Thread, nicht blockierend).
     Wird vom Sub-Agent Monitor_Pakete als direct_tool aufgerufen.
     Gibt nur geänderte Pakete zurück (für Telegram-Benachrichtigung).
     """
-    # 1. AgentMail-Inbox auf neue Versandbestätigungen scannen.
-    # Mit Hard-Timeout: wir haben einen Boot-Hang gesehen, bei dem der
-    # Inbox-Scan den ganzen Sub-Agent blockiert hat (~30 min). try/except
-    # alleine fängt das nicht ab da kein Crash stattfindet, sondern ein
-    # await ohne Rückkehr. asyncio.wait_for trennt das sauber.
+    # 1. AgentMail-Inbox in einem THREAD scannen, nicht im Event-Loop.
+    # Beim Boot-Stress haben wir gesehen, dass der AgentMail-SDK-Aufruf
+    # (vermutlich httpx-Internals oder sync-DNS) das Event-Loop für mehrere
+    # Minuten blockiert hat — selbst asyncio.wait_for() greift dann nicht mehr,
+    # weil das Loop selbst angehalten ist. Lösung: in Thread-Pool ausführen,
+    # so kann eine blockierende SDK-Operation nicht das Loop einfrieren.
     inbox_notifications = []
     try:
+        loop = asyncio.get_running_loop()
         inbox_notifications = await asyncio.wait_for(
-            _scan_agentmail_inbox(), timeout=15.0,
+            loop.run_in_executor(None, _sync_scan_agentmail_inbox),
+            timeout=12.0,
         )
+        log.debug("Inbox-Scan: %d neue Pakete gefunden", len(inbox_notifications))
     except asyncio.TimeoutError:
-        log.warning("AgentMail Inbox-Scan: Timeout nach 15s — überspringe")
+        log.warning(
+            "AgentMail Inbox-Scan: Timeout nach 12s — überspringe diesen Cycle"
+        )
     except Exception as e:
-        log.warning("AgentMail Inbox-Scan Fehler: %s", e)
+        log.warning("AgentMail Inbox-Scan Fehler: %s — überspringe", e)
 
     # 2. Alle aktiven Pakete auf Statusänderungen prüfen
     data = _load_parcels()
