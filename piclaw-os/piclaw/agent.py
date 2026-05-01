@@ -853,14 +853,19 @@ class Agent:
         stop = {"das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
                 "bitte", "mal", "doch", "jetzt", "sofort", "kurz", "einmal"}
         words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
+
+        # Performance-Optimierung: O(1) Lookup Set vor der Comprehension initialisieren
+        _ha_exclude_words = set(
+            ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen") +
+            ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen") +
+            ("toggle", "umschalten", "wechseln") +
+            ("schalte", "mach", "mache", "stell", "stelle",
+             "knips", "dreh", "licht", "lampe", "leuchte",
+             "steckdose", "schalter", "bitte")
+        )
+
         # Raum-Keywords suchen
-        area_words = [w for w in words if w not in
-                      ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen") +
-                      ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen") +
-                      ("toggle", "umschalten", "wechseln") +
-                      ("schalte", "mach", "mache", "stell", "stelle",
-                       "knips", "dreh", "licht", "lampe", "leuchte",
-                       "steckdose", "schalter", "bitte")]
+        area_words = [w for w in words if w not in _ha_exclude_words]
         area = " ".join(area_words).strip() if area_words else ""
 
         # Gerätetyp aus Query ableiten (licht/rolladen/...)
