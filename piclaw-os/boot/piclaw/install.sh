@@ -356,7 +356,7 @@ VENV="$INSTALL_DIR/.venv"
 
 # Threema Gateway (optional)
 "$VENV/bin/pip" install --quiet \
-    "threema.gateway[e2e]>=8.0" \
+    "threema.gateway>=8.0" \
     2>/dev/null || true  # optional, teuer - nur wenn konfiguriert
 
 # PiClaw-Paket selbst

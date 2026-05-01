@@ -9,7 +9,7 @@ Setup:
      → Note your Gateway ID and API Secret
 
   2. Generate a key pair:
-       pip install threema.gateway[e2e]
+       pip install threema.gateway
        threema-gateway generate /etc/piclaw/threema-private.key /etc/piclaw/threema-public.key
 
   3. Upload the public key to gateway.threema.ch → ID settings
@@ -83,7 +83,7 @@ class ThreemaAdapter(MessagingAdapter):
             return self._connection
         except ImportError:
             raise RuntimeError(
-                "threema.gateway not installed. Run: pip install threema.gateway[e2e]"
+                "threema.gateway not installed. Run: pip install threema.gateway"
             )
 
     async def start(self, on_message: MessageHandler):

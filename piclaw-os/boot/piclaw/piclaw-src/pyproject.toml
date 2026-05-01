@@ -24,7 +24,7 @@ dependencies = [
     "cryptography>=42.0",
     # Messaging adapters
     "discord.py>=2.3",
-    "threema.gateway[e2e]>=8.0",
+    "threema.gateway>=8.0",
     # MQTT adapter (optional - v0.10)
     "aiomqtt>=2.0; extra == 'mqtt'",
     # Email for AI Agents
