@@ -53,6 +53,14 @@ _RE_CITIES = re.compile(
 )
 _CITY_MAP = {c.lower(): c for c in _KNOWN_CITIES}
 
+_RE_MONITOR_PATTERNS = [
+    re.compile(p) for p in [
+        r"wenn.*auftaucht", r"sobald.*verfügbar", r"falls.*angebot",
+        r"wenn.*inserat", r"wenn.*neu", r"jede.*stunde", r"alle.*stunde",
+        r"jede.*halbe", r"alle\s+\d+\s*min",
+    ]
+]
+
 _RE_MONITOR_PHRASES = re.compile(
     r"(?i)\b(" + "|".join(re.escape(p) for p in sorted([
         "beobachte ob es", "beobachte ob", "schau ob es", "schau ob",
@@ -1175,22 +1183,10 @@ class Agent:
 
         t = re.sub(r"\[.*?\]", " ", text).lower()
 
-        # Regex-Muster getrennt prüfen (funktionieren nicht mit einfachem `in`)
-        _regex_patterns = [
-            r"wenn.*auftaucht", r"sobald.*verfügbar", r"falls.*angebot",
-            r"wenn.*inserat", r"wenn.*neu", r"jede.*stunde", r"alle.*stunde",
-            r"jede.*halbe", r"alle\s+\d+\s*min",
-        ]
-        market_kw = (
-            "kleinanzeigen", "ebay", "willhaben", "egun", "troostwijk", "zollauktion", "zoll-auktion",
-            "inserat", "anzeige", "kaufen",
-            "marktplatz", "gebraucht", "preis", "euro", "angebot",
-        )
-
         _has_monitor_kw = bool(_RE_MONITOR_KW.search(t))
         if not _has_monitor_kw:
             # Regex-Patterns als Fallback prüfen
-            _has_monitor_kw = any(re.search(p, t) for p in _regex_patterns)
+            _has_monitor_kw = any(p.search(t) for p in _RE_MONITOR_PATTERNS)
         if not _has_monitor_kw:
             return None
         if not _RE_MP_MARKET_KW.search(t):
