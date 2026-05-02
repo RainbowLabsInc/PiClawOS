@@ -140,6 +140,21 @@ from piclaw.hardware import TOOL_DEFS as HW_TOOL_DEFS, HANDLERS as HW_HANDLERS
 from piclaw import soul as soul_mod
 from piclaw.tools import homeassistant as ha_mod
 
+# Performance-Optimierung: Module-level frozensets für Hot-Path (_ha_shortcut)
+_HA_STOP_WORDS = frozenset({
+    "das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
+    "mal", "doch", "jetzt", "sofort", "kurz", "einmal"
+})
+
+_HA_AREA_EXCLUSION_WORDS = frozenset({
+    "ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen",
+    "aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen",
+    "toggle", "umschalten", "wechseln",
+    "schalte", "mach", "mache", "stell", "stelle",
+    "knips", "dreh", "licht", "lampe", "leuchte",
+    "steckdose", "schalter", "bitte"
+})
+
 log = logging.getLogger("piclaw.agent")
 
 
@@ -849,18 +864,10 @@ class Agent:
             return None  # Kein klarer On/Off Intent
 
         # Raum/Gerät extrahieren – alles zwischen Befehlswort und Richtungswort
-        # Stopwörter entfernen
-        stop = {"das", "die", "den", "dem", "der", "im", "in", "am", "an", "bitte",
-                "bitte", "mal", "doch", "jetzt", "sofort", "kurz", "einmal"}
-        words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in stop]
-        # Raum-Keywords suchen
-        area_words = [w for w in words if w not in
-                      ("ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen") +
-                      ("aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen") +
-                      ("toggle", "umschalten", "wechseln") +
-                      ("schalte", "mach", "mache", "stell", "stelle",
-                       "knips", "dreh", "licht", "lampe", "leuchte",
-                       "steckdose", "schalter", "bitte")]
+        # Stopwörter entfernen (nutzt module-level frozenset für 0 alloc overhead)
+        words = [w for w in re.sub(r"[^\w\s]", " ", t).split() if w not in _HA_STOP_WORDS]
+        # Raum-Keywords suchen (nutzt module-level frozenset für 0 alloc overhead)
+        area_words = [w for w in words if w not in _HA_AREA_EXCLUSION_WORDS]
         area = " ".join(area_words).strip() if area_words else ""
 
         # Gerätetyp aus Query ableiten (licht/rolladen/...)
