@@ -24,6 +24,16 @@ log = logging.getLogger("piclaw.tools.marketplace")
 
 # Gesehene Inserate werden hier gespeichert (verhindert doppelte Meldungen)
 SEEN_FILE = CONFIG_DIR / "marketplace_seen.json"
+# Serialisiert den Read-Modify-Write auf marketplace_seen.json.
+# Verhindert Race Conditions wenn mehrere Agenten gleichzeitig laufen.
+_SEEN_LOCK: asyncio.Lock | None = None
+
+
+def _get_seen_lock() -> asyncio.Lock:
+    global _SEEN_LOCK
+    if _SEEN_LOCK is None:
+        _SEEN_LOCK = asyncio.Lock()
+    return _SEEN_LOCK
 
 HEADERS = {
     "User-Agent": (
@@ -1688,9 +1698,9 @@ async def marketplace_search(
             "location": location,
         }
 
-    seen = _load_seen() if not notify_all else set()
     all_results = []
 
+    # HTTP-Requests laufen parallel – kein Lock nötig (kein Dateizugriff hier)
     async with aiohttp.ClientSession(headers=HEADERS) as session:
         tasks = []
         if "kleinanzeigen" in platforms:
@@ -1734,19 +1744,21 @@ async def marketplace_search(
             elif isinstance(r, list):
                 all_results.extend(r)
 
-    # Neue filtern
+    # Dedup + Speichern unter Lock – serialisiert alle gleichzeitigen Agenten.
+    # seen wird erst HIER gelesen damit der Snapshot aktuell ist (kein stale read).
     new_results = []
-    new_seen = set(seen)
-    for item in all_results:
-        uid = _make_id(item["platform"], item["id"])
-        if uid not in new_seen:
-            new_results.append(item)
-            new_seen.add(uid)
-
-    # Gesehene nur speichern wenn wir NICHT im notify_all Modus sind.
-    # Das verhindert, dass eine manuelle Suche spätere Hintergrund-Suchen "stummschaltet".
-    if not notify_all:
-        _save_seen(new_seen)
+    async with _get_seen_lock():
+        seen = _load_seen() if not notify_all else set()
+        new_seen = set(seen)
+        for item in all_results:
+            uid = _make_id(item["platform"], item["id"])
+            if uid not in new_seen:
+                new_results.append(item)
+                new_seen.add(uid)
+        # Gesehene nur speichern wenn wir NICHT im notify_all Modus sind.
+        # Das verhindert, dass eine manuelle Suche spätere Hintergrund-Suchen "stummschaltet".
+        if not notify_all:
+            _save_seen(new_seen)
 
     log.info("Marketplace '%s' in %s: %d total", query, location, len(all_results))
     return {
