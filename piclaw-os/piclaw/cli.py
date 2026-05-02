@@ -482,7 +482,8 @@ def cmd_config(args):
 
 
 def cmd_service(action):
-    os.system(f"sudo systemctl {action} piclaw-agent piclaw-api")
+    import subprocess
+    subprocess.call(["sudo", "systemctl", action, "piclaw-agent", "piclaw-api"])
 
 
 def cmd_model(args):
