@@ -67,16 +67,24 @@ CARRIER_PATTERNS = [
     (re.compile(r"^\d{15}$"), "fedex"),
 ]
 
-# Regex zum Extrahieren von Trackingnummern aus E-Mails/Nachrichten
+# Regex zum Extrahieren von Trackingnummern aus E-Mails/Nachrichten.
+# WICHTIG: Bewusst spezifisch — die generische `\d{10,20}` Variante hat zu viele
+# False-Positives (Bestellnummern, Datums-IDs wie "20260427084422" matchen sonst).
+# Nur bekannt-präfixe oder klar tracking-kontextbezogene Zahlen werden hier
+# erfasst. Generische Hermes/DPD-/GLS-IDs ohne Präfix kommen nur durch wenn
+# der Kontext "Sendungsnummer:" / "Tracking:" / "TrackID=" voraus geht.
 RE_TRACKING_NUMBERS = re.compile(
-    r"(?:^|\s|:\s*|[=?&/])"  # Anfang, Leerzeichen, Doppelpunkt ODER URL-Parameter
-    r"("
-    r"1Z[A-Z0-9]{16}"  # UPS
-    r"|00\d{10,18}"  # DHL
-    r"|JJD\d{12,18}"  # DHL
-    r"|JVGL\d{10,16}"  # DHL
-    r"|TBA\d{10,14}"  # Amazon
-    r"|\d{10,20}"  # Generisch (DHL/Hermes/DPD/GLS/FedEx)
+    r"(?:"
+    # Mit eindeutigem Präfix — Position egal
+    r"(?:^|\s|[=?&/])(1Z[A-Z0-9]{16})"          # UPS
+    r"|(?:^|\s|[=?&/])(00\d{18})"                # DHL (genau 20 stellig)
+    r"|(?:^|\s|[=?&/])(JJD\d{12,18})"            # DHL
+    r"|(?:^|\s|[=?&/])(JVGL\d{10,16})"           # DHL
+    r"|(?:^|\s|[=?&/])(TBA\d{10,14})"            # Amazon
+    # Kontext-erforderlich: nur wenn ein Tracking-Schlüsselwort direkt vorausgeht
+    r"|(?:Sendung(?:s(?:nummer|verfolgung))?|Trackingnummer|Track(?:ing)?[\-\.]?(?:ID|Nr|Number)|TrackID|Versandnummer|Paketnummer|barcode|piececode)"
+    r"[\s:=]*"
+    r"(\d{10,20}|H[A-Z0-9]{10,20})"
     r")",
     re.IGNORECASE,
 )
@@ -126,7 +134,13 @@ def detect_carrier(tracking_number: str) -> str:
 
 
 def extract_tracking_numbers(text: str) -> list[dict]:
-    """Extrahiert Trackingnummern aus einem Text (E-Mail, Nachricht etc.)."""
+    """Extrahiert Trackingnummern aus einem Text (E-Mail, Nachricht etc.).
+
+    Bewusst konservativ: Generische Zahlen ohne Präfix (Hermes/DPD/GLS) werden
+    nur erfasst wenn ein Schlüsselwort wie "Trackingnummer:" oder "TrackID="
+    direkt vorausgeht. Sonst gäbe es zu viele False-Positives durch
+    Bestellnummern und Datums-IDs.
+    """
     # HTML-Link-Texte zusätzlich extrahieren (<a href="...">NUMMER</a>)
     import re as _re
     link_texts = _re.findall(r'<a[^>]+>([^<]{8,30})</a>', text)
@@ -135,7 +149,13 @@ def extract_tracking_numbers(text: str) -> list[dict]:
     matches = RE_TRACKING_NUMBERS.findall(text)
     results = []
     seen = set()
-    for tn in matches:
+    for groups in matches:
+        # findall mit mehreren Capture-Groups liefert Tuples — wir nehmen die
+        # erste nicht-leere Gruppe.
+        if isinstance(groups, tuple):
+            tn = next((g for g in groups if g), "")
+        else:
+            tn = groups
         tn = tn.strip()
         if len(tn) < 10 or tn in seen:
             continue
