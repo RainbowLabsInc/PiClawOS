@@ -35,6 +35,7 @@ secrets.toml
 *.pem
 venv/
 venv
+piclaw-os/venv/
 
 # Persönliche Soul (nicht für Releases)
 SOUL.md
