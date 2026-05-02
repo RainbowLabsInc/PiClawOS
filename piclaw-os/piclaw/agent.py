@@ -114,6 +114,27 @@ _RE_PLATFORM_ZOLL = re.compile(r"(?i)(?:^|(?<=\W))(zollauktion|zoll-auktion|zoll
 _RE_PLATFORM_WILLHABEN = re.compile(r"(?i)(?:^|(?<=\W))willhaben(?:(?=\W)|$)")
 _RE_PLATFORM_WEB = re.compile(r"(?i)(?:^|(?<=\W))(internet|web)(?:(?=\W)|$)")
 
+# Keywords für HA Shortcut
+_HA_ON_KW = ("einschalten", "anschalten", "einmachen", "anmachen", "ein", "an", "on")
+_HA_OFF_KW = ("ausschalten", "ausmachen", "ausknipsen", "löschen", "aus", "off")
+_HA_TOGGLE_KW = ("umschalten", "wechseln", "toggle")
+_HA_CMD_KW = ("steckdose", "schalter", "schalte", "leuchte", "stelle", "licht", "lampe", "knips", "mache", "stell", "mach", "dreh")
+_HA_LIGHT_KW = ("beleuchtung", "leuchte", "lampe", "licht")
+_HA_COVER_KW = ("rollladen", "rolladen", "jalousie", "rollo")
+
+_RE_HA_ON = re.compile(r"(?i)(" + "|".join(re.escape(p) for p in _HA_ON_KW) + r")")
+_RE_HA_OFF = re.compile(r"(?i)(" + "|".join(re.escape(p) for p in _HA_OFF_KW) + r")")
+_RE_HA_TOGGLE = re.compile(r"(?i)(" + "|".join(re.escape(p) for p in _HA_TOGGLE_KW) + r")")
+_RE_HA_CMD = re.compile(r"(?i)(" + "|".join(re.escape(p) for p in _HA_CMD_KW) + r")")
+_RE_HA_LIGHT = re.compile(r"(?i)(" + "|".join(re.escape(p) for p in _HA_LIGHT_KW) + r")")
+_RE_HA_COVER = re.compile(r"(?i)(" + "|".join(re.escape(p) for p in _HA_COVER_KW) + r")")
+
+# Keywords für Cron Agent
+_CRON_CREATE_KW = ("neuen agenten", "einen agenten", "einen task", "einen job", "erstell", "create", "mach", "baue")
+_CRON_TIME_KW = ("jede woche", "jeden tag", "taeglich", "morgens", "nachts", "abends", "taegl", "cron", "uhr", "um ")
+
+_RE_CRON_CREATE = re.compile(r"(?i)(" + "|".join(re.escape(p) for p in _CRON_CREATE_KW) + r")")
+_RE_CRON_TIME = re.compile(r"(?i)(" + "|".join(re.escape(p) for p in _CRON_TIME_KW) + r")")
 
 from collections.abc import Callable
 
@@ -634,14 +655,9 @@ class Agent:
 
         t = text.lower()
 
-        create_kw = ("erstell", "create", "mach", "baue", "neuen agenten",
-                     "einen job", "einen task", "einen agenten")
-        time_kw = ("uhr", "taeglich", "taegl", "jeden tag", "jede woche",
-                   "morgens", "abends", "nachts", "cron", "um ")
-
-        if not any(k in t for k in create_kw):
+        if not _RE_CRON_CREATE.search(t):
             return None
-        if not any(k in t for k in time_kw):
+        if not _RE_CRON_TIME.search(t):
             return None
         if _RE_MP_MARKET_KW.search(t):
             return None
