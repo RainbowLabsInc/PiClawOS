@@ -382,6 +382,114 @@ async def _query_dhl_public(
     }
 
 
+# ── Hermes Public XHR (no auth) ─────────────────────────────────────────────
+
+# Hermes status-progress mapping. Die Hermes-API liefert eine numerische
+# `progress.current` zwischen 0 und 5 plus `progress.status.text`.
+# Empirisch ermittelt aus echten Hermes-Responses:
+#   0/1 = elektronisch angekündigt (label printed)
+#   2   = abgeholt / im Hub
+#   3   = im Transport
+#   4   = in Zustellung (Fahrer hat Paket)
+#   5   = zugestellt
+_HERMES_PROGRESS_STATUS = {
+    0: "pending",
+    1: "pending",
+    2: "in_transit",
+    3: "in_transit",
+    4: "out_for_delivery",
+    5: "delivered",
+}
+
+
+async def _query_hermes(
+    tracking_number: str,
+    session: aiohttp.ClientSession | None = None,
+) -> dict | None:
+    """
+    Fragt den öffentlichen Hermes-XHR-Endpoint ab (gleicher den myhermes.de
+    selbst nutzt, ermittelt via Browser-Network-Sniff).
+    Kein API-Key, aber spezifischer x-language Header zwingend.
+    """
+    url = f"https://api.my-deliveries.de/tnt/v2/shipments/search/{quote_plus(tracking_number)}"
+    headers = {
+        **HEADERS,
+        "Accept": "application/json",
+        "Origin": "https://www.myhermes.de",
+        "Referer": "https://www.myhermes.de/",
+        "x-language": "de",
+    }
+
+    close_session = False
+    if session is None:
+        session = aiohttp.ClientSession()
+        close_session = True
+
+    try:
+        async with session.get(
+            url, headers=headers,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            if resp.status == 404:
+                # TN nicht im Hermes-System (häufig falsch extrahierte Order-IDs)
+                log.debug("Hermes 404 für %s — TN nicht bekannt", tracking_number)
+                return None
+            if resp.status != 200:
+                log.warning("Hermes HTTP %d für %s", resp.status, tracking_number)
+                return None
+            data = await resp.json(content_type=None)
+    except Exception as e:
+        log.warning("Hermes Fehler für %s: %s", tracking_number, e)
+        return None
+    finally:
+        if close_session:
+            await session.close()
+
+    # Hermes-Response: list of shipments oder dict mit shipments
+    shipments = data if isinstance(data, list) else data.get("shipments", [])
+    if not shipments:
+        return None
+
+    sh = shipments[0]
+    progress = sh.get("progress", {}) or {}
+    current = progress.get("current")
+    status_text = (progress.get("status") or {}).get("text", "") if isinstance(progress.get("status"), dict) else ""
+    status_text = status_text or sh.get("status", "")
+
+    # Status mapping: numerischer Fortschritt + Heuristik aus Statustext
+    raw_status = _HERMES_PROGRESS_STATUS.get(current) if current is not None else None
+    if not raw_status:
+        s_low = status_text.lower()
+        if "zugestellt" in s_low or "ausgehändigt" in s_low:
+            raw_status = "delivered"
+        elif "in zustellung" in s_low or "ausgeliefert" in s_low:
+            raw_status = "out_for_delivery"
+        elif "abholbereit" in s_low or "paketshop" in s_low:
+            raw_status = "ready_for_pickup"
+        elif "rücksendung" in s_low or "retoure" in s_low:
+            raw_status = "returned"
+        else:
+            raw_status = "in_transit"
+
+    # Events extrahieren (Hermes nennt sie events oder history)
+    events = []
+    raw_events = sh.get("events") or sh.get("history") or []
+    for ev in raw_events:
+        events.append({
+            "timestamp": ev.get("timestamp") or ev.get("date") or "",
+            "location": ev.get("location") or ev.get("place") or "",
+            "description": ev.get("text") or ev.get("description") or ev.get("status", ""),
+        })
+
+    return {
+        "source": "hermes_public",
+        "raw_status": raw_status,
+        "status_text": status_text,
+        "events": events,
+        "progress": f"{current}/5" if current is not None else None,
+    }
+
+
 # ── DHL Unified Tracking API ────────────────────────────────────────────────
 
 async def _query_dhl(
@@ -493,7 +601,8 @@ async def track_single(tracking_number: str, carrier: str = "auto") -> dict:
     Quellen-Priorität:
       1. DHL Public XHR (für DHL-Pakete) – kein Auth, echte Events
       2. DHL Unified API (für DHL-Pakete) – falls API-Key konfiguriert, als Backup
-      3. Parcello-Scraping – Zustellfenster + Fallback für non-DHL-Carrier
+      3. Hermes Public XHR (für Hermes-Pakete) – kein Auth, echte Events
+      4. Parcello-Scraping – Zustellfenster + Fallback für unbekannte Carrier
     """
     tn = tracking_number.strip().replace(" ", "")
     if carrier == "auto":
@@ -512,31 +621,47 @@ async def track_single(tracking_number: str, carrier: str = "auto") -> dict:
     }
 
     async with aiohttp.ClientSession() as session:
-        # Parallelabfrage: Parcello + DHL Public + DHL API (falls DHL-Paket)
+        # Parallelabfrage: carrier-spezifischer XHR + Parcello (für eta_window)
         tasks = [_query_parcello(tn, session)]
         if carrier == "dhl":
             tasks.append(_query_dhl_public(tn, session=session))
             tasks.append(_query_dhl(tn, session=session))
+            tasks.append(None)  # placeholder für hermes-slot
+        elif carrier == "hermes":
+            tasks.append(None)
+            tasks.append(None)
+            tasks.append(_query_hermes(tn, session=session))
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # None-Platzhalter herausfiltern und parallel ausführen
+        actual_tasks = [t for t in tasks if t is not None]
+        actual_results = await asyncio.gather(*actual_tasks, return_exceptions=True)
 
-    parcello_result = results[0] if not isinstance(results[0], Exception) else None
-    dhl_public_result = (
-        results[1] if len(results) > 1 and not isinstance(results[1], Exception) else None
-    )
-    dhl_api_result = (
-        results[2] if len(results) > 2 and not isinstance(results[2], Exception) else None
-    )
+        # Wieder in slots zurückmappen
+        results = [None] * 4
+        idx = 0
+        for i, t in enumerate(tasks):
+            if t is not None:
+                results[i] = actual_results[idx]
+                idx += 1
 
-    # DHL Public XHR ist primäre Quelle für DHL (echte Events ohne Auth)
-    if dhl_public_result and dhl_public_result.get("raw_status"):
-        result["status"] = dhl_public_result["raw_status"]
-        result["status_text"] = dhl_public_result.get("status_text", "")
-        result["events"] = dhl_public_result.get("events", [])
+    def _ok(r):
+        return r if r and not isinstance(r, Exception) else None
 
-    # DHL Unified API als Backup (z.B. wenn Public down) oder zur Anreicherung
+    parcello_result = _ok(results[0])
+    dhl_public_result = _ok(results[1])
+    dhl_api_result = _ok(results[2])
+    hermes_result = _ok(results[3])
+
+    # Carrier-spezifische primäre Quelle
+    primary = dhl_public_result or hermes_result
+    if primary and primary.get("raw_status"):
+        result["status"] = primary["raw_status"]
+        result["status_text"] = primary.get("status_text", "")
+        result["events"] = primary.get("events", [])
+
+    # DHL Unified API als Backup für DHL
     if dhl_api_result and dhl_api_result.get("raw_status"):
-        if not result["events"]:  # nur wenn Public keine Events hatte
+        if not result["events"]:
             result["events"] = dhl_api_result.get("events", [])
         if not result["status"] or result["status"] == "unknown":
             result["status"] = dhl_api_result["raw_status"]
@@ -544,7 +669,7 @@ async def track_single(tracking_number: str, carrier: str = "auto") -> dict:
         if dhl_api_result.get("eta"):
             result["eta"] = dhl_api_result["eta"]
 
-    # Parcello hat Vorrang bei Zustellfenster (genauer) und ist Fallback für non-DHL
+    # Parcello: Zustellfenster (genauer) + Fallback für unbekannte Carrier
     if parcello_result:
         if not result["status"] or result["status"] == "unknown":
             result["status"] = parcello_result.get("raw_status", "unknown")
@@ -559,8 +684,8 @@ async def track_single(tracking_number: str, carrier: str = "auto") -> dict:
     # nicht "kein Status-Change". Loggen damit der User es im journal sieht.
     if result["status"] == "unknown" and not result["events"]:
         log.warning(
-            "Tracking %s (%s): keine Daten aus DHL-public/DHL-API/Parcello — "
-            "Carrier-Endpoint evtl. defekt", tn, carrier,
+            "Tracking %s (%s): keine Daten aus Carrier-API/Parcello — "
+            "TN evtl. ungültig oder Carrier-Endpoint defekt", tn, carrier,
         )
 
     result["status_emoji"] = STATUS_EMOJI.get(result["status"], "❓")
