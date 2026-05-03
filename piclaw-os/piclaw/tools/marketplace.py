@@ -413,16 +413,17 @@ async def _fetch_html(url: str, label: str = "web") -> str | None:
         url:   Die zu ladende URL
         label: Plattform-Name für Logging (z.B. "eBay", "Kleinanzeigen")
     """
-    # 1. Scrapling (stealth HTTP)
+    # 1. Scrapling (stealth HTTP) – timeout=20 direkt übergeben, kein asyncio.wait_for nötig
     try:
         from scrapling import Fetcher
-        fetcher = Fetcher(auto_match=False)
+        Fetcher.configure(auto_match=False)
+        fetcher = Fetcher()
         page = await asyncio.to_thread(
-            fetcher.get, url, stealthy_headers=True, follow_redirects=True
+            fetcher.get, url, stealthy_headers=True, follow_redirects=True, timeout=20
         )
-        if page and len(str(page.content)) > 500:
+        if page and len(str(page.html_content)) > 500:
             log.debug("%s via Scrapling geholt", label)
-            return str(page.content)
+            return str(page.html_content)
     except Exception as e:
         log.debug("Scrapling fehlgeschlagen (%s): %s", label, e)
 
@@ -1220,14 +1221,15 @@ async def _fetch_willhaben_area_id(location: str) -> str | None:
     try:
         from scrapling import Fetcher
         search_url = f"https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword=test&areaId=0&location={location}"
-        fetcher = Fetcher(auto_match=False)
+        Fetcher.configure(auto_match=False)
+        fetcher = Fetcher()
         page = await asyncio.to_thread(
-            fetcher.get, search_url, stealthy_headers=True, follow_redirects=True
+            fetcher.get, search_url, stealthy_headers=True, follow_redirects=True, timeout=20
         )
         if page:
             import re
             # Suche nach areaId in der API-URL oder im Page-State
-            match = re.search(r'"areaId"\s*:\s*"?(\d+)"?', str(page.content))
+            match = re.search(r'"areaId"\s*:\s*"?(\d+)"?', str(page.html_content))
             if match:
                 log.debug("Willhaben areaId via Scrapling: %s → %s", location, match.group(1))
                 return match.group(1)
