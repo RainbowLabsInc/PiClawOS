@@ -167,11 +167,16 @@ class MetricsDB:
                 params = []
 
                 if resolution > 0:
+                    try:
+                        res_val = max(1, int(resolution))
+                    except (TypeError, ValueError):
+                        res_val = 60
+
                     for name in chunk:
-                        queries.append(f"""
+                        queries.append("""
                             SELECT ? as query_name, bucket, value, unit
                             FROM (
-                                SELECT (ts / {resolution}) * {resolution} AS bucket,
+                                SELECT (ts / ?) * ? AS bucket,
                                        AVG(value) AS value,
                                        MAX(unit) as unit
                                 FROM metrics
@@ -181,7 +186,7 @@ class MetricsDB:
                                 LIMIT 500
                             )
                         """)
-                        params.extend([name, name, since_ts])
+                        params.extend([name, res_val, res_val, name, since_ts])
 
                     query = " UNION ALL ".join(queries)
                     rows = con.execute(query, params).fetchall()
@@ -437,6 +442,7 @@ class MetricsCollector:
 def _read_cpu_temp() -> float | None:
     """Liest CPU-Temperatur – funktioniert auf Pi und in psutil-Fallback."""
     from piclaw.hardware.pi_info import current_temp
+
     return current_temp()
 
 
