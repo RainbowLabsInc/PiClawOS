@@ -416,7 +416,6 @@ async def _fetch_html(url: str, label: str = "web") -> str | None:
     # 1. Scrapling (stealth HTTP) – timeout=20 direkt übergeben, kein asyncio.wait_for nötig
     try:
         from scrapling import Fetcher
-        Fetcher.configure(auto_match=False)
         fetcher = Fetcher()
         page = await asyncio.to_thread(
             fetcher.get, url, stealthy_headers=True, follow_redirects=True, timeout=20
@@ -1221,7 +1220,6 @@ async def _fetch_willhaben_area_id(location: str) -> str | None:
     try:
         from scrapling import Fetcher
         search_url = f"https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword=test&areaId=0&location={location}"
-        Fetcher.configure(auto_match=False)
         fetcher = Fetcher()
         page = await asyncio.to_thread(
             fetcher.get, search_url, stealthy_headers=True, follow_redirects=True, timeout=20
@@ -1739,7 +1737,26 @@ async def marketplace_search(
         if "web" in platforms:
             tasks.append(_search_web(session, query, min(max_results, 5)))
 
-        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+        log.warning(
+            "marketplace_search '%s': starte gather über %d Plattform-Tasks [DIAG]",
+            query, len(tasks),
+        )
+        try:
+            results_list = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=90,
+            )
+        except asyncio.TimeoutError:
+            log.warning(
+                "marketplace_search '%s': gather TIMEOUT nach 90s – keine Ergebnisse [DIAG]",
+                query,
+            )
+            results_list = []
+        log.warning(
+            "marketplace_search '%s': gather fertig, %d Einträge roh [DIAG]",
+            query,
+            sum(len(r) for r in results_list if isinstance(r, list)),
+        )
         for r in results_list:
             if isinstance(r, Exception):
                 log.error("marketplace_search: Plattform-Fehler: %s", r)
@@ -1748,8 +1765,10 @@ async def marketplace_search(
 
     # Dedup + Speichern unter Lock – serialisiert alle gleichzeitigen Agenten.
     # seen wird erst HIER gelesen damit der Snapshot aktuell ist (kein stale read).
+    log.warning("marketplace_search '%s': warte auf seen-lock [DIAG]", query)
     new_results = []
     async with _get_seen_lock():
+        log.warning("marketplace_search '%s': inside seen-lock [DIAG]", query)
         seen = _load_seen() if not notify_all else set()
         new_seen = set(seen)
         for item in all_results:
@@ -1762,6 +1781,7 @@ async def marketplace_search(
         if not notify_all:
             _save_seen(new_seen)
 
+    log.warning("marketplace_search '%s': seen-lock freigegeben [DIAG]", query)
     log.info("Marketplace '%s' in %s: %d total", query, location, len(all_results))
     return {
         "new": new_results,

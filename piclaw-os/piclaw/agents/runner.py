@@ -149,9 +149,17 @@ class SubAgentRunner:
                 )
 
         # ── Wiederkehrende Agenten starten ─────────────────────────
-        for agent in self.registry.list_enabled():
-            if agent.schedule not in ("once",):
-                await self.start_agent(agent.id)
+        # Stagger: zwischen jedem Start kurz yielden damit bereits gestartete Tasks
+        # ihren ersten await-Punkt erreichen, bevor der nächste erstellt wird.
+        # Das verteilt Boot-HTTP-Requests statt alle 5 Agents gleichzeitig loszuschicken.
+        scheduled = [
+            a for a in self.registry.list_enabled()
+            if a.schedule not in ("once",)
+        ]
+        for idx, agent in enumerate(scheduled):
+            await self.start_agent(agent.id)
+            if idx < len(scheduled) - 1:
+                await asyncio.sleep(3)  # 3 s Abstand zwischen Task-Starts
 
     def running_agents(self) -> list[str]:
         return [aid for aid, task in self._tasks.items() if not task.done()]
