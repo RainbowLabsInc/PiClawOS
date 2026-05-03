@@ -667,12 +667,7 @@ async def api_metrics_latest(_: str = Depends(require_auth)):
     try:
         from piclaw.metrics import get_db
         db = get_db()
-        names = db.list_metrics()
-        result = {}
-        for name in names:
-            latest = db.query_latest(name)
-            if latest:
-                result[name] = latest
+        result = db.query_latest_all()
         return {"metrics": result, "count": len(result)}
     except Exception as e:
         return {"error": str(e), "metrics": {}}
