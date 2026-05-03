@@ -22,3 +22,8 @@
 **Learning:** System commands constructed via string concatenation with user input and executed through `os.system` are inherently insecure and lead to command injection. Even if currently only internal safe calls are made, defending against future unsafe calls is critical.
 **Prevention:** Use `subprocess.run` or `subprocess.call` with a list of string arguments (e.g., `["sudo", "systemctl", action]`) instead of passing a formatted string to a shell execution function.
 
+
+## 2025-05-03 - [Fix SQL Injection Risk in metrics.py Downsampling Query]
+**Vulnerability:** A SQL query in `piclaw-os/piclaw/metrics.py` used formatted f-strings (`f"SELECT (ts / {resolution}) * {resolution} ..."`) to inject the `resolution` argument directly into the SQL string. While API-level validation enforced integer types, formatting raw variables into SQL queries inherently exposes a system to SQL injection if input validation layers are ever bypassed or modified.
+**Learning:** Mathematical operations and dynamic query boundaries in SQL queries must also be parameterized (using `?` in sqlite3). Do not assume integer variables are perfectly safe from string-based formatting risks, especially if API validation logic is decoupled from database execution logic.
+**Prevention:** Explicitly cast to the target type (e.g. `int()`) immediately before query execution, validate the integer value (e.g. `max(1, value)` to prevent zero division), and always bind variables using standard parameter placeholders (`?`).
