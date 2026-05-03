@@ -70,6 +70,20 @@ def test_db_query_latest_none(db):
     assert result is None
 
 
+def test_db_query_latest_all(db):
+    t1 = int(time.time()) - 100
+    t2 = int(time.time())
+    db.write(MetricPoint("temp", 40.0, "°C", ts=t1))
+    db.write(MetricPoint("temp", 55.0, "°C", ts=t2))
+    db.write(MetricPoint("cpu", 10.0, "%", ts=t1))
+
+    result = db.query_latest_all()
+    assert "temp" in result
+    assert result["temp"]["value"] == 55.0
+    assert "cpu" in result
+    assert result["cpu"]["value"] == 10.0
+
+
 def test_db_list_metrics(db):
     db.write(MetricPoint("cpu_percent", 1.0))
     db.write(MetricPoint("ram_percent", 2.0))

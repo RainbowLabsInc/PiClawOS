@@ -139,6 +139,14 @@ class MetricsDB:
             ).fetchone()
         return dict(row) if row else None
 
+    def query_latest_all(self) -> dict[str, dict]:
+        """Letzten Messwert für alle Metriken (bulk)."""
+        with self._conn() as con:
+            rows = con.execute(
+                "SELECT MAX(ts) as ts, name, value, unit, tags FROM metrics GROUP BY name"
+            ).fetchall()
+        return {r["name"]: dict(r) for r in rows}
+
     def query_range(
         self,
         names: list[str],
