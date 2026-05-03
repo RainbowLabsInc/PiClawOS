@@ -237,17 +237,18 @@ class MetricsDB:
     def _query_downsampled(
         self, name: str, since_ts: int, resolution: int
     ) -> list[dict]:
+        res_val = max(1, int(resolution))
         with self._conn() as con:
             rows = con.execute(
-                f"""SELECT (ts / {resolution}) * {resolution} AS bucket,
+                """SELECT (ts / ?) * ? AS bucket,
                            AVG(value) AS value,
-                           unit
+                           MAX(unit) as unit
                    FROM metrics
                    WHERE name = ? AND ts >= ?
                    GROUP BY bucket
                    ORDER BY bucket DESC
                    LIMIT 500""",
-                (name, since_ts),
+                (res_val, res_val, name, since_ts),
             ).fetchall()
         return [
             {
