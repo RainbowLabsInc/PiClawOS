@@ -321,7 +321,9 @@ async def _search_kleinanzeigen(
 
     if location and radius_km:
         # Location-ID auflösen für korrekte Radius-Suche
+        log.warning("_search_kleinanzeigen '%s': vor _resolve_kleinanzeigen_location_id [DIAG]", query)
         loc_id = await _resolve_kleinanzeigen_location_id(session, location)
+        log.warning("_search_kleinanzeigen '%s': nach _resolve, loc_id=%s [DIAG]", query, loc_id)
         if loc_id:
             loc = quote_plus(location)
             url = f"https://www.kleinanzeigen.de/s-{loc}/{q}/k0l{loc_id}r{int(radius_km)}"
@@ -343,7 +345,9 @@ async def _search_kleinanzeigen(
     if params:
         url += "?" + "&".join(params)
 
+    log.warning("_search_kleinanzeigen '%s': vor _fetch_html [DIAG]", query)
     html = await _fetch_html(url, label="Kleinanzeigen")
+    log.warning("_search_kleinanzeigen '%s': nach _fetch_html html=%s [DIAG]", query, bool(html))
     if not html:
         log.warning("Kleinanzeigen: Keine Antwort für '%s'", query)
         return []
@@ -414,19 +418,22 @@ async def _fetch_html(url: str, label: str = "web") -> str | None:
         label: Plattform-Name für Logging (z.B. "eBay", "Kleinanzeigen")
     """
     # 1. Scrapling (stealth HTTP) – timeout=20 direkt übergeben, kein asyncio.wait_for nötig
+    log.warning("_fetch_html '%s': Schritt 1 scrapling [DIAG]", label)
     try:
         from scrapling import Fetcher
         fetcher = Fetcher()
         page = await asyncio.to_thread(
             fetcher.get, url, stealthy_headers=True, follow_redirects=True, timeout=20
         )
+        log.warning("_fetch_html '%s': scrapling zurück, page=%s [DIAG]", label, bool(page))
         if page and len(str(page.html_content)) > 500:
             log.debug("%s via Scrapling geholt", label)
             return str(page.html_content)
     except Exception as e:
-        log.debug("Scrapling fehlgeschlagen (%s): %s", label, e)
+        log.warning("_fetch_html '%s': scrapling Exception: %s [DIAG]", label, e)
 
     # 2. aiohttp mit Browser-Headers
+    log.warning("_fetch_html '%s': Schritt 2 aiohttp [DIAG]", label)
     try:
         headers = {
             "User-Agent": (
@@ -450,9 +457,10 @@ async def _fetch_html(url: str, label: str = "web") -> str | None:
                 else:
                     log.debug("%s aiohttp HTTP %s", label, resp.status)
     except Exception as e:
-        log.debug("aiohttp fehlgeschlagen (%s): %s", label, e)
+        log.warning("_fetch_html '%s': aiohttp Exception: %s [DIAG]", label, e)
 
     # 3. Tandem Browser (echter Headless-Browser, Pi lokal)
+    log.warning("_fetch_html '%s': Schritt 3 tandem [DIAG]", label)
     try:
         async with aiohttp.ClientSession() as s:
             async with s.post(
@@ -467,8 +475,9 @@ async def _fetch_html(url: str, label: str = "web") -> str | None:
                         log.debug("%s via Tandem geholt", label)
                         return html
     except Exception as e:
-        log.debug("Tandem nicht verfügbar (%s): %s", label, e)
+        log.warning("_fetch_html '%s': Tandem Exception: %s [DIAG]", label, e)
 
+    log.warning("_fetch_html '%s': Schritt 4 alle fehlgeschlagen [DIAG]", label)
     log.warning("Alle Fetch-Methoden fehlgeschlagen für %s: %s", label, url)
     return None
 
@@ -1747,7 +1756,9 @@ async def marketplace_search(
             query, len(task_objects),
         )
         if task_objects:
+            log.warning("marketplace_search '%s': VOR asyncio.wait [DIAG]", query)
             done, pending = await asyncio.wait(task_objects, timeout=90)
+            log.warning("marketplace_search '%s': NACH asyncio.wait [DIAG]", query)
             if pending:
                 log.warning(
                     "marketplace_search '%s': %d Task(s) nach 90s Timeout abgebrochen [DIAG]",
