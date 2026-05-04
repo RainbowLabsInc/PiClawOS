@@ -275,6 +275,10 @@ def _parse_price(text: str) -> float | None:
 # ── Kleinanzeigen.de ───────────────────────────────────────────────────────────
 
 
+# Modul-weiter Cache für PLZ/Ort → Kleinanzeigen Location-ID
+_KA_LOCATION_ID_CACHE: dict[str, str] = {}
+
+
 async def _resolve_kleinanzeigen_location_id(
     session: aiohttp.ClientSession,
     location: str,
@@ -284,23 +288,44 @@ async def _resolve_kleinanzeigen_location_id(
     Kleinanzeigen nutzt ein internes URL-Format:
       /s-{PLZ}/{query}/k0l{LOCATION_ID}r{RADIUS}
     Die Location-ID wird über die Ort-Empfehlungs-API aufgelöst.
+
+    Ergebnisse werden gecacht. Bei Boot-Timeout (aiohttp-Timeout greift in
+    Python 3.12+ nicht zuverlässig) schützt asyncio.shield den äußeren
+    asyncio.wait vor einem Hang.
     """
+    # Cache-Treffer: sofort zurück, kein Netzwerkzugriff nötig
+    if location in _KA_LOCATION_ID_CACHE:
+        return _KA_LOCATION_ID_CACHE[location]
+
+    async def _do_resolve() -> str | None:
+        try:
+            url = f"https://www.kleinanzeigen.de/s-ort-empfehlungen.json?query={quote_plus(location)}"
+            async with session.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json(content_type=None)
+            # Format: {"_0": "Deutschland", "_2811": "21224 Rosengarten"}
+            for key, val in data.items():
+                if key != "_0" and key.startswith("_"):
+                    loc_id = key[1:]  # "_2811" → "2811"
+                    log.debug("Kleinanzeigen Location-ID: %s → %s (%s)", location, loc_id, val)
+                    _KA_LOCATION_ID_CACHE[location] = loc_id
+                    return loc_id
+        except BaseException as e:
+            log.debug("Kleinanzeigen Location-ID Fehler: %s", e)
+        return None
+
+    # asyncio.shield schützt den äußeren asyncio.wait-Timer davor hängen zu bleiben,
+    # wenn das TCP-Connect zu kleinanzeigen.de beim Boot verzögert ist.
+    # asyncio.shield bricht sofort ab wenn der äußere Timeout feuert –
+    # _do_resolve läuft im Hintergrund weiter und kann sich selbst aufräumen.
+    inner_task = asyncio.ensure_future(_do_resolve())
     try:
-        url = f"https://www.kleinanzeigen.de/s-ort-empfehlungen.json?query={quote_plus(location)}"
-        async with session.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-            if resp.status != 200:
-                return None
-            data = await resp.json(content_type=None)
-        # Format: {"_0": "Deutschland", "_2811": "21224 Rosengarten"}
-        # Den ersten Nicht-_0-Eintrag nehmen (= lokaler Treffer)
-        for key, val in data.items():
-            if key != "_0" and key.startswith("_"):
-                loc_id = key[1:]  # "_2811" → "2811"
-                log.debug("Kleinanzeigen Location-ID: %s → %s (%s)", location, loc_id, val)
-                return loc_id
-    except Exception as e:
-        log.debug("Kleinanzeigen Location-ID Fehler: %s", e)
-    return None
+        result = await asyncio.wait_for(asyncio.shield(inner_task), timeout=6)
+        return result
+    except BaseException as e:
+        log.warning("_resolve_kleinanzeigen_location_id '%s': Timeout/Fehler: %s [DIAG]", location, type(e).__name__)
+        return None
 
 
 async def _search_kleinanzeigen(
