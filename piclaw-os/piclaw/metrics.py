@@ -164,15 +164,13 @@ class MetricsDB:
         since_ts = int(time.time()) - since_s
         result: dict[str, list[dict]] = {name: [] for name in names}
 
-        # SQLite's SQLITE_LIMIT_COMPOUND_SELECT default is 500.
+        # SQLite's max variable number is 999.
         # wir teilen in chunks zu je 100 auf, um auf der sicheren Seite zu sein.
         CHUNK_SIZE = 100
 
         with self._conn() as con:
             for i in range(0, len(names), CHUNK_SIZE):
                 chunk = names[i : i + CHUNK_SIZE]
-                queries = []
-                params = []
 
                 if resolution > 0:
                     try:
@@ -180,23 +178,23 @@ class MetricsDB:
                     except (TypeError, ValueError):
                         res_val = 60
 
-                    for name in chunk:
-                        queries.append("""
-                            SELECT ? as query_name, bucket, value, unit
-                            FROM (
-                                SELECT (ts / ?) * ? AS bucket,
-                                       AVG(value) AS value,
-                                       MAX(unit) as unit
-                                FROM metrics
-                                WHERE name = ? AND ts >= ?
-                                GROUP BY bucket
-                                ORDER BY bucket DESC
-                                LIMIT 500
-                            )
-                        """)
-                        params.extend([name, res_val, res_val, name, since_ts])
+                    placeholders = ",".join("?" for _ in chunk)
+                    query = f"""
+                        SELECT query_name, bucket, value, unit
+                        FROM (
+                            SELECT name as query_name, (ts / ?) * ? AS bucket,
+                                   AVG(value) AS value,
+                                   MAX(unit) as unit,
+                                   ROW_NUMBER() OVER(PARTITION BY name ORDER BY (ts / ?) * ? DESC) as rn
+                            FROM metrics
+                            WHERE name IN ({placeholders}) AND ts >= ?
+                            GROUP BY name, bucket
+                        )
+                        WHERE rn <= 500
+                        ORDER BY bucket DESC
+                    """
+                    params = [res_val, res_val, res_val, res_val] + chunk + [since_ts]
 
-                    query = " UNION ALL ".join(queries)
                     rows = con.execute(query, params).fetchall()
 
                     for r in rows:
@@ -211,20 +209,20 @@ class MetricsDB:
                                 }
                             )
                 else:
-                    for name in chunk:
-                        queries.append("""
-                            SELECT ts, name, value, unit, tags
-                            FROM (
-                                SELECT ts, name, value, unit, tags
-                                FROM metrics
-                                WHERE name = ? AND ts >= ?
-                                ORDER BY ts DESC
-                                LIMIT 500
-                            )
-                        """)
-                        params.extend([name, since_ts])
+                    placeholders = ",".join("?" for _ in chunk)
+                    query = f"""
+                        SELECT ts, name, value, unit, tags
+                        FROM (
+                            SELECT ts, name, value, unit, tags,
+                                   ROW_NUMBER() OVER(PARTITION BY name ORDER BY ts DESC) as rn
+                            FROM metrics
+                            WHERE name IN ({placeholders}) AND ts >= ?
+                        )
+                        WHERE rn <= 500
+                        ORDER BY ts DESC
+                    """
+                    params = chunk + [since_ts]
 
-                    query = " UNION ALL ".join(queries)
                     rows = con.execute(query, params).fetchall()
 
                     for r in rows:
