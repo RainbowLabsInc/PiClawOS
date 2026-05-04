@@ -1737,31 +1737,38 @@ async def marketplace_search(
         if "web" in platforms:
             tasks.append(_search_web(session, query, min(max_results, 5)))
 
+        # asyncio.wait() statt wait_for(gather()) – in Python 3.12+ wartet wait_for()
+        # auf den Abschluss der Cancellation. Threads (asyncio.to_thread / scrapling)
+        # können nicht gecancelt werden → wait_for hängt ewig.
+        # asyncio.wait() kehrt beim Timeout sofort zurück, egal ob Threads noch laufen.
+        task_objects = [asyncio.create_task(coro) for coro in tasks]
         log.warning(
-            "marketplace_search '%s': starte gather über %d Plattform-Tasks [DIAG]",
-            query, len(tasks),
+            "marketplace_search '%s': starte %d Plattform-Tasks [DIAG]",
+            query, len(task_objects),
         )
-        try:
-            results_list = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True),
-                timeout=90,
-            )
-        except asyncio.TimeoutError:
-            log.warning(
-                "marketplace_search '%s': gather TIMEOUT nach 90s – keine Ergebnisse [DIAG]",
-                query,
-            )
-            results_list = []
+        if task_objects:
+            done, pending = await asyncio.wait(task_objects, timeout=90)
+            if pending:
+                log.warning(
+                    "marketplace_search '%s': %d Task(s) nach 90s Timeout abgebrochen [DIAG]",
+                    query, len(pending),
+                )
+                for t in pending:
+                    t.cancel()
+        else:
+            done, pending = set(), set()
+
         log.warning(
-            "marketplace_search '%s': gather fertig, %d Einträge roh [DIAG]",
-            query,
-            sum(len(r) for r in results_list if isinstance(r, list)),
+            "marketplace_search '%s': %d Tasks fertig, %d abgebrochen [DIAG]",
+            query, len(done), len(pending),
         )
-        for r in results_list:
-            if isinstance(r, Exception):
-                log.error("marketplace_search: Plattform-Fehler: %s", r)
-            elif isinstance(r, list):
-                all_results.extend(r)
+        for t in done:
+            try:
+                r = t.result()
+                if isinstance(r, list):
+                    all_results.extend(r)
+            except Exception as e:
+                log.error("marketplace_search: Plattform-Fehler: %s", e)
 
     # Dedup + Speichern unter Lock – serialisiert alle gleichzeitigen Agenten.
     # seen wird erst HIER gelesen damit der Snapshot aktuell ist (kein stale read).
