@@ -141,10 +141,24 @@ class MetricsDB:
 
     def query_latest_all(self) -> dict[str, dict]:
         """Letzte Messwerte für alle bekannten Metriken effizient abfragen."""
+        query = """
+            WITH RECURSIVE
+              names(name) AS (
+                SELECT (SELECT name FROM metrics ORDER BY name LIMIT 1)
+                UNION ALL
+                SELECT (SELECT name FROM metrics WHERE name > names.name ORDER BY name LIMIT 1)
+                FROM names
+                WHERE names.name IS NOT NULL
+              )
+            SELECT m.ts, m.name, m.value, m.unit, m.tags
+            FROM names
+            JOIN metrics m ON m.rowid = (
+                SELECT rowid FROM metrics WHERE name = names.name ORDER BY ts DESC LIMIT 1
+            )
+            WHERE names.name IS NOT NULL
+        """
         with self._conn() as con:
-            rows = con.execute(
-                "SELECT MAX(ts) as ts, name, value, unit, tags FROM metrics GROUP BY name"
-            ).fetchall()
+            rows = con.execute(query).fetchall()
         return {r["name"]: dict(r) for r in rows}
 
     def query_range(
