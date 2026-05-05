@@ -250,12 +250,10 @@ class SubAgentRunner:
         try:
             # ── Direct Mode: Tool direkt aufrufen, kein LLM ────────
             if agent.direct_tool:
-                log.warning("Sub-agent '%s': awaiting direct_tool [DIAG]", agent.name)
                 result = await asyncio.wait_for(
                     self._direct_tool_call(agent),
                     timeout=agent.timeout,
                 )
-                log.warning("Sub-agent '%s': direct_tool returned [DIAG]", agent.name)
             else:
                 result = await asyncio.wait_for(
                     self._agentic_loop(agent),
@@ -272,7 +270,6 @@ class SubAgentRunner:
             status = "timeout"
             log.warning(result)
         except asyncio.CancelledError:
-            log.warning("Sub-agent '%s': CancelledError in _execute (first-run diag)", agent.name)
             raise
         except Exception as e:
             result = f"Sub-agent '{agent.name}' error: {e}\n{traceback.format_exc()}"
@@ -420,7 +417,6 @@ class SubAgentRunner:
         # Direkt marketplace_search importieren und awaiten
         try:
             from piclaw.tools.marketplace import marketplace_search as _mp_fn
-            log.warning("_run_marketplace_monitor '%s': calling marketplace_search [DIAG]", agent.name)
             result = await _mp_fn(
                 query=params.get("query", ""),
                 platforms=params.get("platforms", ["kleinanzeigen"]),
@@ -434,8 +430,8 @@ class SubAgentRunner:
         except Exception as e:
             return f"[ERROR] marketplace_monitor Fehler: {e}"
 
-        log.warning("_run_marketplace_monitor '%s': marketplace_search done, new=%d [DIAG]",
-                    agent.name, len(result.get("new", [])))
+        log.debug("_run_marketplace_monitor '%s': marketplace_search done, new=%d",
+                  agent.name, len(result.get("new", [])))
         if not result.get("new"):
             return "__NO_NEW_RESULTS__"
 

@@ -324,7 +324,7 @@ async def _resolve_kleinanzeigen_location_id(
         result = await asyncio.wait_for(asyncio.shield(inner_task), timeout=6)
         return result
     except BaseException as e:
-        log.warning("_resolve_kleinanzeigen_location_id '%s': Timeout/Fehler: %s [DIAG]", location, type(e).__name__)
+        log.debug("_resolve_kleinanzeigen_location_id '%s': Timeout/Fehler: %s", location, type(e).__name__)
         return None
 
 
@@ -346,9 +346,9 @@ async def _search_kleinanzeigen(
 
     if location and radius_km:
         # Location-ID auflösen für korrekte Radius-Suche
-        log.warning("_search_kleinanzeigen '%s': vor _resolve_kleinanzeigen_location_id [DIAG]", query)
+        log.debug("_search_kleinanzeigen '%s': vor _resolve_kleinanzeigen_location_id", query)
         loc_id = await _resolve_kleinanzeigen_location_id(session, location)
-        log.warning("_search_kleinanzeigen '%s': nach _resolve, loc_id=%s [DIAG]", query, loc_id)
+        log.debug("_search_kleinanzeigen '%s': nach _resolve, loc_id=%s", query, loc_id)
         if loc_id:
             loc = quote_plus(location)
             url = f"https://www.kleinanzeigen.de/s-{loc}/{q}/k0l{loc_id}r{int(radius_km)}"
@@ -370,9 +370,9 @@ async def _search_kleinanzeigen(
     if params:
         url += "?" + "&".join(params)
 
-    log.warning("_search_kleinanzeigen '%s': vor _fetch_html [DIAG]", query)
+    log.debug("_search_kleinanzeigen '%s': vor _fetch_html", query)
     html = await _fetch_html(url, label="Kleinanzeigen")
-    log.warning("_search_kleinanzeigen '%s': nach _fetch_html html=%s [DIAG]", query, bool(html))
+    log.debug("_search_kleinanzeigen '%s': nach _fetch_html html=%s", query, bool(html))
     if not html:
         log.warning("Kleinanzeigen: Keine Antwort für '%s'", query)
         return []
@@ -443,22 +443,22 @@ async def _fetch_html(url: str, label: str = "web") -> str | None:
         label: Plattform-Name für Logging (z.B. "eBay", "Kleinanzeigen")
     """
     # 1. Scrapling (stealth HTTP) – timeout=20 direkt übergeben, kein asyncio.wait_for nötig
-    log.warning("_fetch_html '%s': Schritt 1 scrapling [DIAG]", label)
+    log.debug("_fetch_html '%s': Schritt 1 scrapling", label)
     try:
         from scrapling import Fetcher
         fetcher = Fetcher()
         page = await asyncio.to_thread(
             fetcher.get, url, stealthy_headers=True, follow_redirects=True, timeout=20
         )
-        log.warning("_fetch_html '%s': scrapling zurück, page=%s [DIAG]", label, bool(page))
+        log.debug("_fetch_html '%s': scrapling zurück, page=%s", label, bool(page))
         if page and len(str(page.html_content)) > 500:
             log.debug("%s via Scrapling geholt", label)
             return str(page.html_content)
     except Exception as e:
-        log.warning("_fetch_html '%s': scrapling Exception: %s [DIAG]", label, e)
+        log.debug("_fetch_html '%s': scrapling Exception: %s", label, e)
 
     # 2. aiohttp mit Browser-Headers
-    log.warning("_fetch_html '%s': Schritt 2 aiohttp [DIAG]", label)
+    log.debug("_fetch_html '%s': Schritt 2 aiohttp", label)
     try:
         headers = {
             "User-Agent": (
@@ -482,10 +482,10 @@ async def _fetch_html(url: str, label: str = "web") -> str | None:
                 else:
                     log.debug("%s aiohttp HTTP %s", label, resp.status)
     except Exception as e:
-        log.warning("_fetch_html '%s': aiohttp Exception: %s [DIAG]", label, e)
+        log.debug("_fetch_html '%s': aiohttp Exception: %s", label, e)
 
     # 3. Tandem Browser (echter Headless-Browser, Pi lokal)
-    log.warning("_fetch_html '%s': Schritt 3 tandem [DIAG]", label)
+    log.debug("_fetch_html '%s': Schritt 3 tandem", label)
     try:
         async with aiohttp.ClientSession() as s:
             async with s.post(
@@ -500,9 +500,8 @@ async def _fetch_html(url: str, label: str = "web") -> str | None:
                         log.debug("%s via Tandem geholt", label)
                         return html
     except Exception as e:
-        log.warning("_fetch_html '%s': Tandem Exception: %s [DIAG]", label, e)
+        log.debug("_fetch_html '%s': Tandem Exception: %s", label, e)
 
-    log.warning("_fetch_html '%s': Schritt 4 alle fehlgeschlagen [DIAG]", label)
     log.warning("Alle Fetch-Methoden fehlgeschlagen für %s: %s", label, url)
     return None
 
@@ -1776,17 +1775,17 @@ async def marketplace_search(
         # können nicht gecancelt werden → wait_for hängt ewig.
         # asyncio.wait() kehrt beim Timeout sofort zurück, egal ob Threads noch laufen.
         task_objects = [asyncio.create_task(coro) for coro in tasks]
-        log.warning(
-            "marketplace_search '%s': starte %d Plattform-Tasks [DIAG]",
+        log.debug(
+            "marketplace_search '%s': starte %d Plattform-Tasks",
             query, len(task_objects),
         )
         if task_objects:
-            log.warning("marketplace_search '%s': VOR asyncio.wait [DIAG]", query)
+            log.debug("marketplace_search '%s': VOR asyncio.wait", query)
             done, pending = await asyncio.wait(task_objects, timeout=90)
-            log.warning("marketplace_search '%s': NACH asyncio.wait [DIAG]", query)
+            log.debug("marketplace_search '%s': NACH asyncio.wait", query)
             if pending:
                 log.warning(
-                    "marketplace_search '%s': %d Task(s) nach 90s Timeout abgebrochen [DIAG]",
+                    "marketplace_search '%s': %d Task(s) nach 90s Timeout abgebrochen",
                     query, len(pending),
                 )
                 for t in pending:
@@ -1794,8 +1793,8 @@ async def marketplace_search(
         else:
             done, pending = set(), set()
 
-        log.warning(
-            "marketplace_search '%s': %d Tasks fertig, %d abgebrochen [DIAG]",
+        log.debug(
+            "marketplace_search '%s': %d Tasks fertig, %d abgebrochen",
             query, len(done), len(pending),
         )
         for t in done:
@@ -1808,10 +1807,10 @@ async def marketplace_search(
 
     # Dedup + Speichern unter Lock – serialisiert alle gleichzeitigen Agenten.
     # seen wird erst HIER gelesen damit der Snapshot aktuell ist (kein stale read).
-    log.warning("marketplace_search '%s': warte auf seen-lock [DIAG]", query)
+    log.debug("marketplace_search '%s': warte auf seen-lock", query)
     new_results = []
     async with _get_seen_lock():
-        log.warning("marketplace_search '%s': inside seen-lock [DIAG]", query)
+        log.debug("marketplace_search '%s': inside seen-lock", query)
         seen = _load_seen() if not notify_all else set()
         new_seen = set(seen)
         for item in all_results:
@@ -1824,7 +1823,7 @@ async def marketplace_search(
         if not notify_all:
             _save_seen(new_seen)
 
-    log.warning("marketplace_search '%s': seen-lock freigegeben [DIAG]", query)
+    log.debug("marketplace_search '%s': seen-lock freigegeben", query)
     log.info("Marketplace '%s' in %s: %d total", query, location, len(all_results))
     return {
         "new": new_results,
