@@ -1,0 +1,5 @@
+🚨 Severity: CRITICAL
+💡 Vulnerability: SQL injection vulnerability in `piclaw-os/piclaw/metrics.py` within `_query_downsampled` due to f-string formatting interpolating the `resolution` integer directly into the SQL query text.
+🎯 Impact: If input validation at the API layer is ever bypassed, an attacker could inject arbitrary SQL commands by passing malicious values via the `resolution` parameter.
+🔧 Fix: Used parameterized queries (`?`) for mathematical interpolation and added explicit, fail-safe type conversion `res_val = max(1, int(resolution))` to prevent division by zero.
+✅ Verification: Ran `pytest piclaw-os/tests/test_metrics.py` to ensure metrics functionality continues correctly with parameterized queries.
