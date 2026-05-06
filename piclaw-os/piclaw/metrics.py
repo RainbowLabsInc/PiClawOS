@@ -141,10 +141,28 @@ class MetricsDB:
 
     def query_latest_all(self) -> dict[str, dict]:
         """Letzte Messwerte für alle bekannten Metriken effizient abfragen."""
+        # ⚡ Bolt: Fast CTE skip-scan instead of slow full GROUP BY scan for finding latest value per group
+        # This reduces time from O(N_rows) to O(N_distinct_names) via index jumps
+        query = """
+            WITH RECURSIVE
+                distinct_names(name) AS (
+                    SELECT (SELECT name FROM metrics ORDER BY name LIMIT 1)
+                    UNION ALL
+                    SELECT (SELECT name FROM metrics WHERE name > distinct_names.name ORDER BY name LIMIT 1)
+                    FROM distinct_names WHERE distinct_names.name IS NOT NULL
+                )
+            SELECT m.ts, m.name, m.value, m.unit, m.tags
+            FROM distinct_names dn
+            JOIN metrics m ON m.rowid = (
+                SELECT rowid FROM metrics
+                WHERE name = dn.name
+                ORDER BY ts DESC
+                LIMIT 1
+            )
+            WHERE dn.name IS NOT NULL;
+        """
         with self._conn() as con:
-            rows = con.execute(
-                "SELECT MAX(ts) as ts, name, value, unit, tags FROM metrics GROUP BY name"
-            ).fetchall()
+            rows = con.execute(query).fetchall()
         return {r["name"]: dict(r) for r in rows}
 
     def query_range(
