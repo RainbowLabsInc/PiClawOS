@@ -915,8 +915,16 @@ def cmd_agent(args):
             if result:
                 print("  ✅ Removed.")
             else:
-                # Fallback: direct registry delete
+                # Fallback: direct registry delete + best-effort IPC remove
+                # so any running daemon stops its schedule-loop and drops
+                # the agent from its memory.
+                aid = agent.id
                 registry.remove(name)
+                try:
+                    from piclaw import ipc
+                    ipc.write_remove(aid)
+                except Exception:
+                    pass
                 print(f"  ✅ '{name}' removed from registry.")
         else:
             print("  Abgebrochen.")

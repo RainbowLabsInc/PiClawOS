@@ -214,9 +214,17 @@ async def subagent_remove(name: str, _: str = Depends(require_auth)):
     sa = _agent.sa_registry.get(name)
     if not sa:
         raise HTTPException(404, f"Sub-agent '{name}' not found")
-    if sa.id in _agent.sa_runner._tasks and not _agent.sa_runner._tasks[sa.id].done():
+    agent_id = sa.id
+    # API process: stop our copy of the task (no-op for the daemon's task,
+    # different process), then remove from our registry memory + disk.
+    if agent_id in _agent.sa_runner._tasks and not _agent.sa_runner._tasks[agent_id].done():
         await _agent.sa_runner.stop_agent(name)
     removed = _agent.sa_registry.remove(name)
+    # Daemon process: tell it to stop its schedule-loop and drop from memory.
+    # Without this the daemon would keep firing the agent on schedule and
+    # its next mark_run save would resurrect the deleted entry.
+    from piclaw import ipc
+    ipc.write_remove(agent_id)
     return {"removed": removed, "name": name}
 
 
