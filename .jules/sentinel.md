@@ -27,3 +27,8 @@
 **Vulnerability:** A SQL query in `piclaw-os/piclaw/metrics.py` used formatted f-strings (`f"SELECT (ts / {resolution}) * {resolution} ..."`) to inject the `resolution` argument directly into the SQL string. While API-level validation enforced integer types, formatting raw variables into SQL queries inherently exposes a system to SQL injection if input validation layers are ever bypassed or modified.
 **Learning:** Mathematical operations and dynamic query boundaries in SQL queries must also be parameterized (using `?` in sqlite3). Do not assume integer variables are perfectly safe from string-based formatting risks, especially if API validation logic is decoupled from database execution logic.
 **Prevention:** Explicitly cast to the target type (e.g. `int()`) immediately before query execution, validate the integer value (e.g. `max(1, value)` to prevent zero division), and always bind variables using standard parameter placeholders (`?`).
+
+## 2026-05-07 - [Fix SQL Injection Risk in _query_downsampled in metrics.py]
+**Vulnerability:** A SQL query in `piclaw-os/piclaw/metrics.py` used formatted f-strings (`f"SELECT (ts / {resolution}) * {resolution} ..."`) to inject the `resolution` argument directly into the SQL string in the `_query_downsampled` function.
+**Learning:** Even if the query seems to have identical logic to other parameterized queries, ensure all dynamic boundaries and mathematical operations inside the SQL statement are consistently parameterized.
+**Prevention:** Use `?` parameterization in SQLite queries for all user inputs and explicitly cast/validate variables (e.g. `res_val = max(1, int(resolution))`) to ensure safe interpolation inside mathematical operations like `(ts / ?) * ?`.
