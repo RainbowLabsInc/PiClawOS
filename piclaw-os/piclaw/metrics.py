@@ -171,8 +171,7 @@ class MetricsDB:
         with self._conn() as con:
             for i in range(0, len(names), CHUNK_SIZE):
                 chunk = names[i : i + CHUNK_SIZE]
-                queries = []
-                params = []
+                placeholders = ",".join("?" for _ in chunk)
 
                 if resolution > 0:
                     try:
@@ -180,23 +179,25 @@ class MetricsDB:
                     except (TypeError, ValueError):
                         res_val = 60
 
-                    for name in chunk:
-                        queries.append("""
-                            SELECT ? as query_name, bucket, value, unit
+                    query = f"""
+                        SELECT query_name, bucket, value, unit
+                        FROM (
+                            SELECT query_name, bucket, value, unit,
+                                   ROW_NUMBER() OVER (PARTITION BY query_name ORDER BY bucket DESC) as rn
                             FROM (
-                                SELECT (ts / ?) * ? AS bucket,
+                                SELECT name as query_name,
+                                       (ts / ?) * ? AS bucket,
                                        AVG(value) AS value,
                                        MAX(unit) as unit
                                 FROM metrics
-                                WHERE name = ? AND ts >= ?
-                                GROUP BY bucket
-                                ORDER BY bucket DESC
-                                LIMIT 500
+                                WHERE name IN ({placeholders}) AND ts >= ?
+                                GROUP BY name, bucket
                             )
-                        """)
-                        params.extend([name, res_val, res_val, name, since_ts])
-
-                    query = " UNION ALL ".join(queries)
+                        )
+                        WHERE rn <= 500
+                        ORDER BY query_name, bucket DESC
+                    """
+                    params = [res_val, res_val] + chunk + [since_ts]
                     rows = con.execute(query, params).fetchall()
 
                     for r in rows:
@@ -211,20 +212,18 @@ class MetricsDB:
                                 }
                             )
                 else:
-                    for name in chunk:
-                        queries.append("""
-                            SELECT ts, name, value, unit, tags
-                            FROM (
-                                SELECT ts, name, value, unit, tags
-                                FROM metrics
-                                WHERE name = ? AND ts >= ?
-                                ORDER BY ts DESC
-                                LIMIT 500
-                            )
-                        """)
-                        params.extend([name, since_ts])
-
-                    query = " UNION ALL ".join(queries)
+                    query = f"""
+                        SELECT ts, name, value, unit, tags
+                        FROM (
+                            SELECT ts, name, value, unit, tags,
+                                   ROW_NUMBER() OVER (PARTITION BY name ORDER BY ts DESC) as rn
+                            FROM metrics
+                            WHERE name IN ({placeholders}) AND ts >= ?
+                        )
+                        WHERE rn <= 500
+                        ORDER BY name, ts DESC
+                    """
+                    params = chunk + [since_ts]
                     rows = con.execute(query, params).fetchall()
 
                     for r in rows:
