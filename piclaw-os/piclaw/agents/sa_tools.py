@@ -254,9 +254,19 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         agent = registry.get(name)
         if not agent:
             return f"Sub-Agent '{name}' nicht gefunden."
-        if agent.id in runner._tasks and not runner._tasks[agent.id].done():
+        agent_id = agent.id
+        if agent_id in runner._tasks and not runner._tasks[agent_id].done():
             await runner.stop_agent(name)
         success = registry.remove(name)
+        # Notify the other piclaw process (api ↔ daemon split): the schedule-
+        # loop for this agent might run there, and its in-memory registry
+        # would otherwise resurrect the entry on its next mark_run save.
+        if success:
+            try:
+                from piclaw import ipc
+                ipc.write_remove(agent_id)
+            except Exception:
+                pass
         return f"Sub-Agent '{name}' gelöscht." if success else f"'{name}' nicht gefunden."
 
     async def agent_update(name: str, **kwargs) -> str:

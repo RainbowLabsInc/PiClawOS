@@ -6,6 +6,7 @@ PiClaw OS – CLI
 
 import asyncio
 import os
+from urllib.parse import quote
 
 
 BANNER = """
@@ -879,7 +880,7 @@ def cmd_agent(args):
             print("Usage: piclaw agent start <name>")
             return
         # Start via the API (agent might be running in a separate process)
-        result = _api_call("POST", f"/api/subagents/{name}/start")
+        result = _api_call("POST", f"/api/subagents/{quote(name, safe='')}/start")
         if result:
             print(f"  {result.get('result', result)}")
         else:
@@ -891,7 +892,7 @@ def cmd_agent(args):
         if not name:
             print("Usage: piclaw agent stop <name>")
             return
-        result = _api_call("POST", f"/api/subagents/{name}/stop")
+        result = _api_call("POST", f"/api/subagents/{quote(name, safe='')}/stop")
         if result:
             print(f"  {result.get('result', result)}")
         else:
@@ -911,7 +912,7 @@ def cmd_agent(args):
             .lower()
         )
         if confirm == "y":
-            result = _api_call("DELETE", f"/api/subagents/{name}")
+            result = _api_call("DELETE", f"/api/subagents/{quote(name, safe='')}")
             if result:
                 print("  ✅ Removed.")
             else:
@@ -933,7 +934,7 @@ def cmd_agent(args):
         if not name:
             print("Usage: piclaw agent run <name>")
             return
-        result = _api_call("POST", f"/api/subagents/{name}/run")
+        result = _api_call("POST", f"/api/subagents/{quote(name, safe='')}/run")
         if result:
             print("  ⚙️  Triggered. Check logs or Telegram for result.")
         else:
