@@ -25,7 +25,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Requ
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress as contextlib_suppress
 
 from piclaw.config   import load as load_cfg, save as save_cfg, PiClawConfig
 from piclaw.agent    import Agent
@@ -640,7 +640,29 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
                 await _manager.send(websocket, {"type": "token", "text": token})
 
             history = _sessions.get(session_id, [])
-            reply   = await _agent.run(user_text, history=history, on_token=on_token)
+
+            # Periodische Heartbeat-Pings damit der WebSocket nicht stirbt
+            # während der lokale LLM auf der Pi 4 in einer langen Tool-Call-
+            # Inference hängt (gemma-4 mit 8k Kontext kann 30-60 s brauchen).
+            # Ohne diese Heartbeats schließt uvicorn nach ws_ping_timeout
+            # mit Code 1011 ("keepalive ping timeout").
+            async def _ping_loop():
+                try:
+                    while True:
+                        await asyncio.sleep(15)
+                        await _manager.send(websocket, {"type": "thinking"})
+                except asyncio.CancelledError:
+                    pass
+
+            ping_task = asyncio.create_task(_ping_loop())
+            try:
+                reply = await _agent.run(
+                    user_text, history=history, on_token=on_token,
+                )
+            finally:
+                ping_task.cancel()
+                with contextlib_suppress(asyncio.CancelledError):
+                    await ping_task
 
             history.append(Message(role="user",      content=user_text))
             history.append(Message(role="assistant", content=reply))
@@ -661,8 +683,14 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
 
 def run(host: str = "0.0.0.0", port: int = 7842):
     import uvicorn
+    # ws_ping defaults (20s/20s) sind zu kurz für lokale LLM-Inferenz auf
+    # Pi-Hardware. Ein gemma-4-Tool-Call dauert leicht 30-60s; währenddessen
+    # blockiert der llama.cpp-Aufruf den Event-Loop, sodass Pings nicht
+    # rechtzeitig beantwortet werden → Server schließt mit Code 1011.
     uvicorn.run("piclaw.api:app", host=host, port=port,
-                log_level="info", reload=False)
+                log_level="info", reload=False,
+                ws_ping_interval=30,
+                ws_ping_timeout=180)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1057,4 +1085,7 @@ if __name__ == "__main__":
         port=_cfg.api.port or 7842,
         log_level="info",
         reload=False,
+        # Längere WS-Ping-Toleranz für lange LLM-Antworten (siehe run()).
+        ws_ping_interval=30,
+        ws_ping_timeout=180,
     )
