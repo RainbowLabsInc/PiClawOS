@@ -140,11 +140,35 @@ class MetricsDB:
         return dict(row) if row else None
 
     def query_latest_all(self) -> dict[str, dict]:
-        """Letzte Messwerte für alle bekannten Metriken effizient abfragen."""
+        """Letzte Messwerte für alle bekannten Metriken effizient abfragen.
+
+        Nutzt CTE-Skip-Scan über (name, ts) statt `MAX(ts) GROUP BY name` —
+        liefert so deterministisch die Zeile mit dem aktuellen Timestamp pro
+        Metrik (das alte `MAX(...) GROUP BY` war SQLite-spezifisch undefined
+        für nicht-aggregierte Spalten value/unit/tags) und skaliert mit der
+        Anzahl distinct names statt mit der Gesamtzeilenzahl.
+        """
+        query = """
+            WITH RECURSIVE
+                names(name) AS (
+                    SELECT (SELECT name FROM metrics ORDER BY name LIMIT 1)
+                    UNION ALL
+                    SELECT (SELECT name FROM metrics WHERE name > names.name ORDER BY name LIMIT 1)
+                    FROM names
+                    WHERE names.name IS NOT NULL
+                )
+            SELECT m.ts, m.name, m.value, m.unit, m.tags
+            FROM names
+            JOIN metrics m ON m.rowid = (
+                SELECT rowid FROM metrics
+                WHERE name = names.name
+                ORDER BY ts DESC
+                LIMIT 1
+            )
+            WHERE names.name IS NOT NULL
+        """
         with self._conn() as con:
-            rows = con.execute(
-                "SELECT MAX(ts) as ts, name, value, unit, tags FROM metrics GROUP BY name"
-            ).fetchall()
+            rows = con.execute(query).fetchall()
         return {r["name"]: dict(r) for r in rows}
 
     def query_range(
@@ -237,17 +261,25 @@ class MetricsDB:
     def _query_downsampled(
         self, name: str, since_ts: int, resolution: int
     ) -> list[dict]:
+        # resolution war zuvor per f-string ins SQL interpoliert — defensiv
+        # parametrisieren und auf int-coercen. Nicht aktiv exploitable
+        # (kein User-Input-Pfad), aber Hardening + bessere Plan-Caching.
+        try:
+            res_val = max(1, int(resolution))
+        except (TypeError, ValueError):
+            res_val = 60
+
         with self._conn() as con:
             rows = con.execute(
-                f"""SELECT (ts / {resolution}) * {resolution} AS bucket,
-                           AVG(value) AS value,
-                           unit
+                """SELECT (ts / ?) * ? AS bucket,
+                          AVG(value) AS value,
+                          unit
                    FROM metrics
                    WHERE name = ? AND ts >= ?
                    GROUP BY bucket
                    ORDER BY bucket DESC
                    LIMIT 500""",
-                (name, since_ts),
+                (res_val, res_val, name, since_ts),
             ).fetchall()
         return [
             {
