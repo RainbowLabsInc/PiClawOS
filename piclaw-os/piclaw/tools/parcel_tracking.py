@@ -510,6 +510,251 @@ async def _query_hermes(
     }
 
 
+# ── DPD / GLS via Scrapling (Anti-Bot-Bypass) ──────────────────────────────
+#
+# DPD und GLS rendern ihre Tracking-Daten als JSON-Response hinter dem SPA-
+# Frontend. Direkter aiohttp-Call wird oft von Cloudflare/Anti-Bot-Layern
+# geblockt — daher Scrapling, das im Repo schon für Marketplace-Scraping
+# eingesetzt wird (Pattern: marketplace.py:_fetch_html). Tier 1 ist der
+# leichtgewichtige stealth-HTTP-Fetcher; falls der nicht durchkommt fällt
+# es auf StealthyFetcher (Camoufox-basiert, voller Headless-Browser) zurück.
+
+# DPD Lifecycle-Status-Codes (`_eventCode` / numerischer State im
+# parcellifecycle-Objekt). Mapping aus echten Responses ableitbar; Heuristik
+# parallel zu Hermes/DHL.
+_DPD_STATUS_MAP = {
+    "ACCEPTED": "in_transit",
+    "PICKEDUP": "in_transit",
+    "ATSENDDEPOT": "in_transit",
+    "ATDELIVERYDEPOT": "in_transit",
+    "ONROAD": "in_transit",
+    "OUTFORDELIVERY": "out_for_delivery",
+    "DELIVERED": "delivered",
+    "PICKUPBYCONSIGNEE": "delivered",
+    "RETURNINPROGRESS": "returned",
+    "RETURNED": "returned",
+    "EXCEPTION": "exception",
+    "PROBLEM": "exception",
+}
+
+
+async def _scrapling_get_json(url: str, label: str) -> dict | None:
+    """Holt JSON via Scrapling. Versucht erst stealth-HTTP, fällt zurück auf
+    Headless-Browser bei Anti-Bot-Block. Pattern adaptiert aus
+    marketplace._fetch_html (wo es seit Monaten produktiv läuft).
+
+    Returns:
+        Dict mit JSON-Daten, oder Dict mit Key "_html" wenn nur HTML kam,
+        oder None bei vollständigem Fehlschlag.
+    """
+    # Tier 1: Plain Fetcher mit stealth-Headers — schnell, kein Browser
+    try:
+        from scrapling import Fetcher
+        fetcher = Fetcher()
+        page = await asyncio.to_thread(
+            fetcher.get, url,
+            stealthy_headers=True, follow_redirects=True, timeout=20,
+        )
+        if page and getattr(page, "status", None) == 200:
+            text = str(page.html_content)
+            try:
+                return json.loads(text)
+            except (json.JSONDecodeError, ValueError):
+                # Body ist HTML statt JSON — wahrscheinlich Anti-Bot-Wall.
+                # In Tier 2 weiter.
+                pass
+    except Exception as e:
+        log.debug("%s: Scrapling-Fetcher Tier1 Fehler: %s", label, e)
+
+    # Tier 2: StealthyFetcher (Chromium-basierter Browser mit Stealth-Mode +
+    # Cloudflare-Bypass). fetch() ist ein @classmethod — direkt auf der Klasse
+    # aufrufen, kein Instance-Setup nötig.
+    try:
+        from scrapling import StealthyFetcher
+        page = await asyncio.to_thread(
+            StealthyFetcher.fetch, url,
+            headless=True,
+            network_idle=True,
+            solve_cloudflare=True,   # DPD/GLS sitzen oft hinter Cloudflare
+            timeout=30000,
+        )
+        if page and getattr(page, "status", None) == 200:
+            text = str(page.html_content)
+            try:
+                return json.loads(text)
+            except (json.JSONDecodeError, ValueError):
+                # Browser-Render lieferte HTML — Caller soll selbst entscheiden
+                # ob er den DOM nach eingebetteten JSON-Blobs durchsucht.
+                return {"_html": text}
+    except Exception as e:
+        log.warning("%s: Scrapling StealthyFetcher Tier2 Fehler: %s", label, e)
+
+    return None
+
+
+def _parse_dpd_response(data: dict) -> dict | None:
+    """Extrahiert Status + Events aus DPD parcellifecycle-Response."""
+    # Struktur typischerweise: {"parcellifecycle": {"statusInfo": [{...}, ...]}}
+    # oder {"parcelLifeCycleData": {"scanInfo": {"scanList": [...]}}}.
+    # Wir akzeptieren beide Formate.
+    lifecycle = (
+        data.get("parcellifecycle")
+        or data.get("parcelLifeCycleData")
+        or {}
+    )
+    status_infos = (
+        lifecycle.get("statusInfo")
+        or (lifecycle.get("scanInfo") or {}).get("scanList")
+        or []
+    )
+    if not status_infos:
+        return None
+
+    events = []
+    raw_status = "in_transit"
+    status_text = ""
+
+    for entry in status_infos:
+        # Verschiedene Feldnamen je nach API-Version
+        code = (
+            entry.get("status")
+            or entry.get("statusCode")
+            or entry.get("scanType", {}).get("code", "")
+            if isinstance(entry.get("scanType"), dict)
+            else entry.get("statusCode", "")
+        )
+        code_str = str(code).upper()
+        text = (
+            entry.get("description", {}).get("content", "")
+            if isinstance(entry.get("description"), dict)
+            else (entry.get("description") or entry.get("statusText") or "")
+        )
+        ts = (
+            entry.get("date")
+            or entry.get("timestamp")
+            or entry.get("scanTimestamp", "")
+        )
+        loc = (
+            entry.get("location", {}).get("city", "")
+            if isinstance(entry.get("location"), dict)
+            else (entry.get("location") or "")
+        )
+
+        events.append({
+            "timestamp": ts,
+            "location": loc,
+            "description": text,
+        })
+
+        # Aktuellster (= erster) Status bestimmt das Mapping
+        if not status_text:
+            mapped = _DPD_STATUS_MAP.get(code_str)
+            if mapped:
+                raw_status = mapped
+            elif "zugestellt" in text.lower() or "delivered" in text.lower():
+                raw_status = "delivered"
+            elif "zustellung" in text.lower() or "out for delivery" in text.lower():
+                raw_status = "out_for_delivery"
+            status_text = text
+
+    return {
+        "source": "dpd_scrapling",
+        "raw_status": raw_status,
+        "status_text": status_text,
+        "events": events,
+    }
+
+
+def _parse_gls_response(data: dict) -> dict | None:
+    """Extrahiert Status + Events aus GLS rstt001-Response."""
+    # GLS-Format: {"tuStatus": [{"history": [...], "progressBar": {"statusInfo": "..."}}]}
+    tu_status = data.get("tuStatus") or []
+    if not tu_status:
+        return None
+
+    tu = tu_status[0]
+    history = tu.get("history") or []
+    progress = tu.get("progressBar") or {}
+    status_info = progress.get("statusInfo") or progress.get("statusText") or ""
+    progress_value = progress.get("statusBar") or progress.get("statusValue")
+
+    events = []
+    for entry in history:
+        events.append({
+            "timestamp": (
+                f"{entry.get('date', '')} {entry.get('time', '')}".strip()
+            ),
+            "location": entry.get("address", {}).get("city", "")
+            if isinstance(entry.get("address"), dict)
+            else (entry.get("location") or ""),
+            "description": entry.get("evtDscr") or entry.get("description") or "",
+        })
+
+    # Status-Heuristik aus statusInfo + numerischem progress
+    raw_status = "in_transit"
+    s_low = status_info.lower()
+    if "delivered" in s_low or "zugestellt" in s_low:
+        raw_status = "delivered"
+    elif "out for delivery" in s_low or "zustellung" in s_low:
+        raw_status = "out_for_delivery"
+    elif "preadvice" in s_low or "angekündigt" in s_low or "data received" in s_low:
+        raw_status = "pending"
+    elif "exception" in s_low or "problem" in s_low:
+        raw_status = "exception"
+    elif "return" in s_low or "rücksendung" in s_low:
+        raw_status = "returned"
+
+    return {
+        "source": "gls_scrapling",
+        "raw_status": raw_status,
+        "status_text": status_info,
+        "events": events,
+        "progress": (
+            f"{progress_value}/5" if progress_value is not None else None
+        ),
+    }
+
+
+async def _query_dpd(
+    tracking_number: str,
+    session: aiohttp.ClientSession | None = None,  # ungenutzt – Scrapling hat eigene Sessions
+) -> dict | None:
+    """Fragt DPD über Scrapling ab (REST-API direkt, Browser-Fallback)."""
+    api_url = (
+        "https://tracking.dpd.de/rest/plc/de_DE/"
+        f"{quote_plus(tracking_number)}"
+    )
+    label = f"DPD {tracking_number}"
+    data = await _scrapling_get_json(api_url, label)
+    if not data or "_html" in data:
+        log.warning("DPD %s: keine JSON-Antwort über Scrapling", tracking_number)
+        return None
+    parsed = _parse_dpd_response(data)
+    if parsed is None:
+        log.warning("DPD %s: Response nicht parsbar — Felder geändert?", tracking_number)
+    return parsed
+
+
+async def _query_gls(
+    tracking_number: str,
+    session: aiohttp.ClientSession | None = None,
+) -> dict | None:
+    """Fragt GLS über Scrapling ab."""
+    api_url = (
+        "https://gls-group.com/app/service/open/rest/DE/de/rstt001"
+        f"?match={quote_plus(tracking_number)}"
+    )
+    label = f"GLS {tracking_number}"
+    data = await _scrapling_get_json(api_url, label)
+    if not data or "_html" in data:
+        log.warning("GLS %s: keine JSON-Antwort über Scrapling", tracking_number)
+        return None
+    parsed = _parse_gls_response(data)
+    if parsed is None:
+        log.warning("GLS %s: Response nicht parsbar — Felder geändert?", tracking_number)
+    return parsed
+
+
 # ── DHL Unified Tracking API ────────────────────────────────────────────────
 
 async def _query_dhl(
@@ -622,7 +867,8 @@ async def track_single(tracking_number: str, carrier: str = "auto") -> dict:
       1. DHL Public XHR (für DHL-Pakete) – kein Auth, echte Events
       2. DHL Unified API (für DHL-Pakete) – falls API-Key konfiguriert, als Backup
       3. Hermes Public XHR (für Hermes-Pakete) – kein Auth, echte Events
-      4. Parcello-Scraping – Zustellfenster + Fallback für unbekannte Carrier
+      4. DPD/GLS via Scrapling (Anti-Bot-Bypass für blockierte Carrier)
+      5. Parcello-Scraping – Zustellfenster + Fallback für unbekannte Carrier
     """
     tn = tracking_number.strip().replace(" ", "")
     if carrier == "auto":
@@ -640,40 +886,40 @@ async def track_single(tracking_number: str, carrier: str = "auto") -> dict:
         "checked_at": datetime.now().isoformat(),
     }
 
+    # Dict-basiertes Slot-Mapping — vermeidet die alte None-Index-Padding-Logik
+    # und macht das Hinzufügen weiterer Carrier trivial.
     async with aiohttp.ClientSession() as session:
-        # Parallelabfrage: carrier-spezifischer XHR + Parcello (für eta_window)
-        tasks = [_query_parcello(tn, session)]
+        slots: dict[str, asyncio.Future | None] = {
+            "parcello": _query_parcello(tn, session),
+        }
         if carrier == "dhl":
-            tasks.append(_query_dhl_public(tn, session=session))
-            tasks.append(_query_dhl(tn, session=session))
-            tasks.append(None)  # placeholder für hermes-slot
+            slots["dhl_public"] = _query_dhl_public(tn, session=session)
+            slots["dhl_api"] = _query_dhl(tn, session=session)
         elif carrier == "hermes":
-            tasks.append(None)
-            tasks.append(None)
-            tasks.append(_query_hermes(tn, session=session))
+            slots["hermes"] = _query_hermes(tn, session=session)
+        elif carrier == "dpd":
+            slots["dpd"] = _query_dpd(tn)
+        elif carrier == "gls":
+            slots["gls"] = _query_gls(tn)
 
-        # None-Platzhalter herausfiltern und parallel ausführen
-        actual_tasks = [t for t in tasks if t is not None]
-        actual_results = await asyncio.gather(*actual_tasks, return_exceptions=True)
-
-        # Wieder in slots zurückmappen
-        results = [None] * 4
-        idx = 0
-        for i, t in enumerate(tasks):
-            if t is not None:
-                results[i] = actual_results[idx]
-                idx += 1
+        keys = list(slots.keys())
+        gathered = await asyncio.gather(
+            *(slots[k] for k in keys), return_exceptions=True
+        )
+        results = dict(zip(keys, gathered))
 
     def _ok(r):
         return r if r and not isinstance(r, Exception) else None
 
-    parcello_result = _ok(results[0])
-    dhl_public_result = _ok(results[1])
-    dhl_api_result = _ok(results[2])
-    hermes_result = _ok(results[3])
+    parcello_result = _ok(results.get("parcello"))
+    dhl_public_result = _ok(results.get("dhl_public"))
+    dhl_api_result = _ok(results.get("dhl_api"))
+    hermes_result = _ok(results.get("hermes"))
+    dpd_result = _ok(results.get("dpd"))
+    gls_result = _ok(results.get("gls"))
 
     # Carrier-spezifische primäre Quelle
-    primary = dhl_public_result or hermes_result
+    primary = dhl_public_result or hermes_result or dpd_result or gls_result
     if primary and primary.get("raw_status"):
         result["status"] = primary["raw_status"]
         result["status_text"] = primary.get("status_text", "")
@@ -957,7 +1203,7 @@ async def _scan_agentmail_inbox() -> list[str]:
     return notifications
 
 
-async def parcel_inbox_import() -> str:
+async def parcel_inbox_import(silent_when_empty: bool = False) -> str:
     """
     Scannt die AgentMail-Inbox einmalig nach neuen Versandbestätigungen und
     fügt gefundene Trackingnummern zur Verfolgung hinzu.
@@ -966,6 +1212,12 @@ async def parcel_inbox_import() -> str:
     abhängig und hat unter Boot-Stress den ganzen Sub-Agent blockiert (sogar
     asyncio.wait_for griff nicht). Status-Updates müssen jederzeit durchlaufen,
     Inbox-Imports sind on-demand vom Nutzer oder über separate Routine.
+
+    Args:
+        silent_when_empty: Wenn True und keine neuen TNs gefunden, Rückgabe
+            des Silent-Tokens "__NO_NEW_RESULTS__" statt freundlichem Text.
+            Wird vom Sub-Agent Inbox_Scan_Pakete genutzt um den Telegram-
+            Channel nicht alle 6h mit "📭 nichts neues" zu spammen.
 
     Tool-Name: parcel_inbox_import
     Beispiel-Aufruf vom Agent: "Scanne meine Mails nach neuen Tracking-Nummern"
@@ -977,9 +1229,16 @@ async def parcel_inbox_import() -> str:
         return f"❌ Inbox-Scan fehlgeschlagen: {e}"
 
     if not notifications:
+        if silent_when_empty:
+            return "__NO_NEW_RESULTS__"
         return "📭 Keine neuen Trackingnummern in der Inbox gefunden."
 
     return "📬 Neue Pakete aus E-Mails:\n\n" + "\n\n".join(notifications)
+
+
+async def parcel_inbox_import_silent() -> str:
+    """Silent-Variante für den Sub-Agent Inbox_Scan_Pakete (kein Spam bei leerer Inbox)."""
+    return await parcel_inbox_import(silent_when_empty=True)
 
 
 async def parcel_monitor_check() -> str:
@@ -1233,12 +1492,17 @@ def build_handlers() -> dict:
     async def _inbox_import(**kw):
         return await parcel_inbox_import()
 
+    async def _inbox_import_silent(**kw):
+        return await parcel_inbox_import_silent()
+
     return {
         "parcel_add": _add,
         "parcel_status": _status,
         "parcel_remove": _remove,
         "parcel_extract": _extract,
         "parcel_inbox_import": _inbox_import,
+        # Nicht in TOOL_DEFS — interner Handler nur für Sub-Agent direct_tool
+        "parcel_inbox_import_silent": _inbox_import_silent,
     }
 
 

@@ -1913,14 +1913,44 @@ class Agent:
                     name="Monitor_Pakete",
                     description="Paket-Tracking: prüft alle aktiven Pakete auf Statusänderungen",
                     mission="Prüft alle aktiven Pakete auf Statusänderungen",
-                    schedule="interval:1800",  # alle 30 Min
+                    schedule="interval:3600",  # alle 60 Min (vorher 30 — Stabilität > Frequenz)
                     tools=["parcel_status"],
                     notify=True,
                     direct_tool="parcel_monitor",
                     created_by="auto-boot",
                 )
                 self.sa_registry.add(_parcel_agent)
-                log.info("Monitor_Pakete Sub-Agent automatisch angelegt (30 Min Intervall)")
+                log.info("Monitor_Pakete Sub-Agent automatisch angelegt (60 Min Intervall)")
+            else:
+                # Migration: bestehende auto-boot-Einträge auf neues 60-Min-Intervall heben.
+                # Manuelle Edits (created_by != auto-boot) bleiben unangetastet.
+                _existing = self.sa_registry.get("Monitor_Pakete")
+                if (
+                    getattr(_existing, "created_by", "") == "auto-boot"
+                    and getattr(_existing, "schedule", "") == "interval:1800"
+                ):
+                    self.sa_registry.update("Monitor_Pakete", schedule="interval:3600")
+                    log.info("Monitor_Pakete: Schedule von 30 → 60 Min migriert")
+
+            # Inbox-Scan-Sub-Agent: scannt AgentMail alle 6h auf neue Tracking-
+            # Nummern aus Versandbestätigungen. Bewusst getrennt vom Monitor —
+            # wenn AgentMail blockiert hängt nur dieser Worker, nicht der
+            # Status-Check der bereits getrackten Pakete (siehe Code-Kommentar
+            # bei parcel_monitor_check).
+            if not self.sa_registry.get("Inbox_Scan_Pakete"):
+                from piclaw.agents.sa_registry import SubAgentDef
+                _inbox_agent = SubAgentDef(
+                    name="Inbox_Scan_Pakete",
+                    description="Scannt AgentMail-Inbox alle 6h auf neue Tracking-Nummern",
+                    mission="Importiert Tracking-Nummern aus neuen Versandbestätigungen",
+                    schedule="interval:21600",  # 6h
+                    tools=["parcel_inbox_import"],
+                    notify=True,  # Push wenn neue Pakete; silent token unterdrückt Spam
+                    direct_tool="parcel_inbox_import_silent",
+                    created_by="auto-boot",
+                )
+                self.sa_registry.add(_inbox_agent)
+                log.info("Inbox_Scan_Pakete Sub-Agent automatisch angelegt (6h Intervall)")
 
             create_background_task(self.sa_runner.start_all_scheduled(), name="sa-boot")
             log.info("Sub-agent scheduler started.")
