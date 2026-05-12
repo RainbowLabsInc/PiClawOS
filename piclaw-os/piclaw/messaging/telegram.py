@@ -55,31 +55,52 @@ class TelegramAdapter(MessagingAdapter):
         if not self._session or self._session.closed:
             self._session = aiohttp.ClientSession()
         # Markdown-Bereinigung: Python **bold** → Telegram *bold*
-        # Und MarkdownV1-Sonderzeichen escapen die Probleme machen
         clean = text.replace("**", "*")
         for chunk in _split(clean, 4096):
+            # Erst: mit Markdown senden. Bei Parse-Fehler (400) merken, dass
+            # ein Fallback ohne parse_mode nötig ist, aber NICHT den Fallback
+            # innerhalb des outer async-with-Blocks aufrufen — der noch offene
+            # Response-Context blockierte den Folge-POST stillschweigend.
+            markdown_failed = False
             try:
                 async with self._session.post(
                     self._url("sendMessage"),
                     json={"chat_id": cid, "text": chunk, "parse_mode": "Markdown"},
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
-                    if resp.status != 200:
-                        body = await resp.text()
-                        log.error("Telegram API Fehler %s: %s (text=%r)", resp.status, body, chunk[:100])
-                        # Fallback: ohne parse_mode nochmal versuchen
-                        async with self._session.post(
-                            self._url("sendMessage"),
-                            json={"chat_id": cid, "text": chunk},
-                            timeout=aiohttp.ClientTimeout(total=10),
-                        ) as resp2:
-                            if resp2.status != 200:
-                                body2 = await resp2.text()
-                                log.error("Telegram Fallback auch fehlgeschlagen: %s: %s", resp2.status, body2)
-                            else:
-                                log.info("Telegram Fallback (kein Markdown) OK")
+                    if resp.status == 200:
+                        continue
+                    body = await resp.text()
+                    log.error(
+                        "Telegram API Fehler %s: %s (text=%r)",
+                        resp.status, body, chunk[:100],
+                    )
+                    markdown_failed = True
             except Exception as e:
-                log.error("Telegram send error: %s", e)
+                log.error("Telegram send error (Markdown): %s", e)
+                markdown_failed = True
+
+            if not markdown_failed:
+                continue
+
+            # Fallback ohne parse_mode — getrennter Request außerhalb des
+            # ersten async-with-Scopes
+            try:
+                async with self._session.post(
+                    self._url("sendMessage"),
+                    json={"chat_id": cid, "text": chunk},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp2:
+                    if resp2.status != 200:
+                        body2 = await resp2.text()
+                        log.error(
+                            "Telegram Fallback auch fehlgeschlagen: %s: %s",
+                            resp2.status, body2,
+                        )
+                    else:
+                        log.info("Telegram Fallback (kein Markdown) OK")
+            except Exception as e:
+                log.error("Telegram send error (Fallback): %s", e)
 
     async def _poll_loop(self, on_message: MessageHandler):
         while not self._stop.is_set():
