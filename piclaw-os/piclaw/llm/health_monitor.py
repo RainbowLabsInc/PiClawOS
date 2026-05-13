@@ -157,6 +157,7 @@ class LLMHealthMonitor:
         self._health: dict[str, BackendHealth] = {}
         self._stop = asyncio.Event()
         self._all_api_down_notified = False  # Nur einmal benachrichtigen
+        self._warned_no_notification_email = False  # AgentMail-Backup: nur 1× warnen
         self._last_discovery_time: float = 0.0  # Unix-Timestamp der letzten Discovery
         self.DISCOVERY_INTERVAL = 86400  # 24h – proaktive Discovery
 
@@ -893,20 +894,29 @@ class LLMHealthMonitor:
         try:
             from piclaw.config import load as _load_cfg
             _cfg = _load_cfg()
-            if _cfg.agentmail.api_key and _cfg.agentmail.inbox_id:
-                from piclaw.tools.agentmail import agentmail_send_email
-                # Markdown-Formatierung entfernen für E-Mail
-                clean_msg = msg.replace("*", "").replace("`", "").replace("_", "")
+            if not (_cfg.agentmail.api_key and _cfg.agentmail.inbox_id):
+                return
+            recipient = _cfg.agentmail.notification_email.strip()
+            if not recipient:
+                if not self._warned_no_notification_email:
+                    log.info(
+                        "AgentMail-Backup übersprungen: notification_email nicht konfiguriert "
+                        "(in config.toml unter [agentmail] setzen, um Health-Mails zu erhalten)"
+                    )
+                    self._warned_no_notification_email = True
+                return
 
-                recipient = _cfg.agentmail.email_address or "admin@localhost"
+            from piclaw.tools.agentmail import agentmail_send_email
+            # Markdown-Formatierung entfernen für E-Mail
+            clean_msg = msg.replace("*", "").replace("`", "").replace("_", "")
 
-                await agentmail_send_email(
-                    cfg=_cfg.agentmail,
-                    inbox_id=_cfg.agentmail.inbox_id,
-                    to=[recipient],  # An sich selbst (ins Archiv) oder Fallback
-                    subject="PiClaw Health Monitor",
-                    text=clean_msg,
-                )
+            await agentmail_send_email(
+                cfg=_cfg.agentmail,
+                inbox_id=_cfg.agentmail.inbox_id,
+                to=[recipient],
+                subject="PiClaw Health Monitor",
+                text=clean_msg,
+            )
         except Exception as _e:
             log.debug("AgentMail backup notify: %s", _e)
 

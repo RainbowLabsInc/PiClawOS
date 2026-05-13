@@ -43,6 +43,17 @@ _DEVICE_INDICATORS_RE = re.compile(
     r"new device|hostname:|vendor:|🔍 neues|mac:|ip: |🚨)"
 )
 
+# Telegram MarkdownV1 Sonderzeichen die in dynamischem Content (Sub-Agent-Namen,
+# Tool-Output, Mail-Subjects, Email-Adressen) escapt werden müssen, sonst öffnet
+# z.B. ein einzelnes "_" in "Inbox_Scan_Pakete" eine italic-Entity die nie
+# geschlossen wird → Telegram 400 "Can't find end of the entity".
+_MD_V1_ESCAPE_RE = re.compile(r"([_*\[\]()~`])")
+
+
+def _escape_md_v1(s: str) -> str:
+    """Escape MarkdownV1 Sonderzeichen für Telegram sendMessage."""
+    return _MD_V1_ESCAPE_RE.sub(r"\\\1", s)
+
 
 class SubAgentRunner:
     """
@@ -322,7 +333,7 @@ class SubAgentRunner:
                           agent.name, int((3600 - (_now - _last_hb)) / 60))
                 return
             setattr(self, _hb_key, _now)
-            hb_msg = (f"🤖 *{agent.name}* [heartbeat]\n"
+            hb_msg = (f"🤖 *{_escape_md_v1(agent.name)}* [heartbeat]\n"
                       "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde.")
             try:
                 await self.notify(hb_msg)
@@ -346,7 +357,10 @@ class SubAgentRunner:
                 try:
                     summary = await self.report_to_main(fallback_prompt)
                     if summary and summary.strip():
-                        await self.notify(f"🤖 *{agent.name}* [status]\n" + summary[:1500])
+                        await self.notify(
+                            f"🤖 *{_escape_md_v1(agent.name)}* [status]\n"
+                            + _escape_md_v1(summary[:1500])
+                        )
                         log.info("Sub-agent '%s': Fallback-Status via Main Agent gesendet", agent.name)
                 except Exception as e:
                     log.warning("Sub-agent '%s': Fallback Fehler: %s", agent.name, e)
@@ -363,7 +377,9 @@ class SubAgentRunner:
 
         else:
             try:
-                await self.notify(f"🤖 *{agent.name}* [{status}]\n" + result[:1500])
+                safe_name = _escape_md_v1(agent.name)
+                safe_result = _escape_md_v1(result[:1500])
+                await self.notify(f"🤖 *{safe_name}* [{status}]\n" + safe_result)
                 log.info("Sub-agent '%s': Telegram-Notify OK (%d Zeichen)", agent.name, len(result))
             except Exception as e:
                 log.error("Sub-agent '%s': Notify FEHLER: %s", agent.name, e)

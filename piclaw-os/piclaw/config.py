@@ -181,8 +181,9 @@ class WhatsAppConfig:
 @dataclass
 class AgentMailConfig:
     api_key: str = ""
-    inbox_id: str = ""      # Primäre Inbox-ID (wird beim Setup oder Create gespeichert)
-    email_address: str = ""  # dameon@agentmail.to
+    inbox_id: str = ""           # Primäre Inbox-ID (wird beim Setup oder Create gespeichert)
+    email_address: str = ""      # dameon@agentmail.to – Absender-Inbox des Agenten
+    notification_email: str = "" # Empfänger für Health/Alert-Mails (echte User-Adresse)
 
 
 @dataclass

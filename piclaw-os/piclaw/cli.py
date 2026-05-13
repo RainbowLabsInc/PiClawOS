@@ -795,6 +795,19 @@ def _setup_agentmail(cfg):
         print(f"\n⚠️ Fehler beim Erstellen der Inbox: {e}")
         print("   API-Key wurde gespeichert – Inbox kann später erstellt werden.")
 
+    # Empfänger-Adresse für Health-Mails (User-Adresse, nicht Agent-Inbox)
+    print()
+    print("Health-Warnungen und Alarme schickt Dameon optional an deine eigene E-Mail.")
+    current_notify = cfg.agentmail.notification_email
+    hint = f" [{current_notify}]" if current_notify else " (Enter zum Überspringen)"
+    notify_addr = input(f"Deine E-Mail-Adresse für Health-Warnungen{hint}: ").strip() or current_notify
+    if notify_addr and "@" in notify_addr and "." in notify_addr.split("@")[-1]:
+        cfg.agentmail.notification_email = notify_addr
+        save(cfg)
+        print(f"   Health-Mails gehen an: {cfg.agentmail.notification_email}")
+    elif notify_addr:
+        print(f"⚠️ Ungültige Adresse '{notify_addr}' – Health-Mail-Backup bleibt deaktiviert.")
+
     print("   Neustart: sudo systemctl restart piclaw-agent piclaw-api\n")
 
 

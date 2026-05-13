@@ -1084,6 +1084,21 @@ def step_agentmail(state: WizardState, step: int, total: int) -> None:
         _warn(f"Fehler: {e}")
         _ok("API-Key gespeichert")
 
+    # Empfänger-Adresse für Health-Mails (User-Adresse, nicht die Agent-Inbox)
+    print()
+    print(f"  {FG_GRAY}Health-Warnungen und Alarme schickt Dameon optional an deine eigene E-Mail.{R}")
+    current_notify = cfg.agentmail.notification_email
+    hint = f" [{current_notify}]" if current_notify else " [leer = aus]"
+    notify_addr = _prompt(f"Deine E-Mail-Adresse fuer Health-Warnungen{hint}") or current_notify
+    if notify_addr and "@" in notify_addr and "." in notify_addr.split("@")[-1]:
+        cfg.agentmail.notification_email = notify_addr.strip()
+        _ok(f"Health-Mails gehen an: {cfg.agentmail.notification_email}")
+    elif notify_addr:
+        _warn(f"Ungueltige Adresse '{notify_addr}' - Health-Mail-Backup bleibt deaktiviert")
+        cfg.agentmail.notification_email = ""
+    else:
+        _ok("Health-Mail-Backup deaktiviert (Telegram bleibt primaere Notify-Quelle)")
+
     state.mark("agentmail konfiguriert")
     state.restart_needed = True
 
