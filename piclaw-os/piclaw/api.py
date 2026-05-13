@@ -52,6 +52,17 @@ async def _agent_message_handler(msg: IncomingMessage) -> str:
 async def lifespan(app: FastAPI):
     global _cfg, _agent, _hub
 
+    # ── Logging: INFO statt Python-Default WARNING ─────────────────
+    # Ohne diesen Aufruf bleibt der Root-Logger auf WARNING (Python-Default)
+    # → INFO-Logs aus piclaw.agents.runner, piclaw.tools.parcel_tracking etc.
+    # erscheinen NICHT in api.log. force=True überschreibt einen evtl. schon
+    # vorher (durch uvicorn/import-side-effects) initialisierten basicConfig.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        force=True,
+    )
+
     # ── Token: generate once, persist in config ────────────────────
     if not _cfg.api.secret_key:
         _cfg.api.secret_key = generate_token()
