@@ -186,6 +186,53 @@ def _save_parcels(data: dict) -> None:
     )
 
 
+def _latest_event_ts(events: list[dict]) -> str:
+    """Größter ISO-Timestamp aus einer Event-Liste (lexikographischer Vergleich
+    funktioniert für ISO-8601). Leer wenn keine Events."""
+    return max((e.get("timestamp", "") for e in events), default="")
+
+
+async def _archive_inbox_message(parcel: dict) -> bool:
+    """Markiert die Versand-Mail eines Pakets in AgentMail mit Label "archived".
+
+    AgentMail hat kein hard-delete für Messages — Label-Update ist der offizielle
+    Weg ([SDK: messages.update]). Bei Erfolg wird inbox_message_id aus dem
+    parcel-Datensatz entfernt damit nicht erneut versucht wird.
+
+    Returns True wenn die Mail wirklich archiviert wurde, False sonst
+    (keine ID, kein API-Key, oder API-Fehler).
+    """
+    msg_id = parcel.get("inbox_message_id")
+    inbox_id = parcel.get("inbox_id")
+    if not msg_id or not inbox_id:
+        return False
+    try:
+        from piclaw.config import load as _load_cfg
+        from agentmail import AsyncAgentMail
+        cfg = _load_cfg()
+        if not cfg.agentmail.api_key:
+            return False
+        client = AsyncAgentMail(api_key=cfg.agentmail.api_key)
+        await client.inboxes.messages.update(
+            inbox_id=inbox_id,
+            message_id=msg_id,
+            add_labels=["archived"],
+        )
+        log.info(
+            "AgentMail-Mail archiviert: %s in %s (Paket %s)",
+            msg_id, inbox_id, parcel.get("tracking_number"),
+        )
+        # ID raus damit Safety-Net-Sub-Agent nicht nochmal versucht
+        parcel.pop("inbox_message_id", None)
+        return True
+    except Exception as e:
+        log.warning(
+            "AgentMail-Archive fehlgeschlagen für %s (msg=%s): %s",
+            parcel.get("tracking_number"), msg_id, e,
+        )
+        return False
+
+
 def _archive_delivered(data: dict, days: int = 7) -> int:
     """Verschiebt zugestellte Pakete nach X Tagen ins Archiv."""
     now = time.time()
@@ -1190,6 +1237,15 @@ async def _scan_agentmail_inbox() -> list[str]:
                     label=label,
                     carrier=item["carrier"],
                 )
+                # Origin-Mail-Referenz mitnehmen für späteren Auto-Archive
+                # nach Zustellung. parcel_add hat parcels.json schon gespeichert,
+                # also frisch laden und nachreichen.
+                if msg_id:
+                    d_after = _load_parcels()
+                    if tn in d_after["parcels"]:
+                        d_after["parcels"][tn]["inbox_message_id"] = msg_id
+                        d_after["parcels"][tn]["inbox_id"] = inbox_id
+                        _save_parcels(d_after)
                 notifications.append(f"📧 {result}")
             except Exception as e:
                 log.warning("Auto-Add für %s fehlgeschlagen: %s", tn, e)
@@ -1241,6 +1297,44 @@ async def parcel_inbox_import_silent() -> str:
     return await parcel_inbox_import(silent_when_empty=True)
 
 
+async def parcel_inbox_cleanup() -> str:
+    """Safety-Net-Routine: archiviert AgentMail-Versand-Mails zugestellter
+    Pakete die noch eine `inbox_message_id` tragen.
+
+    Primärer Cleanup passiert inline in `parcel_monitor_check()` beim
+    Statuswechsel auf delivered — diese Routine fängt Migrations-Lücke
+    (alte Pakete vor Patch D), API-Fehler und Pi-Downtime ab.
+
+    Grace-Period: 3 Tage nach `delivered_at`, damit der User Zeit hat die
+    Mail noch zu sehen falls er will.
+
+    Tool-Name: parcel_inbox_cleanup
+    Wird vom Sub-Agent Inbox_Cleanup_Pakete als direct_tool aufgerufen.
+    """
+    data = _load_parcels()
+    archived = 0
+    grace = 3 * 86400  # 3 Tage
+    now = time.time()
+
+    for tn, p in data["parcels"].items():
+        if p.get("status") != "delivered":
+            continue
+        if not p.get("inbox_message_id"):
+            continue
+        delivered_at = p.get("delivered_at", 0)
+        if now - delivered_at < grace:
+            continue
+        if await _archive_inbox_message(p):
+            archived += 1
+
+    if archived:
+        _save_parcels(data)
+
+    if archived == 0:
+        return "__NO_NEW_RESULTS__"
+    return f"🧹 Inbox-Cleanup: {archived} Versand-Mail(s) archiviert."
+
+
 async def parcel_monitor_check() -> str:
     """
     Prüft alle aktiven Pakete auf Statusänderungen.
@@ -1264,6 +1358,8 @@ async def parcel_monitor_check() -> str:
 
     for tn, p in list(data["parcels"].items()):
         old_status = p.get("status", "unknown")
+        old_status_text = p.get("status_text", "")
+        old_events = p.get("events", [])
 
         try:
             new = await track_single(tn, p.get("carrier", "auto"))
@@ -1272,8 +1368,9 @@ async def parcel_monitor_check() -> str:
             continue
 
         new_status = new.get("status", "unknown")
+        new_events = new.get("events", [])[:5]
 
-        # Status geändert?
+        # Status geändert? (Top-Level: pending/in_transit/out_for_delivery/delivered)
         status_changed = new_status != old_status and new_status != "unknown"
 
         # ETA-Fenster neu/geändert?
@@ -1282,15 +1379,40 @@ async def parcel_monitor_check() -> str:
             new.get("eta_window") != p.get("eta_window")
         )
 
-        if status_changed or eta_changed:
-            # Update speichern
-            p["status"] = new_status
+        # Neue Sendungs-Etappe? DHL bewegt Pakete durch viele Sub-Stationen
+        # innerhalb desselben raw_status (z.B. "Vorbereitung Weitertransport"
+        # bleibt in_transit). Vergleich per neuesten Event-Timestamp.
+        events_changed = (
+            _latest_event_ts(new_events) > _latest_event_ts(old_events)
+            or len(new_events) > len(old_events)
+        )
+
+        # Diagnose-Log: eine Zeile pro Paket pro Check, damit der Pfad
+        # selbst-erklärend wird (vorher war stiller Pfad ohne Spur in Logs)
+        log.info(
+            "parcel_monitor %s: old=%s/%r → new=%s/%r events=%d→%d "
+            "status_changed=%s events_changed=%s eta_changed=%s",
+            tn, old_status, old_status_text,
+            new_status, new.get("status_text", ""),
+            len(old_events), len(new_events),
+            status_changed, events_changed, eta_changed,
+        )
+
+        if status_changed or eta_changed or events_changed:
+            # Persistenz: Events + status_text werden IMMER aktualisiert sobald
+            # sich was bewegt — auch wenn raw_status gleich bleibt. Sonst
+            # zeigt /paket beim User veralteten Stand.
+            if status_changed:
+                p["status"] = new_status
             p["status_text"] = new.get("status_text", "")
             p["eta_window"] = new.get("eta_window")
-            p["events"] = new.get("events", [])[:5]
+            p["events"] = new_events
             p["updated_at"] = time.time()
-            if new_status == "delivered":
+
+            if new_status == "delivered" and old_status != "delivered":
                 p["delivered_at"] = time.time()
+                # Inline-Archive der Versand-Mail in AgentMail (Cleanup)
+                await _archive_inbox_message(p)
 
             changes.append(_format_change_telegram(p, old_status, new_status, eta_changed))
 
@@ -1495,6 +1617,9 @@ def build_handlers() -> dict:
     async def _inbox_import_silent(**kw):
         return await parcel_inbox_import_silent()
 
+    async def _inbox_cleanup(**kw):
+        return await parcel_inbox_cleanup()
+
     return {
         "parcel_add": _add,
         "parcel_status": _status,
@@ -1503,6 +1628,7 @@ def build_handlers() -> dict:
         "parcel_inbox_import": _inbox_import,
         # Nicht in TOOL_DEFS — interner Handler nur für Sub-Agent direct_tool
         "parcel_inbox_import_silent": _inbox_import_silent,
+        "parcel_inbox_cleanup": _inbox_cleanup,
     }
 
 

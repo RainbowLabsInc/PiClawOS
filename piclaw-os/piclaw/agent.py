@@ -1952,6 +1952,24 @@ class Agent:
                 self.sa_registry.add(_inbox_agent)
                 log.info("Inbox_Scan_Pakete Sub-Agent automatisch angelegt (6h Intervall)")
 
+            # Inbox-Cleanup-Sub-Agent: archiviert Versand-Mails zugestellter
+            # Pakete. Safety-Net zusätzlich zum Inline-Archive in
+            # parcel_monitor_check(). Läuft 1×/Tag.
+            if not self.sa_registry.get("Inbox_Cleanup_Pakete"):
+                from piclaw.agents.sa_registry import SubAgentDef
+                _cleanup_agent = SubAgentDef(
+                    name="Inbox_Cleanup_Pakete",
+                    description="Archiviert Versand-Mails zugestellter Pakete (>3 Tage)",
+                    mission="Hält die AgentMail-Inbox sauber",
+                    schedule="interval:86400",  # 1× pro Tag
+                    tools=[],
+                    notify=False,  # Stille Routine; nur Logs
+                    direct_tool="parcel_inbox_cleanup",
+                    created_by="auto-boot",
+                )
+                self.sa_registry.add(_cleanup_agent)
+                log.info("Inbox_Cleanup_Pakete Sub-Agent automatisch angelegt (24h Intervall)")
+
             create_background_task(self.sa_runner.start_all_scheduled(), name="sa-boot")
             log.info("Sub-agent scheduler started.")
         else:
