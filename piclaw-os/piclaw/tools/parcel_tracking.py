@@ -192,19 +192,21 @@ def _latest_event_ts(events: list[dict]) -> str:
     return max((e.get("timestamp", "") for e in events), default="")
 
 
-async def _archive_inbox_message(parcel: dict) -> bool:
-    """Markiert die Versand-Mail eines Pakets in AgentMail mit Label "archived".
+async def _delete_inbox_thread(parcel: dict) -> bool:
+    """Löscht den AgentMail-Thread der Versand-Mail eines Pakets dauerhaft.
 
-    AgentMail hat kein hard-delete für Messages — Label-Update ist der offizielle
-    Weg ([SDK: messages.update]). Bei Erfolg wird inbox_message_id aus dem
-    parcel-Datensatz entfernt damit nicht erneut versucht wird.
+    AgentMail's `messages` haben kein delete — aber `threads.delete(thread_id,
+    permanent=True)` entfernt den ganzen Thread physisch. Versand-Bestätigungen
+    sind in der Praxis Single-Mail-Threads, daher = Mail weg.
 
-    Returns True wenn die Mail wirklich archiviert wurde, False sonst
-    (keine ID, kein API-Key, oder API-Fehler).
+    Bei Erfolg werden inbox_thread_id und inbox_message_id aus dem Paket-
+    Datensatz entfernt damit der Safety-Net-Sub-Agent nicht erneut versucht.
+
+    Returns True wenn der Thread wirklich gelöscht wurde, False sonst
+    (keine thread_id, kein API-Key, oder API-Fehler).
     """
-    msg_id = parcel.get("inbox_message_id")
-    inbox_id = parcel.get("inbox_id")
-    if not msg_id or not inbox_id:
+    thread_id = parcel.get("inbox_thread_id")
+    if not thread_id:
         return False
     try:
         from piclaw.config import load as _load_cfg
@@ -213,22 +215,19 @@ async def _archive_inbox_message(parcel: dict) -> bool:
         if not cfg.agentmail.api_key:
             return False
         client = AsyncAgentMail(api_key=cfg.agentmail.api_key)
-        await client.inboxes.messages.update(
-            inbox_id=inbox_id,
-            message_id=msg_id,
-            add_labels=["archived"],
-        )
+        await client.threads.delete(thread_id=thread_id, permanent=True)
         log.info(
-            "AgentMail-Mail archiviert: %s in %s (Paket %s)",
-            msg_id, inbox_id, parcel.get("tracking_number"),
+            "AgentMail-Thread permanent gelöscht: %s (Paket %s)",
+            thread_id, parcel.get("tracking_number"),
         )
-        # ID raus damit Safety-Net-Sub-Agent nicht nochmal versucht
+        # IDs raus damit nicht erneut versucht wird
+        parcel.pop("inbox_thread_id", None)
         parcel.pop("inbox_message_id", None)
         return True
     except Exception as e:
         log.warning(
-            "AgentMail-Archive fehlgeschlagen für %s (msg=%s): %s",
-            parcel.get("tracking_number"), msg_id, e,
+            "AgentMail-Delete fehlgeschlagen für %s (thread=%s): %s",
+            parcel.get("tracking_number"), thread_id, e,
         )
         return False
 
@@ -1209,6 +1208,7 @@ async def _scan_agentmail_inbox() -> list[str]:
             body = re.sub(r"<[^>]+>", " ", full_msg.extracted_html)
         subject = getattr(full_msg, "subject", "") or getattr(msg, "subject", "") or ""
         from_addr = getattr(full_msg, "from_", "") or ""
+        thread_id = getattr(full_msg, "thread_id", None) or getattr(msg, "thread_id", None)
 
         html_body = getattr(full_msg, "html", None) or ""
         full_text = f"{subject}\n{body}\n{html_body}"
@@ -1237,14 +1237,19 @@ async def _scan_agentmail_inbox() -> list[str]:
                     label=label,
                     carrier=item["carrier"],
                 )
-                # Origin-Mail-Referenz mitnehmen für späteren Auto-Archive
+                # Origin-Mail-Referenz mitnehmen für späteres Auto-Delete
                 # nach Zustellung. parcel_add hat parcels.json schon gespeichert,
-                # also frisch laden und nachreichen.
-                if msg_id:
+                # also frisch laden und nachreichen. thread_id ist für
+                # threads.delete() das eigentliche Schlüssel-Feld;
+                # inbox_message_id/inbox_id bleiben als Debug-Info.
+                if msg_id or thread_id:
                     d_after = _load_parcels()
                     if tn in d_after["parcels"]:
-                        d_after["parcels"][tn]["inbox_message_id"] = msg_id
-                        d_after["parcels"][tn]["inbox_id"] = inbox_id
+                        if msg_id:
+                            d_after["parcels"][tn]["inbox_message_id"] = msg_id
+                            d_after["parcels"][tn]["inbox_id"] = inbox_id
+                        if thread_id:
+                            d_after["parcels"][tn]["inbox_thread_id"] = thread_id
                         _save_parcels(d_after)
                 notifications.append(f"📧 {result}")
             except Exception as e:
@@ -1298,8 +1303,9 @@ async def parcel_inbox_import_silent() -> str:
 
 
 async def parcel_inbox_cleanup() -> str:
-    """Safety-Net-Routine: archiviert AgentMail-Versand-Mails zugestellter
-    Pakete die noch eine `inbox_message_id` tragen.
+    """Safety-Net-Routine: löscht AgentMail-Threads zugestellter Pakete
+    permanent, sobald sie eine `inbox_thread_id` tragen und älter sind
+    als die Grace-Period.
 
     Primärer Cleanup passiert inline in `parcel_monitor_check()` beim
     Statuswechsel auf delivered — diese Routine fängt Migrations-Lücke
@@ -1312,27 +1318,27 @@ async def parcel_inbox_cleanup() -> str:
     Wird vom Sub-Agent Inbox_Cleanup_Pakete als direct_tool aufgerufen.
     """
     data = _load_parcels()
-    archived = 0
+    deleted = 0
     grace = 3 * 86400  # 3 Tage
     now = time.time()
 
     for tn, p in data["parcels"].items():
         if p.get("status") != "delivered":
             continue
-        if not p.get("inbox_message_id"):
+        if not p.get("inbox_thread_id"):
             continue
         delivered_at = p.get("delivered_at", 0)
         if now - delivered_at < grace:
             continue
-        if await _archive_inbox_message(p):
-            archived += 1
+        if await _delete_inbox_thread(p):
+            deleted += 1
 
-    if archived:
+    if deleted:
         _save_parcels(data)
 
-    if archived == 0:
+    if deleted == 0:
         return "__NO_NEW_RESULTS__"
-    return f"🧹 Inbox-Cleanup: {archived} Versand-Mail(s) archiviert."
+    return f"🧹 Inbox-Cleanup: {deleted} Versand-Mail(s) gelöscht."
 
 
 async def parcel_monitor_check() -> str:
@@ -1411,8 +1417,11 @@ async def parcel_monitor_check() -> str:
 
             if new_status == "delivered" and old_status != "delivered":
                 p["delivered_at"] = time.time()
-                # Inline-Archive der Versand-Mail in AgentMail (Cleanup)
-                await _archive_inbox_message(p)
+                # Versand-Mail in AgentMail permanent löschen (Cleanup).
+                # Bei Migration-Lücke (kein thread_id) springt der Safety-Net-
+                # Sub-Agent Inbox_Cleanup_Pakete ein wenn die nächste Mail
+                # die Felder mitbringt — alte Pakete bleiben unangetastet.
+                await _delete_inbox_thread(p)
 
             changes.append(_format_change_telegram(p, old_status, new_status, eta_changed))
 
