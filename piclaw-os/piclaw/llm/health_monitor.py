@@ -41,8 +41,14 @@ _PROVIDER_MODEL_ENDPOINTS = {
     "integrate.api.nvidia.com": "https://integrate.api.nvidia.com/v1/models",
     "api.cerebras.ai":          "https://api.cerebras.ai/v1/models",
     "openrouter.ai":            "https://openrouter.ai/api/v1/models",
+    # Google Gemini ist seit Dez 2024 OpenAI-kompatibel; großzügigstes Free-Tier (1500 RPD)
+    "generativelanguage.googleapis.com": "https://generativelanguage.googleapis.com/v1beta/openai/models",
+    # GitHub Models: OpenAI-kompatibel, Auth via GitHub PAT (models:read scope)
+    "models.github.ai":          "https://models.github.ai/catalog/models",
     # Together.ai: $5 Startguthaben, danach kostenpflichtig → NICHT enthalten
-    # Mistral: Free-Tier limitiert, paid by default → NICHT enthalten
+    # Mistral: nur 2 RPM Free-Tier, zu langsam für Agentic-Loops → NICHT enthalten
+    # xAI Grok: nur Trial-Credits → NICHT enthalten
+    # Cloudflare Workers AI: Account-ID in URL bricht das /v1/models-Pattern → separat
 }
 
 # ── Provider-Signup-URLs für autonome Schlüssel-Suche (v0.16) ──────────────
@@ -51,63 +57,98 @@ _PROVIDER_SIGNUP_URLS = {
     "api.groq.com": (
         "https://console.groq.com/keys",
         "GROQ_API_KEY",
-        "Kostenlos: 30 req/min, 6000 req/Tag für llama-3.3-70b-versatile",
+        "Kostenlos: 30 RPM / 14400 RPD auf llama-3.3-70b-versatile, gpt-oss-120b, qwen3-32b",
     ),
     "integrate.api.nvidia.com": (
         "https://build.nvidia.com",
         "NVIDIA_API_KEY",
-        "Kostenlos: 1000 req/Tag für llama-4-maverick und llama-3.3-70b",
+        "Kostenlos: 1000–5000 Credits/Tag, 100+ Modelle inkl. Nemotron-Ultra-253b, DeepSeek-V3.1",
     ),
     "api.cerebras.ai": (
         "https://cloud.cerebras.ai",
         "CEREBRAS_API_KEY",
-        "Kostenlos: Developer-Tier, 8k req/Tag",
+        "Kostenlos: 1M Tokens/Tag, 30 RPM, ~2600 t/s; Qwen3-235B mit 64K Context auf Free-Tier",
     ),
     "openrouter.ai": (
         "https://openrouter.ai/keys",
         "OPENROUTER_API_KEY",
-        "Kostenlos: Rate-Limit je Modell, einige Modelle permanent kostenlos",
+        "Kostenlos: 20 RPM / 200 RPD auf :free-Modelle (Qwen3-Coder, GLM-4.5, DeepSeek-R1, …)",
+    ),
+    "generativelanguage.googleapis.com": (
+        "https://aistudio.google.com/app/apikey",
+        "GEMINI_API_KEY",
+        "Kostenlos: 15 RPM / 1500 RPD auf Gemini 2.5 Flash, 30 RPM auf Flash-Lite",
+    ),
+    "models.github.ai": (
+        "https://github.com/settings/tokens",
+        "GITHUB_TOKEN",
+        "Kostenlos via GitHub PAT (scope: models:read) – gpt-4o-mini, llama-3.3, phi-4, mistral",
     ),
 }
 
 # Nur Modelle die NACHWEISLICH KOSTENLOS sind (Free-Tier)
 # Wird von Auto-Discovery und Auto-Repair als Whitelist verwendet
-# Letzte Aktualisierung: April 2026
+# Letzte Aktualisierung: Mai 2026
 _FREE_TIER_MODELS = {
     "api.groq.com": [
-        # Groq Free Tier: Rate-Limits, aber keine Kosten
+        # Groq Free Tier: 30 RPM / 14400 RPD
         "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
         "meta-llama/llama-4-scout-17b-16e-instruct",
+        "meta-llama/llama-4-maverick-17b-128e-instruct",
         "qwen/qwen3-32b",
+        "moonshotai/kimi-k2-instruct",
         "llama-3.3-70b-versatile",
-        "llama-3.3-70b-specdec",
-        "llama-3.1-70b-versatile",
         "llama-3.1-8b-instant",
         "gemma2-9b-it",
-        "kimi-k2-instruct",
     ],
     "integrate.api.nvidia.com": [
-        # NVIDIA NIM: Free-Tier mit 1000 Requests/Tag
+        # NVIDIA NIM: 1000–5000 Credits/Tag
         "meta/llama-4-maverick-17b-128e-instruct",
         "meta/llama-4-scout-17b-16e-instruct",
         "meta/llama-3.3-70b-instruct",
-        "meta/llama-3.1-70b-instruct",
-        "mistralai/mixtral-8x7b-instruct-v0.1",
+        "nvidia/llama-3.3-nemotron-super-49b-v1",
+        "nvidia/llama-3_1-nemotron-ultra-253b-v1",
         "deepseek-ai/deepseek-r1",
+        "deepseek-ai/deepseek-v3.1",
+        "qwen/qwen3-coder-480b-a35b-instruct",
+        "mistralai/mixtral-8x7b-instruct-v0.1",
     ],
     "api.cerebras.ai": [
-        # Cerebras: Kostenloser Developer-Tier, extrem schnell
+        # Cerebras: 1M Tokens/Tag, 30 RPM, ~2600 t/s
         "llama-3.3-70b",
         "llama-3.1-8b",
         "llama-4-scout-17b-16e",
+        "qwen-3-32b",
+        "qwen-3-235b-a22b-instruct-2507",
+        "gpt-oss-120b",
     ],
     "openrouter.ai": [
-        # OpenRouter: Einige Modelle permanent kostenlos
+        # OpenRouter: 20 RPM / 200 RPD auf :free
         "meta-llama/llama-3.3-70b-instruct:free",
-        "microsoft/phi-3-medium-128k-instruct:free",
-        "google/gemma-2-9b-it:free",
-        "mistralai/mistral-7b-instruct:free",
+        "qwen/qwen3-coder:free",
+        "nvidia/llama-3.3-nemotron-super-49b-v1:free",
+        "deepseek/deepseek-chat-v3.1:free",
         "deepseek/deepseek-r1:free",
+        "z-ai/glm-4.5-air:free",
+        "google/gemma-3-27b-it:free",
+        "mistralai/mistral-small-3.2-24b-instruct:free",
+    ],
+    "generativelanguage.googleapis.com": [
+        # Google Gemini Free Tier: 15 RPM / 1500 RPD auf Flash, 30 RPM auf Flash-Lite
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-3-flash",
+        "gemini-3.1-flash-lite",
+    ],
+    "models.github.ai": [
+        # GitHub Models: niedrige RPD aber breite Modell-Auswahl
+        "openai/gpt-4o-mini",
+        "openai/gpt-4.1-mini",
+        "meta/llama-3.3-70b-instruct",
+        "microsoft/phi-4",
+        "mistral-ai/mistral-small-2503",
+        "cohere/cohere-command-r-08-2024",
     ],
 }
 
@@ -479,6 +520,9 @@ class LLMHealthMonitor:
             "api.together.xyz": "together",
             "api.cerebras.ai": "cerebras",
             "api.mistral.ai": "mistral",
+            "openrouter.ai": "openrouter",
+            "generativelanguage.googleapis.com": "gemini",
+            "models.github.ai": "github",
         }.get(host, host.split(".")[0])
 
         model_short = model.split("/")[-1][:20]  # Letzter Teil, max 20 Zeichen
@@ -499,19 +543,37 @@ class LLMHealthMonitor:
             "host": "api.groq.com",
             "name": "Groq",
             "signup": "https://console.groq.com",
-            "free_tier": "100k Tokens/Tag, 30 RPM – dauerhaft kostenlos",
+            "free_tier": "30 RPM / 14400 RPD – dauerhaft kostenlos",
         },
         "nvidia": {
             "host": "integrate.api.nvidia.com",
             "name": "NVIDIA NIM",
             "signup": "https://build.nvidia.com",
-            "free_tier": "1000 Requests/Tag – dauerhaft kostenlos",
+            "free_tier": "1000–5000 Credits/Tag – dauerhaft kostenlos",
         },
         "cerebras": {
             "host": "api.cerebras.ai",
             "name": "Cerebras",
             "signup": "https://cloud.cerebras.ai",
-            "free_tier": "Llama 3.3 70B, extrem schnell – dauerhaft kostenlos",
+            "free_tier": "1M Tokens/Tag, 30 RPM, ~2600 t/s – dauerhaft kostenlos",
+        },
+        "openrouter": {
+            "host": "openrouter.ai",
+            "name": "OpenRouter",
+            "signup": "https://openrouter.ai/keys",
+            "free_tier": "20 RPM / 200 RPD auf :free-Modelle – dauerhaft kostenlos",
+        },
+        "gemini": {
+            "host": "generativelanguage.googleapis.com",
+            "name": "Google Gemini",
+            "signup": "https://aistudio.google.com/app/apikey",
+            "free_tier": "15 RPM / 1500 RPD auf Gemini 2.5 Flash – großzügigstes Free-Tier am Markt",
+        },
+        "github": {
+            "host": "models.github.ai",
+            "name": "GitHub Models",
+            "signup": "https://github.com/settings/tokens (scope: models:read)",
+            "free_tier": "Niedrige RPD, aber gpt-4o-mini, llama-3.3, phi-4, mistral verfügbar",
         },
     }
 

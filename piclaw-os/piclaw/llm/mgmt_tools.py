@@ -292,6 +292,8 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
                 "integrate.api.nvidia.com": "NVIDIA NIM",
                 "api.cerebras.ai": "Cerebras",
                 "openrouter.ai": "OpenRouter",
+                "generativelanguage.googleapis.com": "Google Gemini",
+                "models.github.ai": "GitHub Models",
             }.get(host, host)
 
             lines.append(f"📡 **{host_short}** (Key vorhanden)")
@@ -355,6 +357,8 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
                                     "integrate.api.nvidia.com": "nvidia",
                                     "api.cerebras.ai": "cerebras",
                                     "openrouter.ai": "openrouter",
+                                    "generativelanguage.googleapis.com": "gemini",
+                                    "models.github.ai": "github",
                                 }.get(host, host.split(".")[0])
                                 m_short = model.split("/")[-1][:20]
                                 new_name = f"auto-{p_short}-{m_short}"
@@ -403,6 +407,8 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
                 "integrate.api.nvidia.com": "NVIDIA NIM",
                 "api.cerebras.ai": "Cerebras",
                 "openrouter.ai": "OpenRouter",
+                "generativelanguage.googleapis.com": "Google Gemini",
+                "models.github.ai": "GitHub Models",
             }.get(host, host)
 
             free_models = _FREE_TIER_MODELS.get(host, [])
