@@ -4,8 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "piclaw"
-version = "0.16.0"
+version = "0.17.1"
 description = "PiClaw – AI Operating System for Raspberry Pi 5"
+license = { text = "MIT" }
+authors = [{ name = "Patrick Völk" }]
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.9",
