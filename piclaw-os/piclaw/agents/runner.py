@@ -55,6 +55,21 @@ def _escape_md_v1(s: str) -> str:
     return _MD_V1_ESCAPE_RE.sub(r"\\\1", s)
 
 
+def _display_name(name: str) -> str:
+    """Subagent-Namen für Anzeige aufhübschen: Unterstriche → Leerzeichen.
+    Der Name in subagents.json bleibt unverändert."""
+    return name.replace("_", " ")
+
+
+# Direct-Tools, deren Output bereits Markdown-formatiert ist und NICHT
+# erneut durch _escape_md_v1 gejagt werden darf (sonst werden Bold/Italic/Links
+# als Klartext mit sichtbaren Sonderzeichen gerendert).
+_PREFORMATTED_DIRECT_TOOLS: frozenset[str] = frozenset({
+    "marketplace_monitor",
+    "parcel_monitor",
+})
+
+
 class SubAgentRunner:
     """
     Manages the lifecycle of all dynamic sub-agents.
@@ -333,7 +348,7 @@ class SubAgentRunner:
                           agent.name, int((3600 - (_now - _last_hb)) / 60))
                 return
             setattr(self, _hb_key, _now)
-            hb_msg = (f"🤖 *{_escape_md_v1(agent.name)}* [heartbeat]\n"
+            hb_msg = (f"🤖 *{_escape_md_v1(_display_name(agent.name))}* [heartbeat]\n"
                       "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde.")
             try:
                 await self.notify(hb_msg)
@@ -358,7 +373,7 @@ class SubAgentRunner:
                     summary = await self.report_to_main(fallback_prompt)
                     if summary and summary.strip():
                         await self.notify(
-                            f"🤖 *{_escape_md_v1(agent.name)}* [status]\n"
+                            f"🤖 *{_escape_md_v1(_display_name(agent.name))}* [status]\n"
                             + _escape_md_v1(summary[:1500])
                         )
                         log.info("Sub-agent '%s': Fallback-Status via Main Agent gesendet", agent.name)
@@ -377,9 +392,15 @@ class SubAgentRunner:
 
         else:
             try:
-                safe_name = _escape_md_v1(agent.name)
-                safe_result = _escape_md_v1(result[:1500])
-                await self.notify(f"🤖 *{safe_name}* [{status}]\n" + safe_result)
+                safe_name = _escape_md_v1(_display_name(agent.name))
+                if agent.direct_tool in _PREFORMATTED_DIRECT_TOOLS:
+                    # Output ist bereits sauberer Markdown (Bold, Italic, Links) –
+                    # nicht nochmal escapen, sonst werden die Sonderzeichen als
+                    # Klartext gerendert.
+                    body = result[:1500]
+                else:
+                    body = _escape_md_v1(result[:1500])
+                await self.notify(f"🤖 *{safe_name}* [{status}]\n" + body)
                 log.info("Sub-agent '%s': Telegram-Notify OK (%d Zeichen)", agent.name, len(result))
             except Exception as e:
                 log.error("Sub-agent '%s': Notify FEHLER: %s", agent.name, e)

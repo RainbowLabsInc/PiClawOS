@@ -1924,10 +1924,13 @@ def _telegram_url(url: str) -> str:
 def format_results_telegram(results: dict) -> str:
     """Formatiert Ergebnisse als Telegram-Markdown-Nachricht."""
     new = results.get("new", [])
+    # Query kann Unterstriche/Sterne/Klammern enthalten (z.B. 'Makita_Akku') und
+    # würde sonst das Markdown-Parsing brechen.
+    safe_query = _escape_md_title(results.get("query", ""), 200)
     if not new:
-        return f"🔍 Keine neuen Inserate für *{results.get('query', '')}*."
+        return f"🔍 Keine neuen Inserate für *{safe_query}*."
 
-    lines = [f"🛒 *{len(new)} neue Inserate* für _{results['query']}_\n"]
+    lines = [f"🛒 *{len(new)} neue Inserate* für _{safe_query}_\n"]
     if results.get("max_price"):
         lines[0] += f"(max. {results['max_price']:.0f} €)"
 
