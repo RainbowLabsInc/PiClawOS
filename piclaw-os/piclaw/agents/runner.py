@@ -510,6 +510,7 @@ class SubAgentRunner:
         ]
 
         final_reply = "(no output)"
+        tool_sequence: list[str] = []
 
         for step in range(agent.max_steps):
             try:
@@ -525,6 +526,7 @@ class SubAgentRunner:
 
             for call in response.tool_calls:
                 log.debug("  [%s] tool: %s", agent.name, call.name)
+                tool_sequence.append(call.name)
                 result = await self._dispatch(call)
                 messages.append(
                     Message(
@@ -535,7 +537,14 @@ class SubAgentRunner:
                     )
                 )
         else:
-            final_reply = f"⚠️ Sub-Agent hat maximale Schritte ({agent.max_steps}) erreicht."
+            log.warning(
+                "Sub-Agent '%s' hat max_steps=%d erreicht. Tool-Sequenz (%d Calls): %s",
+                agent.name, agent.max_steps, len(tool_sequence), tool_sequence,
+            )
+            final_reply = (
+                f"⚠️ Sub-Agent '{agent.name}' hat maximale Schritte "
+                f"({agent.max_steps}) erreicht."
+            )
 
         return final_reply
 
