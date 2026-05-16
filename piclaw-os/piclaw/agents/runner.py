@@ -35,6 +35,12 @@ from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.agents.runner")
 
+
+class MaxStepsExceeded(RuntimeError):
+    """Raised when an agentic loop reaches agent.max_steps without producing a
+    final answer. Treated as an error status by _execute (not 'ok')."""
+
+
 # Short sleep between continuous agent cycles (seconds)
 CONTINUOUS_SLEEP = 10
 
@@ -295,6 +301,9 @@ class SubAgentRunner:
             result = f"Sub-agent '{agent.name}' timed out after {agent.timeout}s."
             status = "timeout"
             log.warning(result)
+        except MaxStepsExceeded as e:
+            result = str(e)
+            status = "error"
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -562,7 +571,7 @@ class SubAgentRunner:
                 "Sub-Agent '%s' hat max_steps=%d erreicht. Tool-Sequenz (%d Calls): %s",
                 agent.name, agent.max_steps, len(tool_sequence), tool_sequence,
             )
-            final_reply = (
+            raise MaxStepsExceeded(
                 f"⚠️ Sub-Agent '{agent.name}' hat maximale Schritte "
                 f"({agent.max_steps}) erreicht."
             )
