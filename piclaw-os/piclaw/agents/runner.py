@@ -41,6 +41,11 @@ class MaxStepsExceeded(RuntimeError):
     final answer. Treated as an error status by _execute (not 'ok')."""
 
 
+class LLMCallFailed(RuntimeError):
+    """Raised when the LLM call inside the agentic loop fails (auth, rate-limit,
+    network, server error). Treated as an error status by _execute (not 'ok')."""
+
+
 # Short sleep between continuous agent cycles (seconds)
 CONTINUOUS_SLEEP = 10
 
@@ -304,6 +309,10 @@ class SubAgentRunner:
         except MaxStepsExceeded as e:
             result = str(e)
             status = "error"
+        except LLMCallFailed as e:
+            result = str(e)
+            status = "error"
+            log.error("Sub-agent '%s' LLM error: %s", agent.name, e)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -546,7 +555,9 @@ class SubAgentRunner:
             try:
                 response = await self.llm.chat(messages, tools=allowed_tools)
             except Exception as e:
-                return f"LLM error in sub-agent: {e}"
+                raise LLMCallFailed(
+                    f"LLM error in sub-agent '{agent.name}' step {step}: {e}"
+                ) from e
 
             messages.append(Message(role="assistant", content=response.content or ""))
 
