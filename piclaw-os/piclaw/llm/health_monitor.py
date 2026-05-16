@@ -664,6 +664,9 @@ class LLMHealthMonitor:
         repaired = []
         deactivated = []
         recovered = []
+        # Auto-Cleanup soll NUR triggern, wenn ein "echtes" Original-Backend recovered —
+        # nicht wenn ein auto-* Backend selbst recovered (das löscht es sonst selbst).
+        non_auto_recovered = False
 
         for backend in backends:
             h = self._health.setdefault(backend.name, BackendHealth(name=backend.name))
@@ -679,6 +682,8 @@ class LLMHealthMonitor:
                     recovered.append(
                         f"✅ `{backend.name}`: Rate-Limit abgelaufen – wiederhergestellt (Prio {h.original_priority})"
                     )
+                    if not backend.name.startswith("auto-"):
+                        non_auto_recovered = True
                 h.rate_limited_until = 0.0
                 h.original_priority = None
                 h.is_tpd_limited = False
@@ -708,6 +713,8 @@ class LLMHealthMonitor:
                     log.info("Backend '%s': wieder gesund nach %d Fehlern",
                              backend.name, h.consecutive_failures)
                     recovered.append(f"✅ `{backend.name}`: wieder erreichbar")
+                    if not backend.name.startswith("auto-"):
+                        non_auto_recovered = True
                 h.consecutive_failures = 0
                 h.last_error = ""
                 continue
@@ -744,8 +751,10 @@ class LLMHealthMonitor:
             await self._safe_notify(msg)
 
         # ── Auto-Discovery Cleanup ─────────────────────────────────
-        # Wenn Original-Backends wieder gesund sind, auto-discovered entfernen
-        if recovered:
+        # Wenn Original-Backends wieder gesund sind, auto-discovered entfernen.
+        # WICHTIG: nur triggern, wenn ein NICHT-auto-* Backend recovered ist.
+        # Sonst löscht ein recoverender auto-* sich selbst (Bug A3).
+        if non_auto_recovered:
             auto_backends = [
                 b for b in backends
                 if b.name.startswith("auto-") and "auto-discovered" in b.tags
@@ -1061,8 +1070,13 @@ def _status_file_path():
 
 
 def write_status_file(monitor: "LLMHealthMonitor") -> None:
-    """Schreibt aktuellen Monitor-Status in Datei (für API-Prozess lesbar)."""
+    """Schreibt aktuellen Monitor-Status in Datei (für API-Prozess lesbar).
+
+    Atomarer Write: erst in <name>.tmp schreiben, dann os.replace().
+    Verhindert korrupte JSON bei Crash mitten im Write.
+    """
     import json
+    import os
     import time as _time
     try:
         status = {
@@ -1071,9 +1085,11 @@ def write_status_file(monitor: "LLMHealthMonitor") -> None:
             "backends": monitor.status_dict(),
         }
         p = _status_file_path()
-        p.write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        tmp.write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, p)
     except Exception as _e:
-        log.debug("write_status_file: %s", _e)
+        log.warning("write_status_file failed: %s", _e)
 
 
 def read_status_file() -> dict:
