@@ -293,8 +293,8 @@ class MultiLLMRouter(LLMBackend):
                 )
                 candidates = cloud_first
         except Exception as _e:
-            log.debug(
-                "thermal routing check: %s", _e
+            log.warning(
+                "thermal routing check failed: %s", _e
             )  # thermal module not available – proceed normally
         # ────────────────────────────────────────────────────────────────────
 
@@ -478,7 +478,8 @@ class MultiLLMRouter(LLMBackend):
                 elif event == "error":
                     monitor.report_error(backend_name, error_code, error_msg)
         except Exception as _e:
-            log.debug("Health monitor report: %s", _e)
+            log.warning("Health monitor report for '%s' (event=%s) failed: %s",
+                        backend_name, event, _e)
 
     def _get_monitor_health(self, backend_name: str) -> dict | None:
         """Fragt den Health Monitor nach dem Status eines Backends."""
@@ -488,8 +489,8 @@ class MultiLLMRouter(LLMBackend):
             if monitor:
                 status = monitor.status_dict()
                 return status.get(backend_name)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("_get_monitor_health for '%s' failed: %s", backend_name, _e)
         return None
 
     async def stream_chat(
