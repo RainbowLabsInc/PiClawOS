@@ -1,39 +1,41 @@
 """
 PiClaw OS – API Authentication
-Single static Bearer token for the REST API and WebSocket.
+==============================
+Pro-User-Bearer-Token mit Migrations-Fallback auf den Legacy-Single-Token.
 
-Design:
-  - One token per installation, auto-generated on first boot.
-  - Stored in /etc/piclaw/config.toml under [api] secret_key.
-  - Token is shown via `piclaw config get` and embedded in the web UI
-    (injected into the HTML by the `/` route, since the server already
-    knows it).
-  - Webhooks (/webhook/*) are exempt – they use their own signature
-    verification (HMAC for WhatsApp, Threema's own scheme).
-  - /api/health is exempt for monitoring scripts.
-  - Rate limiting: 10 failed attempts per IP → 15 min lockout.
+Design seit Multi-User (v0.18):
+  - Jeder User in piclaw.users hat seinen eigenen web_token (Pro-User-Auth).
+  - require_auth() liefert das `User`-Objekt – nicht mehr nur den Token-String.
+  - Solange users.json keinen aktiven User enthält, fällt require_auth auf den
+    Legacy-Token (`config.toml[api].secret_key`) zurück und liefert einen
+    synthetischen "legacy-admin"-User. Das überbrückt die Migration.
+  - Sobald ein echter Admin im Registry existiert, wird der Legacy-Token
+    abgelehnt – Single-User-Mode ist dann formal vorbei.
 
-Usage:
-  from piclaw.auth import require_auth, generate_token, get_token
+Webhooks (/webhook/*) sind weiterhin exempt (eigene Signaturen).
+/health und / sind weiterhin exempt.
 
-  @app.get("/api/something")
-  async def endpoint(token: str = Depends(require_auth)):
-      ...
+Rate-Limiting: 10 Fehlversuche pro IP → 15 Min Lockout. Unverändert.
+
+Migration siehe scripts/migrate_to_multiuser.py (Phase 6 im Multi-User-Plan).
 """
 
 import secrets
 import logging
 import time
 from collections import defaultdict
-from fastapi import HTTPException, Security, Query, Request
+from fastapi import HTTPException, Security, Query, Request, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+from piclaw import users as users_mod
+from piclaw.users import User
 
 log = logging.getLogger("piclaw.auth")
 
 _security = HTTPBearer(auto_error=False)
 
-# Module-level token cache – set once by lifespan, read by all requests.
-_token: str = ""
+# Module-level Legacy-Token-Cache – set once by lifespan, read by Legacy-Fallback.
+_legacy_token: str = ""
 
 # ── Rate Limiting ─────────────────────────────────────────────────
 
@@ -87,15 +89,18 @@ def _rate_limit_success(client_ip: str) -> None:
     _lockout_until.pop(client_ip, None)
 
 
-def set_token(token: str):
-    """Called by lifespan after loading/generating the token."""
-    global _token
-    _token = token
+# ── Legacy-Token (Single-User-Mode, vor Migration) ────────────────
+
+
+def set_token(token: str) -> None:
+    """Legacy: vom Lifespan in api.py aufgerufen. Hält den Single-User-Token."""
+    global _legacy_token
+    _legacy_token = token
 
 
 def get_token() -> str:
-    """Return the current API token."""
-    return _token
+    """Legacy: HTML-Injection in api.py:121. Phase 5 ersetzt das durch Login."""
+    return _legacy_token
 
 
 def generate_token() -> str:
@@ -103,11 +108,50 @@ def generate_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def verify(candidate: str) -> bool:
-    """Constant-time comparison to prevent timing attacks."""
-    if not _token or not candidate:
+def _verify_legacy(candidate: str) -> bool:
+    """Constant-time comparison gegen den Legacy-Token. Backwards-compat."""
+    if not _legacy_token or not candidate:
         return False
-    return secrets.compare_digest(_token, candidate)
+    return secrets.compare_digest(_legacy_token, candidate)
+
+
+def _legacy_admin_user() -> User:
+    """Synthetischer User für Legacy-Token-Mode (vor Migration). Nicht persistiert."""
+    return User(
+        id="legacy-admin",
+        name="Legacy Admin",
+        telegram_chat_id="",
+        role="admin",
+        web_token=_legacy_token,
+        created_at="",
+    )
+
+
+# Backwards-compat alias – einige Aufrufer nutzten `verify(...)`. Wird nur noch
+# vom Legacy-Pfad benötigt; neue Aufrufer sollen users.find_by_token() nutzen.
+verify = _verify_legacy
+
+
+# ── Auth-Resolution ───────────────────────────────────────────────
+
+
+def _resolve_user(candidate: str | None) -> User | None:
+    """
+    Token → User. Reihenfolge:
+      1. Echter User aus users.json (Pro-User-Token)
+      2. Legacy-Fallback NUR wenn noch kein aktiver User registriert ist
+         (Migration noch nicht gelaufen).
+    """
+    if not candidate:
+        return None
+    user = users_mod.find_by_token(candidate)
+    if user is not None:
+        return user
+    # Legacy-Fallback: nur solange das System noch im Single-User-Mode ist
+    registry = users_mod.registry()
+    if not registry.active() and _verify_legacy(candidate):
+        return _legacy_admin_user()
+    return None
 
 
 # ── FastAPI dependencies ──────────────────────────────────────────
@@ -117,25 +161,26 @@ async def require_auth(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Security(_security),
     token_param: str | None = Query(default=None, alias="token"),
-) -> str:
+) -> User:
     """
     Dependency for REST endpoints.
     Accepts token via:
       - Authorization: Bearer <token>  header
       - ?token=<token>                 query parameter (for WebSocket)
     Rate-limits failed attempts per IP (10 fails → 15 min lockout).
+    Returns: das authentifizierte User-Objekt.
     """
     client_ip = request.client.host if request.client else "unknown"
     _rate_limit_check(client_ip)
 
-    candidate = None
-
+    candidate: str | None = None
     if credentials and credentials.scheme.lower() == "bearer":
         candidate = credentials.credentials
     elif token_param:
         candidate = token_param
 
-    if not candidate or not verify(candidate):
+    user = _resolve_user(candidate)
+    if user is None:
         _rate_limit_fail(client_ip)
         log.warning("Rejected API request from %s – invalid or missing token.", client_ip)
         raise HTTPException(
@@ -145,14 +190,29 @@ async def require_auth(
         )
 
     _rate_limit_success(client_ip)
-    return candidate
+    # last_seen pflegen — nur für echte Registry-User, nicht für legacy-admin
+    if user.id != "legacy-admin":
+        users_mod.registry().mark_seen(user.id)
+    return user
 
 
-async def require_auth_ws(token: str | None = Query(default=None)) -> str:
+async def require_admin(user: User = Depends(require_auth)) -> User:
+    """Dependency: erlaubt nur User mit role=admin."""
+    if not user.is_admin:
+        log.warning("Admin-Endpoint von Non-Admin '%s' (id=%s) abgewiesen.",
+                    user.name, user.id)
+        raise HTTPException(status_code=403, detail="Forbidden – admin only.")
+    return user
+
+
+async def require_auth_ws(token: str | None = Query(default=None)) -> User:
     """
     Dependency for WebSocket endpoints.
     Client must connect with: ws://host:port/ws/chat?token=<token>
     """
-    if not token or not verify(token):
+    user = _resolve_user(token)
+    if user is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    return token
+    if user.id != "legacy-admin":
+        users_mod.registry().mark_seen(user.id)
+    return user

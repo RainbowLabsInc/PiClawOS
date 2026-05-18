@@ -632,7 +632,50 @@ def _setup_telegram(cfg):
     cfg.telegram.chat_id = chat_id
     save(cfg)
     print("\n✅ Telegram konfiguriert.")
-    print("   Neustart: sudo systemctl restart piclaw-api\n")
+    _offer_bootstrap_admin(cfg, chat_id)
+    print("\n   Neustart: sudo systemctl restart piclaw-api\n")
+
+
+def _offer_bootstrap_admin(cfg, chat_id: str) -> None:
+    """
+    Multi-User: bietet an, die Telegram-chat_id direkt als Admin zu bootstrappen.
+    Idempotent: wenn bereits ein Admin existiert, wird nichts gemacht.
+    """
+    from piclaw.users import registry as users_registry
+    from piclaw.auth import generate_token
+    from piclaw.config import save
+
+    reg = users_registry()
+    if reg.has_admin():
+        return  # Schon ein Admin da — nichts zu tun
+
+    print()
+    print("Möchtest du den Telegram-User mit dieser chat_id direkt als Admin")
+    print("registrieren? (Spart das spätere /start im Bot.)")
+    yn = input("[J/n]: ").strip().lower()
+    if yn and yn[0] == "n":
+        print("Übersprungen — du kannst dich auch via /start am Bot anmelden.")
+        return
+
+    name = input("Anzeigename für den Admin [admin]: ").strip() or "admin"
+
+    # Sicherstellen dass ein Token existiert — entweder bestehender oder neuer
+    if not cfg.api.secret_key:
+        cfg.api.secret_key = generate_token()
+        save(cfg)
+
+    try:
+        user = reg.bootstrap_admin(
+            name=name,
+            telegram_chat_id=chat_id,
+            web_token=cfg.api.secret_key,
+        )
+    except RuntimeError as e:
+        print(f"  ⚠️  Bootstrap übersprungen: {e}")
+        return
+
+    print(f"  ✅ Admin '{user.name}' angelegt.")
+    print(f"     Vollständigen Web-Token sehen mit: piclaw user token {user.name}")
 
 
 def _setup_discord(cfg):
@@ -1357,6 +1400,9 @@ def main():
         cmd_secrets(args[1:])
     elif cmd == "debug":
         cmd_debug(args[1:])
+    elif cmd == "user":
+        from piclaw.cli_users import cmd_user
+        sys.exit(cmd_user(args[1:]))
     elif cmd in ("help", "-h", "--help"):
         print(BANNER + HELP)
     else:

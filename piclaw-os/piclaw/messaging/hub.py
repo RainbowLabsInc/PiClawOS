@@ -32,6 +32,7 @@ class IncomingMessage:
     sender_id: str  # platform-specific user/chat ID
     text: str
     raw: dict = None  # original payload for advanced use
+    user_id: str | None = None  # piclaw User.id, gesetzt sobald via Registry aufgelöst
 
 
 MessageHandler = Callable[[IncomingMessage], Awaitable[str]]
