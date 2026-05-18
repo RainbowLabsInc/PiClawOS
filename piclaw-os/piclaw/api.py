@@ -44,10 +44,12 @@ _hub                 = None   # MessagingHub
 
 
 async def _agent_message_handler(msg: IncomingMessage) -> str:
-    """Route incoming message from any platform to the agent."""
+    """Route incoming message from any platform to the agent.
+    msg.user_id wird an Agent.run gegeben → setzt ContextVar für Tool-Handler.
+    """
     if not _agent:
         return "Agent not ready yet."
-    return await _agent.run(msg.text)
+    return await _agent.run(msg.text, user_id=msg.user_id)
 
 
 @asynccontextmanager

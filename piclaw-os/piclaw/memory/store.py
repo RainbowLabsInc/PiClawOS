@@ -23,20 +23,45 @@ MEMORY_ROOT = CONFIG_DIR / "memory"
 MEMORY_MAIN = MEMORY_ROOT / "MEMORY.md"
 DAILY_DIR = MEMORY_ROOT / "memory"
 SESSIONS_DIR = MEMORY_ROOT / "sessions"
-WORKSPACE_DIR = MEMORY_ROOT / "workspace"
+WORKSPACE_DIR = MEMORY_ROOT / "workspace"   # WORKSPACE bleibt global (geteilt)
 CONTEXT_FILE = MEMORY_ROOT / "context.md"
 
 
-def ensure_dirs():
-    for d in [MEMORY_ROOT, DAILY_DIR, SESSIONS_DIR, WORKSPACE_DIR]:
-        d.mkdir(parents=True, exist_ok=True)
+def _resolve_user_id(user_id: str | None) -> str | None:
+    """Wenn user_id explizit None ist, ContextVar nachschlagen.
+    Bleibt None: globale Pfade (Legacy/System)."""
+    if user_id is not None:
+        return user_id
+    try:
+        from piclaw.agent_context import get_current_user_id
+        return get_current_user_id()
+    except Exception:
+        return None
 
-    if not MEMORY_MAIN.exists():
-        MEMORY_MAIN.write_text(
+
+def _paths_for(user_id: str | None) -> tuple[Path, Path, Path, Path]:
+    """Liefert (root, MEMORY.md, daily_dir, sessions_dir) — pro User oder global."""
+    if user_id is None:
+        return MEMORY_ROOT, MEMORY_MAIN, DAILY_DIR, SESSIONS_DIR
+    from piclaw.users import user_path
+    base = user_path(user_id, "memory")
+    return base, base / "MEMORY.md", base / "memory", base / "sessions"
+
+
+def ensure_dirs(user_id: str | None = None):
+    """Stellt Verzeichnisse + MEMORY.md sicher (pro User wenn user_id)."""
+    user_id = _resolve_user_id(user_id)
+    root, main, daily, sessions = _paths_for(user_id)
+    for d in [root, daily, sessions]:
+        d.mkdir(parents=True, exist_ok=True)
+    if not main.exists():
+        main.write_text(
             "# PiClaw Memory\n\n"
-            "> Persistent facts, decisions and preferences about this installation.\n\n"
+            "> Persistent facts, decisions and preferences.\n\n"
         )
 
+    # WORKSPACE und CONTEXT bleiben global (geteilt)
+    WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
     if not CONTEXT_FILE.exists():
         CONTEXT_FILE.write_text(
             "# PiClaw Agent Context\n\n"
@@ -50,10 +75,15 @@ def ensure_dirs():
 
 
 def write_fact(
-    content: str, category: str = "fact", tags: list[str] | None = None
+    content: str,
+    category: str = "fact",
+    tags: list[str] | None = None,
+    user_id: str | None = None,
 ) -> str:
-    """Append a structured fact to MEMORY.md."""
-    ensure_dirs()
+    """Append a structured fact to MEMORY.md (pro User wenn user_id)."""
+    user_id = _resolve_user_id(user_id)
+    ensure_dirs(user_id)
+    _, main, _, _ = _paths_for(user_id)
     ts = datetime.now().isoformat(timespec="seconds")
     tag_s = ", ".join(tags) if tags else ""
     block = (
@@ -61,30 +91,42 @@ def write_fact(
         f"{f'**Tags:** {tag_s}  ' if tag_s else ''}\n"
         f"{content.strip()}\n"
     )
-    with open(MEMORY_MAIN, "a", encoding="utf-8") as f:
+    with open(main, "a", encoding="utf-8") as f:
         f.write(block)
-    log.info("Wrote memory fact (%s): %.60s…", category, content)
+    log.info("Wrote memory fact (%s, user=%s): %.60s…", category, user_id or "-", content)
     return f"Memory saved: {content[:80]}"
 
 
-def write_daily_note(content: str, date: str | None = None) -> str:
+def write_daily_note(
+    content: str,
+    date: str | None = None,
+    user_id: str | None = None,
+) -> str:
     """Append to today's daily log."""
-    ensure_dirs()
+    user_id = _resolve_user_id(user_id)
+    ensure_dirs(user_id)
+    _, _, daily, _ = _paths_for(user_id)
     day = date or datetime.now().strftime("%Y-%m-%d")
-    path = DAILY_DIR / f"{day}.md"
+    path = daily / f"{day}.md"
     ts = datetime.now().strftime("%H:%M:%S")
     if not path.exists():
-        path.write_text(f"# Daily Log – {day}\n\n")
+        path.write_text(f"# Daily Log – {day}\n\n", encoding="utf-8")
     with open(path, "a", encoding="utf-8") as f:
         f.write(f"\n### {ts}\n{content.strip()}\n")
     return f"Daily note saved ({day})."
 
 
-def save_session(session_id: str, messages: list[dict]) -> Path:
+def save_session(
+    session_id: str,
+    messages: list[dict],
+    user_id: str | None = None,
+) -> Path:
     """Persist a conversation session as JSONL for QMD indexing."""
-    ensure_dirs()
+    user_id = _resolve_user_id(user_id)
+    ensure_dirs(user_id)
+    _, _, _, sessions = _paths_for(user_id)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = SESSIONS_DIR / f"{ts}_{session_id[:8]}.jsonl"
+    path = sessions / f"{ts}_{session_id[:8]}.jsonl"
     with open(path, "w", encoding="utf-8") as f:
         for msg in messages:
             f.write(json.dumps(msg) + "\n")
@@ -105,15 +147,19 @@ def write_workspace_file(filename: str, content: str) -> str:
 # ── Read helpers ─────────────────────────────────────────────────
 
 
-def read_memory_main() -> str:
-    ensure_dirs()
-    return MEMORY_MAIN.read_text(encoding="utf-8") if MEMORY_MAIN.exists() else ""
+def read_memory_main(user_id: str | None = None) -> str:
+    user_id = _resolve_user_id(user_id)
+    ensure_dirs(user_id)
+    _, main, _, _ = _paths_for(user_id)
+    return main.read_text(encoding="utf-8") if main.exists() else ""
 
 
-def read_today() -> str:
-    ensure_dirs()
+def read_today(user_id: str | None = None) -> str:
+    user_id = _resolve_user_id(user_id)
+    ensure_dirs(user_id)
+    _, _, daily, _ = _paths_for(user_id)
     day = datetime.now().strftime("%Y-%m-%d")
-    path = DAILY_DIR / f"{day}.md"
+    path = daily / f"{day}.md"
     return (
         path.read_text(encoding="utf-8")
         if path.exists()

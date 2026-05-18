@@ -82,11 +82,30 @@ class SubAgentDef:
         False  # if True, tier-2 restricted tools allowed when explicitly listed
     )
     privileged: bool = False  # if True, root shell access allowed
-    created_by: str = "mainagent"
+    created_by: str = "mainagent"  # "mainagent" | "user" – Herkunft
+    # Multi-User: None = System-/geteilter Sub-Agent (z.B. Monitor_Pakete,
+    # CronJob_0715). Sonst Owner-User-ID. Filterung via list_enabled(user_id=...).
+    owner_id: str | None = None
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     last_run: str | None = None
     last_status: str | None = None  # ok | error | running | timeout
+
+    def visible_to(self, user_id: str | None) -> bool:
+        """True wenn der User den Sub-Agent sehen darf.
+        - Aufruf mit user_id=None: alles sichtbar (Scheduler/Admin)
+        - System-Sub-Agents (owner_id=None): für alle sichtbar
+        - Sonst nur eigene
+        """
+        if user_id is None:
+            return True
+        if self.owner_id is None:
+            return True
+        return self.owner_id == user_id
+
+    @property
+    def is_system(self) -> bool:
+        return self.owner_id is None
 
     def __post_init__(self):
         """Tolerant type coercion.
@@ -282,11 +301,12 @@ class SubAgentRegistry:
         self._save()
         return True
 
-    def list_all(self) -> list[SubAgentDef]:
-        return sorted(self._agents.values(), key=lambda a: a.created_at, reverse=True)
+    def list_all(self, user_id: str | None = None) -> list[SubAgentDef]:
+        agents = sorted(self._agents.values(), key=lambda a: a.created_at, reverse=True)
+        return [a for a in agents if a.visible_to(user_id)]
 
-    def list_enabled(self) -> list[SubAgentDef]:
-        return [a for a in self.list_all() if a.enabled]
+    def list_enabled(self, user_id: str | None = None) -> list[SubAgentDef]:
+        return [a for a in self.list_all(user_id) if a.enabled]
 
     def mark_run(self, id_or_name: str, status: str):
         """Update last_run + last_status. Only persists terminal statuses

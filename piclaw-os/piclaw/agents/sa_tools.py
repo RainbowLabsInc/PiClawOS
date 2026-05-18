@@ -167,9 +167,16 @@ _PROTECTED_AGENTS = {"Monitor_Netzwerk"}
 
 def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
 
+    from piclaw.agent_context import get_current_user_id
+
     async def agent_list(**_) -> str:
+        user_id = get_current_user_id()
         status = runner.status_dict()
         agents = status.get("sub_agents", [])
+        if user_id is not None:
+            # Filter: nur Sub-Agents die diesem User gehören oder System sind
+            visible_ids = {a.id for a in registry.list_all(user_id)}
+            agents = [a for a in agents if a.get("id") in visible_ids]
         if not agents:
             return "Keine Sub-Agenten definiert. Mit agent_create einen neuen erstellen."
         lines = [f"Sub-Agents ({len(agents)}):\n"]
@@ -209,6 +216,7 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         if registry.get(name):
             return f"Ein Sub-Agent namens '{name}' existiert bereits. Mit agent_update ändern."
 
+        owner_id = get_current_user_id()
         agent = SubAgentDef(
             name=name,
             description=description,
@@ -220,6 +228,7 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
             max_steps=max_steps,
             timeout=timeout,
             created_by="mainagent",
+            owner_id=owner_id,  # Multi-User: User der den Sub-Agent erstellt hat
         )
         agent_id = registry.add(agent)
         result = (

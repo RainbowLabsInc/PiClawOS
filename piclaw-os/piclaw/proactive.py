@@ -303,10 +303,25 @@ class ProactiveRunner:
         Führt eine einzelne Routine aus.
         Gibt das Ergebnis als String zurück.
         Sendet automatisch über hub wenn konfiguriert.
+
+        Multi-User: setzt den User-Kontext (routine.owner_id) für die Dauer der
+        Ausführung. Tool-Handler in der Routine sehen damit die Daten des
+        Routinen-Owners (z.B. nur dessen Pakete im Morgenbriefing).
         """
+        from piclaw.agent_context import user_scope
+
         action = routine.action
         params = routine.params
 
+        result = ""
+
+        # Mit User-Kontext der Routine — owner_id=None für System-Routinen
+        # bedeutet "kein User-Filter" (volle Sicht).
+        with user_scope(getattr(routine, "owner_id", None)):
+            return await self._execute_routine_body(routine, action, params)
+
+    async def _execute_routine_body(self, routine, action: str, params: dict) -> str:
+        """Eigentliche Action-Dispatch — Wrapper hält user_scope offen."""
         result = ""
 
         if action == "briefing":
