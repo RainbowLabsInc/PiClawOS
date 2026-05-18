@@ -133,6 +133,8 @@ def step_user_management(state, step: int, total: int) -> None:
             _menu_token(reg)
         elif choice == "4":
             _menu_revoke(reg)
+        elif choice == "5":
+            _menu_overrides(reg)
         else:
             print(f"  ⚠️  Unbekannte Auswahl: {choice!r}")
 
@@ -187,6 +189,7 @@ def _ask_main_choice() -> str:
     print("  [2] Weiteren User manuell anlegen")
     print("  [3] Token anzeigen / regenerieren")
     print("  [4] User entfernen")
+    print("  [5] Einstellungen pro User (HA, AgentMail, Discord, …)")
     print("  [0] Fertig")
     try:
         return input("\n  Auswahl [0]: ").strip() or "0"
@@ -332,3 +335,197 @@ def _menu_revoke(reg: UserRegistry) -> None:
         print(f"  🗑️  {target.name} entfernt.")
     else:
         print(f"  ❌ Konnte {target.name} nicht entfernen (letzter Admin?).")
+
+
+# ── Helper: Per-User-Overrides ────────────────────────────────────
+
+
+# Verfügbare Sektionen + Keys mit Hinweisen (für die UX)
+_OVERRIDE_SCHEMA: dict[str, list[tuple[str, str]]] = {
+    "homeassistant": [
+        ("token", "Long-Lived Access Token (HA → Profil → Sicherheit)"),
+        ("url",   "Base-URL z.B. http://192.168.1.42:8123"),
+    ],
+    "agentmail": [
+        ("email_address",      "Eigene Inbox-Adresse z.B. anna@agentmail.to"),
+        ("inbox_id",           "Inbox-ID aus AgentMail-Dashboard"),
+        ("notification_email", "Persönliche Benachrichtigungs-Email"),
+    ],
+    "discord": [
+        ("user_id", "Eigene Discord-User-ID (numerisch)"),
+    ],
+    "threema": [
+        ("recipient_id", "Eigene 8-stellige Threema-ID"),
+    ],
+    "whatsapp": [
+        ("recipient", "Eigene Nummer im E.164-Format z.B. +49…"),
+    ],
+}
+
+
+def _menu_overrides(reg: UserRegistry) -> None:
+    active = reg.active()
+    if not active:
+        print("  ℹ️  Keine aktiven User.")
+        return
+    print()
+    print("  Welcher User?")
+    for i, u in enumerate(active, 1):
+        marker = "★" if u.is_admin else " "
+        n_over = sum(len(s) for s in u.overrides.values())
+        print(f"    [{i}] {marker} {u.name:<20}  ({n_over} Override(s))")
+    print("    [0] Zurück")
+    try:
+        sel = input("\n  Auswahl: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if sel == "0" or not sel:
+        return
+    if not sel.isdigit() or not (1 <= int(sel) <= len(active)):
+        print("  ⚠️  Ungültige Auswahl.")
+        return
+    target = active[int(sel) - 1]
+    _user_overrides_submenu(reg, target)
+
+
+def _user_overrides_submenu(reg: UserRegistry, user: User) -> None:
+    while True:
+        print()
+        print(f"  Overrides für {user.name}:")
+        if not user.overrides:
+            print("    (keine — User nutzt überall die globalen Settings)")
+        else:
+            for section, kvs in user.overrides.items():
+                for k, v in kvs.items():
+                    shown = _mask_if_secret(k, v)
+                    print(f"    [{section}] {k} = {shown}")
+        print()
+        print("  [1] Wert setzen / ändern")
+        print("  [2] Einzelnen Wert entfernen")
+        print("  [3] Komplette Sektion entfernen")
+        print("  [0] Zurück")
+        try:
+            choice = input("\n  Auswahl: ").strip() or "0"
+        except (EOFError, KeyboardInterrupt):
+            return
+        if choice == "0":
+            return
+        if choice == "1":
+            _override_set_flow(reg, user)
+        elif choice == "2":
+            _override_clear_key_flow(reg, user)
+        elif choice == "3":
+            _override_clear_section_flow(reg, user)
+        else:
+            print("  ⚠️  Unbekannte Auswahl.")
+
+
+def _override_set_flow(reg: UserRegistry, user: User) -> None:
+    print()
+    print("  Welche Sektion?")
+    sections = list(_OVERRIDE_SCHEMA.keys())
+    for i, s in enumerate(sections, 1):
+        print(f"    [{i}] {s}")
+    print("    [0] Zurück")
+    try:
+        sel = input("\n  Auswahl: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if sel == "0" or not sel:
+        return
+    if not sel.isdigit() or not (1 <= int(sel) <= len(sections)):
+        print("  ⚠️  Ungültige Auswahl.")
+        return
+    section = sections[int(sel) - 1]
+    keys = _OVERRIDE_SCHEMA[section]
+    print()
+    print(f"  Welcher Wert in [{section}]?")
+    for i, (k, hint) in enumerate(keys, 1):
+        cur = user.overrides.get(section, {}).get(k)
+        cur_disp = f"  (aktuell: {_mask_if_secret(k, cur)})" if cur is not None else ""
+        print(f"    [{i}] {k}   — {hint}{cur_disp}")
+    print("    [0] Zurück")
+    try:
+        sel2 = input("\n  Auswahl: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if sel2 == "0" or not sel2:
+        return
+    if not sel2.isdigit() or not (1 <= int(sel2) <= len(keys)):
+        print("  ⚠️  Ungültige Auswahl.")
+        return
+    key, _hint = keys[int(sel2) - 1]
+    try:
+        value = input(f"\n  Neuer Wert für {section}.{key} (leer = abbrechen): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if not value:
+        print("  ⏩ Abgebrochen.")
+        return
+    parsed: object = value
+    if value.isdigit():
+        parsed = int(value)
+    elif value.lower() in ("true", "false"):
+        parsed = value.lower() == "true"
+    reg.set_override(user.id, section, key, parsed)
+    print(f"  ✅ {user.name}: {section}.{key} gesetzt.")
+
+
+def _override_clear_key_flow(reg: UserRegistry, user: User) -> None:
+    if not user.overrides:
+        print("  ℹ️  Keine Overrides zu löschen.")
+        return
+    flat: list[tuple[str, str]] = []
+    for section, kvs in user.overrides.items():
+        for k in kvs.keys():
+            flat.append((section, k))
+    print()
+    print("  Welchen Wert entfernen?")
+    for i, (s, k) in enumerate(flat, 1):
+        print(f"    [{i}] {s}.{k}")
+    print("    [0] Zurück")
+    try:
+        sel = input("\n  Auswahl: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if sel == "0" or not sel:
+        return
+    if not sel.isdigit() or not (1 <= int(sel) <= len(flat)):
+        print("  ⚠️  Ungültige Auswahl.")
+        return
+    section, key = flat[int(sel) - 1]
+    reg.clear_override(user.id, section, key)
+    print(f"  ✅ {section}.{key} entfernt.")
+
+
+def _override_clear_section_flow(reg: UserRegistry, user: User) -> None:
+    if not user.overrides:
+        print("  ℹ️  Keine Overrides zu löschen.")
+        return
+    sections = list(user.overrides.keys())
+    print()
+    print("  Welche Sektion komplett entfernen?")
+    for i, s in enumerate(sections, 1):
+        n = len(user.overrides[s])
+        print(f"    [{i}] {s}  ({n} Werte)")
+    print("    [0] Zurück")
+    try:
+        sel = input("\n  Auswahl: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if sel == "0" or not sel:
+        return
+    if not sel.isdigit() or not (1 <= int(sel) <= len(sections)):
+        print("  ⚠️  Ungültige Auswahl.")
+        return
+    section = sections[int(sel) - 1]
+    reg.clear_override(user.id, section)
+    print(f"  ✅ Sektion [{section}] entfernt.")
+
+
+def _mask_if_secret(key: str, value) -> str:
+    if value is None:
+        return "(nicht gesetzt)"
+    if isinstance(value, str) and any(s in key.lower() for s in ("token", "secret", "key", "password")):
+        return f"{value[:6]}…" if len(value) > 6 else "***"
+    return str(value)

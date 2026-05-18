@@ -52,6 +52,15 @@ class User:
     web_token: str
     created_at: str
     last_seen: str = ""
+    # Per-User-Overrides: section → {key: value}, überschreibt cfg.<section>.<key>.
+    # Beispiel:
+    #   {"homeassistant": {"token": "abc", "base_url": "http://192.168.1.5:8123"},
+    #    "agentmail":     {"email_address": "anna@agentmail.to", "inbox_id": "..."},
+    #    "discord":       {"user_id": 123456789},
+    #    "threema":       {"recipient_id": "ABC..."},
+    #    "whatsapp":      {"recipient": "+49..."}}
+    # Leeres Dict (default) → User nutzt die globalen Settings.
+    overrides: dict = field(default_factory=dict)
 
     @property
     def is_admin(self) -> bool:
@@ -254,6 +263,49 @@ class UserRegistry:
         log.info("User manuell angelegt: %s (id=%s, role=%s)", user.name, user.id, user.role)
         return user
 
+    # ── Per-User-Overrides ────────────────────────────────────────
+
+    def set_override(self, user_id: str, section: str, key: str, value) -> bool:
+        """Setzt einen Override-Wert. None entfernt den Key."""
+        u = self._users.get(user_id)
+        if u is None:
+            return False
+        if value is None:
+            sect = u.overrides.get(section, {})
+            sect.pop(key, None)
+            if not sect:
+                u.overrides.pop(section, None)
+            else:
+                u.overrides[section] = sect
+        else:
+            u.overrides.setdefault(section, {})[key] = value
+        self._save()
+        return True
+
+    def clear_override(self, user_id: str, section: str, key: str | None = None) -> bool:
+        """Entfernt einen einzelnen Override-Key (key gesetzt) oder eine
+        komplette Sektion (key=None)."""
+        u = self._users.get(user_id)
+        if u is None:
+            return False
+        if section not in u.overrides:
+            return False
+        if key is None:
+            u.overrides.pop(section, None)
+        else:
+            u.overrides[section].pop(key, None)
+            if not u.overrides[section]:
+                u.overrides.pop(section, None)
+        self._save()
+        return True
+
+    def get_override(self, user_id: str, section: str, key: str):
+        """Liest einen Override-Wert. None wenn nicht gesetzt."""
+        u = self._users.get(user_id)
+        if u is None:
+            return None
+        return u.overrides.get(section, {}).get(key)
+
     def mark_seen(self, user_id: str) -> None:
         u = self._users.get(user_id)
         if u is not None:
@@ -347,6 +399,35 @@ def find_by_id(user_id: str) -> User | None:
 
 def has_admin() -> bool:
     return registry().has_admin()
+
+
+def get_setting(
+    user_id: str | None,
+    section: str,
+    key: str,
+    fallback=None,
+):
+    """
+    Pro-User-Setting mit Override-Priorität.
+
+    - user_id=None  → liefert fallback (kein User-Kontext, also globale Sicht)
+    - user_id gesetzt + Override vorhanden → Override-Wert
+    - user_id gesetzt + kein Override → fallback
+
+    Aufrufer übergibt typischerweise:
+        get_setting(get_current_user_id(), "homeassistant", "token",
+                    fallback=cfg.homeassistant.token)
+    """
+    if not user_id:
+        return fallback
+    val = registry().get_override(user_id, section, key)
+    return val if val is not None else fallback
+
+
+def get_setting_for_current(section: str, key: str, fallback=None):
+    """Bequemer Wrapper: nutzt automatisch den aktuellen ContextVar-User."""
+    from piclaw.agent_context import get_current_user_id
+    return get_setting(get_current_user_id(), section, key, fallback)
 
 
 # ── Helpers ────────────────────────────────────────────────────────

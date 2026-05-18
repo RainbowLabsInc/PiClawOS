@@ -2141,7 +2141,7 @@ def run() -> None:
         _w()
 
         _flush_stdin()
-        raw = input(f"  {FG_BLUE}{ARROW}{R} Auswahl [a/0/1-4]: ").strip().lower()
+        raw = input(f"  {FG_BLUE}{ARROW}{R} Auswahl [a/0/1-{len(BLOCKS)}]: ").strip().lower()
         _w()
 
         if raw in ("0", ""):

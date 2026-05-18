@@ -60,6 +60,14 @@ Subcommands:
   add <name> --telegram <id>    [--role admin|user] User explizit anlegen
   token <name|id>               web_token anzeigen
   token <name|id> --regenerate  neuen Token erzeugen
+
+Per-User-Overrides:
+  settings <name|id>                       Alle Overrides eines Users anzeigen
+  set <name|id> <section>.<key> <value>    Override setzen
+                                           Beispiele:
+                                             piclaw user set Anna homeassistant.token HA-...
+                                             piclaw user set Anna agentmail.email_address anna@a.to
+  clear <name|id> <section>[.<key>]        Override entfernen (Key oder ganze Sektion)
 """
 
 
@@ -96,6 +104,12 @@ def cmd_user(args: list[str]) -> int:
             return _add(reg, rest)
         if sub == "token":
             return _token(reg, rest)
+        if sub == "settings":
+            return _settings(reg, rest)
+        if sub == "set":
+            return _set_override_cmd(reg, rest)
+        if sub == "clear":
+            return _clear_override_cmd(reg, rest)
     except SystemExit:
         raise
     except Exception as e:
@@ -278,4 +292,80 @@ def _token(reg, args) -> int:
         u = reg.regenerate_token(u.id)
         print(f"🔄 Token regeneriert für {u.name}. Alter Token ist ab sofort ungültig.")
     print(f"\n  🔑 Web-Token für {u.name}:\n  {u.web_token}\n")
+    return 0
+
+
+# ── Per-User-Overrides ─────────────────────────────────────────────
+
+
+def _settings(reg, args) -> int:
+    if not args:
+        print("Usage: piclaw user settings <name|id>")
+        return 1
+    u = _resolve(reg, args[0])
+    if u is None:
+        print(f"❌ User '{args[0]}' nicht gefunden.")
+        return 1
+    if not u.overrides:
+        print(f"\n  Keine Overrides für {u.name}. (Nutzt überall die globalen Settings.)\n")
+        return 0
+    print(f"\n  Overrides für {u.name}:\n")
+    for section, kvs in u.overrides.items():
+        print(f"    [{section}]")
+        for k, v in kvs.items():
+            # Sensible Werte maskieren
+            shown = v
+            if isinstance(v, str) and any(s in k.lower() for s in ("token", "secret", "key", "password")):
+                shown = f"{v[:6]}…" if len(v) > 6 else "***"
+            print(f"      {k} = {shown}")
+        print()
+    return 0
+
+
+def _set_override_cmd(reg, args) -> int:
+    if len(args) < 3:
+        print("Usage: piclaw user set <name|id> <section>.<key> <value>")
+        print("  Beispiel: piclaw user set Anna homeassistant.token HA-abcdef...")
+        return 1
+    u = _resolve(reg, args[0])
+    if u is None:
+        print(f"❌ User '{args[0]}' nicht gefunden.")
+        return 1
+    path = args[1]
+    if "." not in path:
+        print("❌ Pfad muss <section>.<key> sein (z.B. homeassistant.token)")
+        return 1
+    section, key = path.split(".", 1)
+    value = " ".join(args[2:])
+    # Numerische Werte (für discord.user_id, channel_id etc.) parsen
+    if value.isdigit():
+        parsed: object = int(value)
+    elif value.lower() in ("true", "false"):
+        parsed = value.lower() == "true"
+    else:
+        parsed = value
+    reg.set_override(u.id, section, key, parsed)
+    print(f"✅ {u.name}: {section}.{key} = {value}")
+    return 0
+
+
+def _clear_override_cmd(reg, args) -> int:
+    if len(args) < 2:
+        print("Usage: piclaw user clear <name|id> <section>[.<key>]")
+        return 1
+    u = _resolve(reg, args[0])
+    if u is None:
+        print(f"❌ User '{args[0]}' nicht gefunden.")
+        return 1
+    path = args[1]
+    section, _, key = path.partition(".")
+    key = key or None
+    ok = reg.clear_override(u.id, section, key)
+    if not ok:
+        print(f"⚠️  Kein Override für '{path}' bei {u.name}.")
+        return 1
+    if key:
+        print(f"✅ Override entfernt: {u.name}.{section}.{key}")
+    else:
+        print(f"✅ Sektion entfernt: {u.name}.{section}")
     return 0
