@@ -980,6 +980,13 @@ def step_telegram(state: WizardState, step: int, total: int) -> None:
     state.restart_needed = True
     _ok("Telegram gespeichert")
 
+    # Multi-User: chat_id als Admin bootstrappen falls noch kein Admin existiert
+    try:
+        from piclaw.wizard_users import offer_bootstrap_admin
+        offer_bootstrap_admin(cfg, chat_id)
+    except Exception as _e:
+        log.debug("bootstrap_admin offer (wizard): %s", _e)
+
 
 def step_discord(state: WizardState, step: int, total: int) -> None:
     """Schritt: Discord konfigurieren (optional)."""
@@ -2022,6 +2029,7 @@ def run() -> None:
     Jeder Schritt kann innerhalb eines Blocks übersprungen werden.
     """
     from piclaw.config import load
+    from piclaw.wizard_users import step_user_management as _step_user_management_wrapper
 
     # ── Alle verfügbaren Steps nach Blöcken ──────────────────────
     BLOCKS: list[tuple[str, str, list[tuple[str, object]]]] = [
@@ -2072,6 +2080,14 @@ def run() -> None:
                 ("WLAN",         step_wifi),
                 ("Hardware",     step_hardware),
                 ("Soul",         step_soul),
+            ],
+        ),
+        (
+            "Benutzer",
+            "👥  Multi-User-Verwaltung\n"
+            "     Wartende freischalten, weitere User anlegen, Tokens ausgeben.",
+            [
+                ("Benutzer", _step_user_management_wrapper),
             ],
         ),
     ]

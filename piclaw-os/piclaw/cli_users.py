@@ -49,6 +49,7 @@ HELP = """\
 piclaw user <subcommand>
 
 Subcommands:
+  setup                         interaktives Menü (Freischalten/Anlegen/Token/Entfernen)
   list                          aktive User auflisten
   pending                       wartende User
   show <name|id>                Details
@@ -74,6 +75,9 @@ def cmd_user(args: list[str]) -> int:
     reg = users_mod.registry()
 
     try:
+        if sub == "setup":
+            from piclaw.wizard_users import run_standalone
+            return run_standalone()
         if sub == "list":
             return _list(reg)
         if sub == "pending":
