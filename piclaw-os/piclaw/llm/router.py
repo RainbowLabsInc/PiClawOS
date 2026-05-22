@@ -26,6 +26,7 @@ from piclaw.config import PiClawConfig
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, LLMResponse
 from piclaw.llm.api import AnthropicBackend, OpenAIBackend
 from piclaw.llm.local import LocalBackend, DEFAULT_MODEL_PATH
+from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.llm.router")
 
@@ -132,8 +133,16 @@ class SmartRouter(LLMBackend):
         )
         self.status.state = BackendState.BOOTING
 
-        api_task = asyncio.create_task(self._check_api_connectivity())
-        local_task = asyncio.create_task(self._preload_local())
+        # GC-sicher: create_background_task hält starke Referenzen.
+        # Wichtig vor allem für local_task, das im API-OK-Pfad nicht awaitet
+        # wird – ohne strong-ref könnte der Pre-Load mitten in run_in_executor
+        # vom GC zerschlagen werden und self.status.local_loaded nie True werden.
+        api_task = create_background_task(
+            self._check_api_connectivity(), name="router-api-check"
+        )
+        local_task = create_background_task(
+            self._preload_local(), name="router-local-preload"
+        )
 
         # We don't wait for both to finish before proceeding –
         # API check is fast, local load may take 10-30s on Pi.

@@ -33,6 +33,7 @@ Note on encryption:
 """
 
 import asyncio
+import hmac
 import logging
 from pathlib import Path
 
@@ -51,12 +52,14 @@ class ThreemaAdapter(MessagingAdapter):
         private_key_file: str,
         recipient_id: str,
         webhook_path: str = "",
+        webhook_secret: str = "",
     ):
         self.gateway_id = gateway_id
         self.api_secret = api_secret
         self.private_key_file = private_key_file
         self.recipient_id = recipient_id
         self.webhook_path = webhook_path
+        self.webhook_secret = webhook_secret
         self._stop = asyncio.Event()
         self._connection = None
 
@@ -122,6 +125,25 @@ class ThreemaAdapter(MessagingAdapter):
             log.debug("Threema message sent to %s", recipient)
         except Exception as e:
             log.error("Threema send error: %s", e)
+
+    def verify_token(self, provided: str) -> bool:
+        """Validate the Authorization header on incoming webhooks.
+
+        Symmetrisch zu WhatsApp's verify_signature: ohne konfiguriertes
+        webhook_secret wird ALLES abgelehnt – ein unauthentifizierter
+        /webhook/threema-Endpoint wäre ein offener RCE-Vektor in den Agent.
+        """
+        if not self.webhook_secret:
+            log.warning(
+                "Threema: Webhook abgelehnt – kein webhook_secret konfiguriert. "
+                "Bitte [threema] webhook_secret in config.toml setzen."
+            )
+            return False
+        # Bearer-Prefix tolerieren ("Bearer <token>")
+        token = provided.strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+        return hmac.compare_digest(token, self.webhook_secret)
 
     async def handle_webhook(self, payload: dict, on_message: MessageHandler):
         """

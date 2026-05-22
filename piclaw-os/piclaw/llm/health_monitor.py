@@ -221,15 +221,31 @@ class LLMHealthMonitor:
         self._check_all_backends_down()
 
     def report_success(self, backend_name: str):
-        """Backend hat erfolgreich geantwortet."""
+        """Backend hat erfolgreich geantwortet.
+
+        Setzt den vollen Health-State zurück – nicht nur die Failure-Zähler.
+        Vorher blieb rate_limited_until/is_tpd_limited stehen, sodass ein
+        längst gesundes Backend als "rate-limited" markiert bleiben konnte
+        bis zum nächsten Monitor-Tick.
+        """
         h = self._health.get(backend_name)
-        if h and h.consecutive_failures > 0:
-            log.info("Backend '%s': wieder gesund nach %d Fehlern",
-                     backend_name, h.consecutive_failures)
-            h.consecutive_failures = 0
-            h.last_error = ""
-            h.last_error_code = 0
-            self._all_api_down_notified = False
+        if not h:
+            return
+        was_degraded = (
+            h.consecutive_failures > 0
+            or h.rate_limited_until > 0.0
+            or h.is_tpd_limited
+        )
+        if was_degraded:
+            log.info("Backend '%s': wieder gesund (failures=%d, rl=%.0f, tpd=%s)",
+                     backend_name, h.consecutive_failures,
+                     h.rate_limited_until, h.is_tpd_limited)
+        h.consecutive_failures = 0
+        h.last_error = ""
+        h.last_error_code = 0
+        h.rate_limited_until = 0.0
+        h.is_tpd_limited = False
+        self._all_api_down_notified = False
 
     # ── 429 Handling ──────────────────────────────────────────────
 

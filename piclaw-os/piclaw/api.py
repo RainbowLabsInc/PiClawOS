@@ -92,11 +92,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="PiClaw OS", version="0.8.0", docs_url=None, lifespan=lifespan)
 
+# CORS-Defaults sind absichtlich restriktiv: WS-Auth laeuft ueber Query-Param,
+# REST ueber Bearer-Token. allow_credentials muss daher nicht True sein.
+# Origins kommt aus der Config; wenn ein Operator wirklich Wildcard will,
+# muss er das explizit als "*" setzen.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cfg.api.cors_origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cfg.api.cors_origins or [],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
@@ -161,11 +165,14 @@ async def whatsapp_incoming(request: Request):
 
 @app.post("/webhook/threema")
 async def threema_incoming(request: Request):
-    payload = await request.json()
     if not _hub:
         return {"status": "not ready"}
+    auth_header = request.headers.get("Authorization", "")
+    payload = await request.json()
     for adapter in _hub._adapters:
         if adapter.name == "threema":
+            if not adapter.verify_token(auth_header):
+                raise HTTPException(403, "Invalid webhook token")
             await adapter.handle_webhook(payload, _agent_message_handler)
     return {"status": "ok"}
 
@@ -658,14 +665,14 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
             # Ohne diese Heartbeats schließt uvicorn nach ws_ping_timeout
             # mit Code 1011 ("keepalive ping timeout").
             async def _ping_loop():
-                try:
-                    while True:
-                        await asyncio.sleep(15)
-                        await _manager.send(websocket, {"type": "thinking"})
-                except asyncio.CancelledError:
-                    pass
+                # CancelledError NICHT schlucken – sonst kann asyncio die
+                # Cancellation nicht propagieren und die Cleanup-Logik
+                # (await ping_task im finally) bekommt evtl. einen Haenger.
+                while True:
+                    await asyncio.sleep(15)
+                    await _manager.send(websocket, {"type": "thinking"})
 
-            ping_task = asyncio.create_task(_ping_loop())
+            ping_task = create_background_task(_ping_loop(), name=f"ws-ping-{session_id}")
             try:
                 reply = await _agent.run(
                     user_text, history=history, on_token=on_token,

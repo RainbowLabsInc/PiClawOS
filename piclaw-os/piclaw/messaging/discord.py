@@ -92,7 +92,9 @@ class DiscordAdapter(MessagingAdapter):
         try:
             await self._client.start(self.token)
         except asyncio.CancelledError:
-            pass
+            # CancelledError nach oben durchreichen, damit asyncio.gather/cancel_all
+            # die Cancellation des Adapter-Tasks korrekt erkennen.
+            raise
         except Exception as e:
             log.error("Discord error: %s", e, exc_info=True)
 

@@ -23,6 +23,7 @@ import asyncio
 import logging
 
 from piclaw.config import CONFIG_DIR
+from piclaw.fileutils import atomic_write_text
 from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.ipc")
@@ -37,7 +38,9 @@ def write_run_now(agent_id: str) -> bool:
     try:
         IPC_DIR.mkdir(parents=True, exist_ok=True)
         trigger = IPC_DIR / f"run_now_{agent_id}{TRIGGER_SUFFIX}"
-        trigger.write_text(agent_id)
+        # Atomarer write verhindert, dass der Daemon-Poll-Loop einen
+        # halbgeschriebenen Trigger sieht (write → fsync → rename).
+        atomic_write_text(trigger, agent_id)
         log.debug("IPC: run_now trigger geschrieben für %s", agent_id)
         return True
     except Exception as e:
@@ -56,7 +59,7 @@ def write_remove(agent_id: str) -> bool:
     try:
         IPC_DIR.mkdir(parents=True, exist_ok=True)
         trigger = IPC_DIR / f"remove_{agent_id}{TRIGGER_SUFFIX}"
-        trigger.write_text(agent_id)
+        atomic_write_text(trigger, agent_id)
         log.debug("IPC: remove trigger geschrieben für %s", agent_id)
         return True
     except Exception as e:

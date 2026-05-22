@@ -42,6 +42,7 @@ def build_hub(cfg) -> MessagingHub:
             private_key_file=th.private_key_file,
             recipient_id=th.recipient_id,
             webhook_path=th.webhook_path,
+            webhook_secret=th.webhook_secret,
         )
     )
 

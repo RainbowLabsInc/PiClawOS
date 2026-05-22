@@ -167,6 +167,11 @@ class ThreemaConfig:
     private_key_file: str = "/etc/piclaw/threema-private.key"
     recipient_id: str = ""
     webhook_path: str = "/webhook/threema"
+    # Shared-Secret für eingehende Webhook-Calls. Der Client (Gateway-Forwarder
+    # oder eigene Bridge) muss den Wert als "Authorization: Bearer <secret>"
+    # Header mitsenden. Bleibt das Feld leer, lehnt der Adapter alle
+    # eingehenden Webhooks ab – keine ungeschützten Endpoints.
+    webhook_secret: str = ""
 
 
 @dataclass

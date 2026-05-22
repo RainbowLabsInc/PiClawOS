@@ -49,6 +49,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import re
 
 import aiohttp
 
@@ -57,6 +58,20 @@ from piclaw.messaging.hub import MessagingAdapter, IncomingMessage, MessageHandl
 log = logging.getLogger("piclaw.messaging.whatsapp")
 
 META_API_BASE = "https://graph.facebook.com/v19.0"
+
+_NON_DIGITS = re.compile(r"\D+")
+
+
+def _normalize_e164(num: str) -> str:
+    """Reduce a phone number to bare digits for comparison.
+
+    Strips '+', spaces, dashes, parentheses. Returns "" if input is falsy
+    or yields no digits. Used to compare WhatsApp sender vs configured
+    recipient without falling into substring-match spoofing.
+    """
+    if not num:
+        return ""
+    return _NON_DIGITS.sub("", num)
 
 
 class WhatsAppAdapter(MessagingAdapter):
@@ -174,13 +189,11 @@ class WhatsAppAdapter(MessagingAdapter):
                         text = msg.get("text", {}).get("body", "").strip()
                         if not text or not sender:
                             continue
-                        # Only accept from configured recipient number
-                        clean_sender = sender.lstrip("+")
-                        clean_recipient = self.recipient.lstrip("+")
-                        if (
-                            clean_sender not in clean_recipient
-                            and clean_recipient not in clean_sender
-                        ):
+                        # Only accept from configured recipient number.
+                        # Strikter Vergleich nach E.164-Normalisierung – Substring
+                        # erlaubte sonst Spoofing (z.B. "+491234567890" matcht
+                        # "+49123456789" via "in").
+                        if _normalize_e164(sender) != _normalize_e164(self.recipient):
                             log.warning("WhatsApp: ignored message from %s", sender)
                             continue
                         inc = IncomingMessage(
