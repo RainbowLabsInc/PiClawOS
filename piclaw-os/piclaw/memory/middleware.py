@@ -23,12 +23,22 @@ log = logging.getLogger("piclaw.memory.middleware")
 
 # Max tokens to spend on injected memories (~4 chars per token)
 MAX_MEMORY_CHARS = 2000
-# Min relevance score to inject a result
-MIN_SCORE = 0.15
+# Absolute floor on QMD relevance score – anything below this is rauschen
+# and should never be injected, even if it's the top result of a weak query.
+MIN_SCORE_FLOOR = 0.25
+# Dynamic threshold relative to top result: keep results within
+# DYNAMIC_RATIO of the top score. With ratio=0.7 and top=0.8 → cutoff 0.56.
+# Combined: actual_min = max(MIN_SCORE_FLOOR, DYNAMIC_RATIO * top_score).
+DYNAMIC_RATIO = 0.7
 # How many results to fetch before trimming to char budget
 FETCH_TOP_K = 8
 # After this many turns, save the session and extract facts
 EXTRACT_EVERY_N = 4
+# Extra trigger: extract once accumulated context grows past this size
+# (in characters across all collected user+assistant messages).
+# Catches long single-turn exchanges that would otherwise wait for
+# the next turn-count tick.
+EXTRACT_CONTEXT_CHARS = 6000
 
 
 class MemoryMiddleware:
@@ -63,14 +73,21 @@ class MemoryMiddleware:
         if not results:
             return messages
 
-        # Filter by score and fit within char budget
-        good = [r for r in results if r.score >= MIN_SCORE]
+        # Dynamic threshold: scale with top result so a weak top score
+        # (e.g. 0.3) doesn't drag in even weaker matches as "good enough".
+        # Hard floor at MIN_SCORE_FLOOR prevents pure noise injection
+        # when every result is irrelevant.
+        top_score = max(r.score for r in results)
+        min_score = max(MIN_SCORE_FLOOR, DYNAMIC_RATIO * top_score)
+
+        good = [r for r in results if r.score >= min_score]
         memory_block = self._format_memories(good)
         if not memory_block:
             return messages
 
         log.debug(
-            "Injecting %s memory results (%s chars)", len(good), len(memory_block)
+            "Injecting %s/%s memories (top=%.2f, cutoff=%.2f, %s chars)",
+            len(good), len(results), top_score, min_score, len(memory_block),
         )
         return self._inject_into_system(messages, memory_block)
 
@@ -78,6 +95,12 @@ class MemoryMiddleware:
         """
         Called after each agent response.
         Accumulates session turns and periodically extracts + saves facts.
+
+        Extraction trigger: turn-count OR accumulated context-length.
+        The context-length trigger catches long single-turn exchanges
+        (e.g. a 4k-token paste during a code review) that would otherwise
+        wait three more turns before being extracted, by which point the
+        relevant window may already have rolled out of self._session_msgs.
         """
         self._turn_count += 1
         self._session_msgs.append(
@@ -91,7 +114,16 @@ class MemoryMiddleware:
             }
         )
 
-        if self._turn_count % EXTRACT_EVERY_N == 0:
+        turn_trigger = self._turn_count % EXTRACT_EVERY_N == 0
+        context_size = sum(len(m.get("content", "")) for m in self._session_msgs)
+        size_trigger = context_size >= EXTRACT_CONTEXT_CHARS
+
+        if turn_trigger or size_trigger:
+            if size_trigger and not turn_trigger:
+                log.debug(
+                    "Memory extract early-triggered by context size (%d chars >= %d)",
+                    context_size, EXTRACT_CONTEXT_CHARS,
+                )
             create_background_task(self._extract_and_index())
 
     async def flush(self, session_id: str = "manual"):

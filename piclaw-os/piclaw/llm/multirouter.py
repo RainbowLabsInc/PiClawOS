@@ -266,32 +266,50 @@ class MultiLLMRouter(LLMBackend):
         candidates = self.registry.find_by_tags(classification.tags, min_overlap=1)
 
         # ── Thermal routing: if Pi is hot, deprioritise local backends ──────
+        # Graduierte Stufen statt boolean hard cut:
+        #   COOL  – kein Eingriff, freie Wahl
+        #   WARM  – cloud bevorzugen, local bleibt ein gleichberechtigter Kandidat
+        #   HOT   – cloud_pref True → cloud nach vorn sortiert, local nach hinten
+        #   CRIT  – local_ok False → local rausfiltern (sofern cloud verfügbar)
         try:
             from piclaw.hardware.thermal import (
                 local_inference_allowed,
                 get_thermal_state,
+                ThermalState,
             )
 
             _thermal_ok = local_inference_allowed()
             _thermal_state = get_thermal_state()
-            if not _thermal_ok:
+            if not _thermal_ok and _thermal_state:
                 log.info(
                     "Thermal routing: local disabled "
                     f"({_thermal_state.temp_c:.1f}°C), forcing cloud backends"
                 )
-                # Exclude local provider candidates
                 cloud_candidates = [b for b in candidates if b.provider != "local"]
                 if cloud_candidates:
                     candidates = cloud_candidates
             elif _thermal_state and _thermal_state.cloud_pref:
+                # HOT: cloud first, local last
                 log.debug(
                     f"Thermal routing: {_thermal_state.temp_c:.1f}°C "
                     "– preferring cloud backends"
                 )
-                cloud_first = sorted(
+                candidates = sorted(
                     candidates, key=lambda b: (b.provider == "local", -b.priority)
                 )
-                candidates = cloud_first
+            elif (
+                _thermal_state
+                and _thermal_state.state == ThermalState.WARM
+            ):
+                # WARM: leichter Cloud-Bias, aber local bleibt im Pool.
+                # Stable sort: cloud kommt vor local bei gleicher Priorität.
+                log.debug(
+                    f"Thermal routing: {_thermal_state.temp_c:.1f}°C "
+                    "(WARM) – slight cloud bias"
+                )
+                candidates = sorted(
+                    candidates, key=lambda b: (b.provider == "local", -b.priority)
+                )
         except Exception as _e:
             log.warning(
                 "thermal routing check failed: %s", _e
@@ -395,6 +413,10 @@ class MultiLLMRouter(LLMBackend):
         #   1. primary backend (tag-matched, highest priority)
         #   2. other tag-matched candidates
         #   3. all remaining enabled API backends (so e.g. HA failover reaches general backends)
+        # Wave 3.2: extra_api wird auch nach is_degraded gefiltert. Vorher
+        # konnte ein 429-gesperrtes Backend in der Fallback-Kette landen,
+        # dort zwar via rate_limited-Skip oben übersprungen werden, aber
+        # jeder Skip schickte ohnehin eine sinnlose Health-Probe-Anfrage.
         candidates_by_tag = self.registry.find_by_tags(classification.tags)
         tag_names = {b.name for b in candidates_by_tag}
         extra_api = [
@@ -403,6 +425,7 @@ class MultiLLMRouter(LLMBackend):
             if b.provider != "local"
             and b.name != primary.name
             and b.name not in tag_names
+            and not self._health.get(b.name, BackendHealth(b.name)).is_degraded
         ]
         ordered = (
             [primary]
@@ -515,7 +538,14 @@ class MultiLLMRouter(LLMBackend):
         messages = self._inject_routing_note(messages, cfg, classification)
         instance = self._get_instance(cfg)
 
+        # Wave 3.1: Partial-Response-Buffer. Wir sammeln die Tokens, während
+        # wir sie an den Consumer durchleiten, damit wir bei einem Mid-Stream-
+        # Crash dem nächsten Backend den begonnenen Text als Assistant-Kontext
+        # mitgeben können ("hier hat das vorherige Modell aufgehört, bitte
+        # naht-los weiter"). Speicher-Overhead ist begrenzt (typische Antwort
+        # <10KB), CPU-Overhead ist eine String-Concat pro Token.
         tokens_yielded = 0
+        partial_buf: list[str] = []
         try:
             it = instance.stream_chat(messages, tools=tools)
             while True:
@@ -524,6 +554,7 @@ class MultiLLMRouter(LLMBackend):
                 except StopAsyncIteration:
                     break
                 tokens_yielded += 1
+                partial_buf.append(token)
                 yield token
         except Exception as e:
             log.warning(
@@ -532,43 +563,66 @@ class MultiLLMRouter(LLMBackend):
                 tokens_yielded,
                 e,
             )
-            # Only show warning and fall back if we got NO tokens yet
-            # (if tokens came through, the response was already delivered to the user)
-            if (
-                tokens_yielded == 0
-                and cfg.provider != "local"
-                and cfg.name != "local-fallback"
-            ):
-                log.warning("Switching to local fallback after stream failure")
-                # Alle API-Backends der Reihe nach probieren (nach Priorität)
-                tried_names = {cfg.name}
-                api_candidates = [
-                    b for b in self.registry.list_enabled()
-                    if b.name not in tried_names
-                    and b.provider != "local"
-                    and not self._health.get(b.name, BackendHealth(b.name)).is_degraded
+
+            if cfg.provider == "local" or cfg.name == "local-fallback":
+                # Local-only setup: kein API-Fallback möglich, nur Fehler-Info.
+                if tokens_yielded == 0:
+                    yield f"\n\n❌ LLM Fehler: {str(e)}"
+                return
+
+            # Fallback-Kandidaten zusammenstellen (degraded rausfiltern – Wave 3.2)
+            tried_names = {cfg.name}
+            api_candidates = [
+                b for b in self.registry.list_enabled()
+                if b.name not in tried_names
+                and b.provider != "local"
+                and not self._health.get(b.name, BackendHealth(b.name)).is_degraded
+            ]
+
+            # Mid-stream: User sieht bereits Teil-Antwort, also visible notice
+            # + Continuation-Prompt für den nächsten Backend.
+            if tokens_yielded > 0:
+                partial = "".join(partial_buf)
+                yield "\n\n⚠️ Verbindung zum Backend abgebrochen – Fortsetzung…\n\n"
+                continue_messages = list(messages) + [
+                    Message(role="assistant", content=partial),
+                    Message(
+                        role="user",
+                        content="[automated] Deine Antwort wurde durch einen "
+                                "Verbindungsfehler abgeschnitten. Bitte fahre "
+                                "nahtlos fort, wo du aufgehört hast – ohne "
+                                "Wiederholung des bisherigen Texts.",
+                    ),
                 ]
-                for next_api in api_candidates:
-                    tried_names.add(next_api.name)
-                    log.info("Streaming fallback: trying '%s'", next_api.name)
-                    try:
-                        instance2 = self._get_instance(next_api)
-                        async for token in instance2.stream_chat(messages, tools=tools):
-                            yield token
-                        return
-                    except Exception as _e2:
-                        log.warning("Streaming fallback '%s' failed: %r", next_api.name, _e2)
-                # Alle API-Backends erschöpft → lokales Modell als letzter Ausweg
-                yield "\n\n⚠️ Cloud-APIs nicht erreichbar – lokales Modell übernimmt…\n\n"
+            else:
+                # Pre-stream: kein User-sichtbarer Output, normaler Fallback
+                continue_messages = messages
+                log.warning("Switching to fallback after pre-stream failure")
+
+            for next_api in api_candidates:
+                tried_names.add(next_api.name)
+                log.info(
+                    "Streaming fallback (%s): trying '%s'",
+                    "continuation" if tokens_yielded > 0 else "fresh",
+                    next_api.name,
+                )
                 try:
-                    async for token in self._local.stream_chat(messages):
+                    instance2 = self._get_instance(next_api)
+                    async for token in instance2.stream_chat(continue_messages, tools=tools):
                         yield token
-                except Exception as _le:
-                    log.error("Local fallback stream failed: %r", _le)
-                    yield f"\n\n❌ Lokales Modell nicht verfügbar: {str(_le)}\nBitte herunterladen: piclaw model download"
-            elif tokens_yielded == 0:
-                yield f"\n\n❌ LLM Fehler: {str(e)}"
-            # If tokens_yielded > 0: response already delivered, suppress the error silently
+                    return
+                except Exception as _e2:
+                    log.warning("Streaming fallback '%s' failed: %r", next_api.name, _e2)
+
+            # Alle API-Backends erschöpft → lokales Modell als letzter Ausweg
+            yield "\n\n⚠️ Cloud-APIs nicht erreichbar – lokales Modell übernimmt…\n\n"
+            try:
+                async for token in self._local.stream_chat(continue_messages):
+                    yield token
+            except Exception as _le:
+                log.error("Local fallback stream failed: %r", _le)
+                yield (f"\n\n❌ Lokales Modell nicht verfügbar: {str(_le)}\n"
+                       "Bitte herunterladen: piclaw model download")
 
     async def health_check(self) -> bool:
         # Für lokales Backend: Datei vorhanden?

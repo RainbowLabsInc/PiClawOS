@@ -687,29 +687,51 @@ class LLMHealthMonitor:
         for backend in backends:
             h = self._health.setdefault(backend.name, BackendHealth(name=backend.name))
 
-            # ── Rate-Limit Recovery ────────────────────────────────
+            # ── Rate-Limit Recovery (Wave 3.6: test-before-restore) ─────────
+            # Vorher wurde die Priorität sofort wiederhergestellt, sobald
+            # rate_limited_until abgelaufen war – auch wenn das Provider-
+            # Limit noch nicht zurückgesetzt war. Concurrent chat()-Calls
+            # konnten in dem schmalen Fenster wieder ein 429 einfangen.
+            # Jetzt: erst einen stillen Probe-Call schicken, nur bei Erfolg
+            # die Priorität restaurieren; bei Mißerfolg den Sperr-Timer
+            # nochmal 5 Minuten verlängern.
             if h.rate_limited_until and time.time() > h.rate_limited_until:
-                if h.original_priority is not None:
-                    self.registry.update(backend.name, priority=h.original_priority)
-                    log.info(
-                        "Backend '%s': Rate-Limit abgelaufen, Priorität %d wiederhergestellt",
-                        backend.name, h.original_priority
-                    )
-                    recovered.append(
-                        f"✅ `{backend.name}`: Rate-Limit abgelaufen – wiederhergestellt (Prio {h.original_priority})"
-                    )
-                    if not backend.name.startswith("auto-"):
-                        non_auto_recovered = True
-                h.rate_limited_until = 0.0
-                h.original_priority = None
-                h.is_tpd_limited = False
-                h.consecutive_failures = 0
-                self._all_api_down_notified = False
+                probe_code, probe_err = await self._test_backend(backend)
+                h.last_checked = time.time()
+                if probe_code is None:
+                    # Probe OK → voll wiederherstellen
+                    if h.original_priority is not None:
+                        self.registry.update(backend.name, priority=h.original_priority)
+                        log.info(
+                            "Backend '%s': Rate-Limit abgelaufen + Probe OK – Priorität %d wiederhergestellt",
+                            backend.name, h.original_priority
+                        )
+                        recovered.append(
+                            f"✅ `{backend.name}`: Rate-Limit abgelaufen – wiederhergestellt (Prio {h.original_priority})"
+                        )
+                        if not backend.name.startswith("auto-"):
+                            non_auto_recovered = True
+                    h.rate_limited_until = 0.0
+                    h.original_priority = None
+                    h.is_tpd_limited = False
+                    h.consecutive_failures = 0
+                    self._all_api_down_notified = False
 
-                # Re-enable falls deaktiviert
-                if not backend.enabled:
-                    self.registry.update(backend.name, enabled=True)
-                    log.info("Backend '%s': Re-enabled nach Rate-Limit Recovery", backend.name)
+                    # Re-enable falls deaktiviert
+                    if not backend.enabled:
+                        self.registry.update(backend.name, enabled=True)
+                        log.info("Backend '%s': Re-enabled nach Rate-Limit Recovery", backend.name)
+                    # Probe schon erledigt – nicht erneut testen unten
+                    continue
+                else:
+                    # Probe fehlgeschlagen → Sperre +5min, original priority bleibt geparkt
+                    h.rate_limited_until = time.time() + 300
+                    log.warning(
+                        "Backend '%s': Rate-Limit-Probe fehlgeschlagen (%s) – "
+                        "+5min weiter gesperrt",
+                        backend.name, probe_code,
+                    )
+                    continue
 
             # Noch rate-limited? Nicht erneut testen.
             if h.rate_limited_until > time.time():

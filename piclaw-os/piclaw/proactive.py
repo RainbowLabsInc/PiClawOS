@@ -48,12 +48,87 @@ class ProactiveRunner:
             len(self.registry.enabled()),
         )
 
+        # Wave 3.9: Cron-Routinen aus der Downtime nachholen, bevor die
+        # regulären Loops starten. Eine Routine, die täglich 07:00 läuft
+        # und der Pi war über die Zeit aus, würde sonst still übersprungen.
+        await self._catch_up_missed_routines()
+
         # Tasks parallel starten
         await asyncio.gather(
             self._routine_loop(),
             self._threshold_loop(),
             return_exceptions=True,
         )
+
+    # ── Missed-Run Catch-Up (Wave 3.9) ────────────────────────────
+
+    async def _catch_up_missed_routines(self) -> None:
+        """Beim Boot: alle Routinen nachholen, die während Downtime fällig waren.
+
+        Begrenzt auf ein 24h-Fenster nach hinten. Längere Lücken sind
+        wahrscheinlich geplante Maintenance – die wollen wir nicht
+        stundenweise nachholen (Reboot um 9:00 würde sonst sieben
+        verpasste stündliche Tasks auf einmal feuern).
+
+        Pro Routine wird höchstens EIN Catch-Up-Run gefeuert.
+        """
+        try:
+            from croniter import croniter as _croniter
+        except ImportError:
+            log.debug("croniter not installed – skipping missed-run catch-up")
+            return
+
+        MAX_CATCHUP_HOURS = 24
+        now = datetime.now()
+        caught_up = 0
+
+        for routine in self.registry.enabled():
+            try:
+                cron = _croniter(routine.cron, now, ret_type=datetime)
+                last_due = cron.get_prev(datetime)
+
+                age_s = (now - last_due).total_seconds()
+                if age_s > MAX_CATCHUP_HOURS * 3600:
+                    continue
+                if age_s < 60:
+                    # Würde im normalen _routine_loop ohnehin gleich feuern
+                    continue
+
+                # Hat die Routine seit last_due schon gelaufen?
+                last_run_str = routine.last_run or ""
+                last_run = None
+                if last_run_str:
+                    try:
+                        last_run = datetime.fromisoformat(last_run_str)
+                    except ValueError:
+                        try:
+                            # Fallback für ältere Formate ohne Microseconds
+                            last_run = datetime.strptime(
+                                last_run_str[:19], "%Y-%m-%dT%H:%M:%S"
+                            )
+                        except ValueError:
+                            last_run = None
+
+                if last_run is None or last_run < last_due:
+                    log.info(
+                        "Routine '%s': missed run from %s (vor %.0f min) – catching up",
+                        routine.name,
+                        last_due.strftime("%Y-%m-%d %H:%M"),
+                        age_s / 60,
+                    )
+                    create_background_task(
+                        self._run_routine_safe(routine),
+                        name=f"routine-catchup-{routine.id}",
+                    )
+                    caught_up += 1
+                    # Staffeln, damit nicht alle Catch-Ups gleichzeitig
+                    # auf hub.send_all() drücken (Telegram-Rate-Limit)
+                    await asyncio.sleep(2)
+            except Exception as e:
+                log.warning("Catch-up check '%s' Fehler: %s", routine.name, e)
+
+        if caught_up:
+            log.info("Catch-up complete: %d missed routine(s) re-fired", caught_up)
 
     def stop(self) -> None:
         self._stop.set()

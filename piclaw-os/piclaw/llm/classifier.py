@@ -15,9 +15,19 @@ These tags are then matched against the registry to select a backend.
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass
 
 log = logging.getLogger("piclaw.llm.classifier")
+
+# ── Stage-2 Backoff (Wave 3.5) ───────────────────────────────────
+# Wenn der LLM-Fallback wiederholt timeoutet, hängt vermutlich das
+# Backend selbst – jede weitere Anfrage wartet erneut volle 8s und
+# blockiert den Hauptpfad. Nach N Timeouts in einem rollenden Fenster
+# wird Stage 2 für eine Cool-Down-Phase deaktiviert.
+_STAGE2_MAX_TIMEOUTS = 2
+_STAGE2_WINDOW_S = 60.0  # Innerhalb welcher Zeit die Timeouts zählen
+_STAGE2_COOLDOWN_S = 300.0  # Wie lange Stage 2 deaktiviert bleibt
 
 
 @dataclass
@@ -193,6 +203,31 @@ class TaskClassifier:
             (re.compile(pattern, re.IGNORECASE), tags, conf)
             for pattern, tags, conf in PATTERN_RULES
         ]
+        # Stage-2 Backoff: rollendes Fenster für Timeout-Zähler + Cool-Down-Ende
+        self._stage2_timeouts: list[float] = []  # monotonic timestamps
+        self._stage2_disabled_until: float = 0.0
+
+    def _stage2_available(self) -> bool:
+        """True wenn Stage 2 jetzt benutzt werden darf."""
+        if self._llm is None:
+            return False
+        return time.monotonic() >= self._stage2_disabled_until
+
+    def _stage2_record_timeout(self) -> None:
+        """Trackt einen Timeout; deaktiviert Stage 2 falls Schwelle erreicht."""
+        now = time.monotonic()
+        # Alte Timeouts aus dem Fenster werfen
+        self._stage2_timeouts = [
+            t for t in self._stage2_timeouts if now - t < _STAGE2_WINDOW_S
+        ]
+        self._stage2_timeouts.append(now)
+        if len(self._stage2_timeouts) >= _STAGE2_MAX_TIMEOUTS:
+            self._stage2_disabled_until = now + _STAGE2_COOLDOWN_S
+            self._stage2_timeouts.clear()
+            log.warning(
+                "Classifier Stage 2 disabled for %.0fs after %d timeouts in %.0fs",
+                _STAGE2_COOLDOWN_S, _STAGE2_MAX_TIMEOUTS, _STAGE2_WINDOW_S,
+            )
 
     async def classify(self, text: str) -> ClassificationResult:
         """Main entry point. Returns tags for the given user message."""
@@ -205,16 +240,17 @@ class TaskClassifier:
         # Stage 1: Pattern matching
         result = self._pattern_classify(text)
 
-        # Stage 2: LLM fallback if confidence is low and LLM available
-        if result.confidence < 0.65 and self._llm:
+        # Stage 2: LLM fallback if confidence is low and LLM available + not in cooldown
+        if result.confidence < 0.65 and self._stage2_available():
             try:
                 llm_result = await asyncio.wait_for(
                     self._llm_classify(text), timeout=8.0
                 )
                 if llm_result.confidence > result.confidence:
                     return llm_result
-            except TimeoutError:
+            except (TimeoutError, asyncio.TimeoutError):
                 log.debug("LLM classification timed out, using pattern result.")
+                self._stage2_record_timeout()
             except Exception as e:
                 log.debug("LLM classification failed: %s", e)
 
@@ -267,13 +303,21 @@ class TaskClassifier:
         # Sort tags by confidence, take top ones
         sorted_tags = sorted(matched_tags.items(), key=lambda x: x[1], reverse=True)
         top_tags = [t for t, _ in sorted_tags[:4]]
-        confidence = sorted_tags[0][1]
+
+        # Konfidenz aus Pattern-Konsens: max + Anteil der gewichteten Top-3.
+        # 1 starkes Pattern allein (max=0.9) liefert 0.6*0.9 + 0.4*0.9 = 0.9.
+        # 3 schwache Patterns (max=0.7, mean=0.7) liefern 0.6*0.7 + 0.4*0.7 = 0.7.
+        # 1 starkes + 2 mittlere (0.9, 0.7, 0.7) liefern 0.6*0.9 + 0.4*0.77 ≈ 0.85.
+        # → Mehr Konsens hebt die Konfidenz, einzelne Ausreißer dominieren nicht.
+        top_scores = [s for _, s in sorted_tags[:3]]
+        mean_top = sum(top_scores) / len(top_scores)
+        confidence = round(0.6 * sorted_tags[0][1] + 0.4 * mean_top, 3)
 
         return ClassificationResult(
             tags=top_tags,
             confidence=confidence,
             method="pattern",
-            reasoning=f"Pattern matched: {top_tags}",
+            reasoning=f"Pattern matched: {top_tags} (max={sorted_tags[0][1]:.2f}, mean_top3={mean_top:.2f})",
         )
 
     # ── Stage 2: LLM classification ───────────────────────────────
