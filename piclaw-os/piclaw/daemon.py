@@ -145,6 +145,24 @@ async def _daemon_main():
     except Exception as e:
         log.warning("Proaktiver Agent konnte nicht starten: %s", e)
 
+    # ── Reminder Runner ────────────────────────────────────────────
+    try:
+        from piclaw.tools.reminders import ReminderRunner
+
+        if _hub:
+            _reminder_runner = ReminderRunner(agent.reminders, _hub)
+            create_background_task(
+                _reminder_runner.start(stop), name="reminder-runner"
+            )
+            log.info(
+                "Reminder runner gestartet (%d offene Reminder)",
+                len(agent.reminders.all()),
+            )
+        else:
+            log.info("Reminder runner übersprungen – kein Messaging Hub.")
+    except Exception as e:
+        log.warning("Reminder runner konnte nicht starten: %s", e)
+
     # ── Metrics Engine ─────────────────────────────────────────────
     try:
         from piclaw.metrics import start_collector

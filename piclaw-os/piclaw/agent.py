@@ -148,6 +148,11 @@ from piclaw.tools import gpio as gpio_mod
 from piclaw.tools import services as services_mod
 from piclaw.tools import updater as updater_mod
 from piclaw.tools.scheduler import Scheduler
+from piclaw.tools.reminders import (
+    ReminderStore,
+    TOOL_DEFS as REMINDER_TOOL_DEFS,
+    build_handlers as build_reminder_handlers,
+)
 
 from piclaw.memory import QMDBackend, MemoryMiddleware
 from piclaw.memory.tools import TOOL_DEFS as MEMORY_TOOL_DEFS
@@ -213,6 +218,7 @@ BASE_CAPABILITIES = """\
 - GPIO-Pins lesen und steuern (Sensoren, LEDs, Relais)
 - systemd-Services starten, stoppen, überwachen
 - Wiederkehrende Hintergrundaufgaben planen
+- Reminder anlegen (`reminder_create`) – einmalig oder wiederkehrend. Bei „erinnere mich an X" das Tool nutzen; fehlt die Uhrzeit, EXPLIZIT nachfragen statt zu raten. `when` immer als ISO-Datetime relativ zur aktuellen Zeit berechnen.
 - System-Updates durchführen
 - Webseiten abrufen und HTTP-Anfragen stellen
 - Persistentes Memory durchsuchen und beschreiben
@@ -257,6 +263,7 @@ class Agent:
         self.llm = create_backend(cfg)
         self.scheduler = Scheduler()
         self.scheduler.set_agent(self)
+        self.reminders = ReminderStore()
         self.qmd = QMDBackend()
         self.memory = MemoryMiddleware(self.qmd, self.llm)
         self.sa_registry = SubAgentRegistry()
@@ -286,6 +293,7 @@ class Agent:
             self.scheduler.TOOL_DEFS if hasattr(self.scheduler, "TOOL_DEFS") else [],
             self.scheduler.build_handlers(),
         )
+        _reg(REMINDER_TOOL_DEFS, build_reminder_handlers(self.reminders))
         _reg(MEMORY_TOOL_DEFS, build_memory_handlers(self.qmd))
         _reg(AGENT_TOOL_DEFS, build_agent_handlers(self._telegram_send))
         _reg(LLM_MGMT_TOOL_DEFS, build_llm_mgmt_handlers(self.llm.registry, self.llm))
