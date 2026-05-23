@@ -341,7 +341,27 @@ class SubAgentRunner:
         if self.memory_log and result and not _intentionally_silent:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
             mem_entry = f"[{ts}] Sub-Agent '{agent.name}' ({status}): {result[:800]}"
-            create_background_task(self.memory_log(mem_entry))
+
+            async def _memory_log_with_timeout(entry: str, agent_name: str) -> None:
+                """Wrap memory_log in a timeout so a hung QMD write cannot
+                block this sub-agent's next iteration. 5s is generous for a
+                local SQLite + embedding update; anything beyond suggests
+                QMD itself is stuck and the entry would be stale anyway.
+                """
+                try:
+                    await asyncio.wait_for(self.memory_log(entry), timeout=5.0)
+                except asyncio.TimeoutError:
+                    log.warning(
+                        "memory_log timeout for sub-agent '%s' (entry dropped)",
+                        agent_name,
+                    )
+                except Exception as e:
+                    log.warning("memory_log failed for '%s': %s", agent_name, e)
+
+            create_background_task(
+                _memory_log_with_timeout(mem_entry, agent.name),
+                name=f"memory-log-{agent.id}",
+            )
 
         # ── Notify via messaging hub ────────────────────────────────
         _has_output = bool(

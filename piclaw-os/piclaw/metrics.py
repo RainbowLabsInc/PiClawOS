@@ -61,7 +61,11 @@ class MetricsDB:
 
     @contextmanager
     def _conn(self):
-        con = sqlite3.connect(self.path, check_same_thread=False)
+        # timeout= ist Python-Wrapper-Timeout; busy_timeout ist SQLite-intern
+        # und greift bei jeder Operation, nicht nur beim ersten Connect.
+        # Auf Pi-Hardware mit gleichzeitigem Crawler+Watchdog+API-Zugriff
+        # sind kurze 5s-Defaults zu wenig.
+        con = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
         con.row_factory = sqlite3.Row
         con.execute(
             "PRAGMA journal_mode=WAL"
@@ -69,6 +73,7 @@ class MetricsDB:
         con.execute(
             "PRAGMA synchronous=NORMAL"
         )  # Geschwindigkeit ohne Datenverlust-Risiko
+        con.execute("PRAGMA busy_timeout=30000")  # 30s Retry vor "database is locked"
         con.execute("PRAGMA cache_size=-4000")  # 4 MB Page-Cache
         try:
             yield con

@@ -77,19 +77,47 @@ SECRETS_BLOCKLIST = [
 # ── Key Derivation ───────────────────────────────────────────────────────────
 
 def _get_pi_serial() -> str:
-    """Liest die CPU-Seriennummer des Raspberry Pi."""
+    """Liest die CPU-Seriennummer des Raspberry Pi.
+
+    Reihenfolge:
+      1. /proc/cpuinfo "Serial" – auf Pi-Hardware immer da, eindeutig pro Gerät
+      2. /etc/machine-id        – auf jedem systemd-System vorhanden, eindeutig pro Installation
+      3. $PICLAW_SALT           – manuelle Override für nicht-Pi-Hosts (z.B. Tests, CI)
+
+    Frühere Versionen fielen am Ende auf den Literal-String
+    "piclaw-default-serial" zurück – das machte den Fernet-Key für jeden
+    deterministisch berechenbar, der secrets.enc + die installierte
+    Codebase besaß. Statt stillem Fallback werfen wir jetzt RuntimeError,
+    damit der Operator den Mangel explizit beheben muss.
+    """
     try:
-        for line in open("/proc/cpuinfo"):
-            if line.strip().startswith("Serial"):
-                return line.split(":")[1].strip()
-    except Exception:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.strip().startswith("Serial"):
+                    val = line.split(":")[1].strip()
+                    if val:
+                        return val
+    except OSError:
         pass
-    # Fallback: hostname + machine-id
+
     try:
-        mid = Path("/etc/machine-id").read_text().strip()
-        return mid
-    except Exception:
-        return "piclaw-default-serial"
+        mid = Path("/etc/machine-id").read_text(encoding="utf-8").strip()
+        if mid:
+            return mid
+    except OSError:
+        pass
+
+    env_salt = os.environ.get("PICLAW_SALT", "").strip()
+    if env_salt:
+        return env_salt
+
+    raise RuntimeError(
+        "secrets: keine eindeutige Hardware-Identität gefunden. "
+        "Weder /proc/cpuinfo (Pi-Serial) noch /etc/machine-id verfügbar, "
+        "und $PICLAW_SALT ist nicht gesetzt. Bitte PICLAW_SALT auf einen "
+        "stabilen, gerätespezifischen Wert setzen – sonst kann der Secret-"
+        "Store nicht sicher entschlüsselt werden."
+    )
 
 
 def _derive_key() -> bytes:

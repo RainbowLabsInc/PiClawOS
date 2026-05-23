@@ -164,11 +164,20 @@ class RoutineRegistry:
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        from piclaw.fileutils import safe_write_json
+        from piclaw.fileutils import safe_write_json, with_file_lock
 
-        safe_write_json(
-            self._path, [r.to_dict() for r in self._routines.values()], label="routines"
-        )
+        # Cross-process Lock gegen parallele Writer (api↔daemon teilen sich
+        # routines.json). Ohne Lock konnte ein paralleler Save eine frisch
+        # hinzugefügte Routine wieder verschwinden lassen.
+        try:
+            with with_file_lock(self._path):
+                safe_write_json(
+                    self._path,
+                    [r.to_dict() for r in self._routines.values()],
+                    label="routines",
+                )
+        except TimeoutError as e:
+            log.error("Routines registry: %s", e)
 
     def all(self) -> list[Routine]:
         return list(self._routines.values())

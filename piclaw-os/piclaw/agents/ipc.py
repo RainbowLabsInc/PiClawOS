@@ -111,10 +111,15 @@ def _ensure_dirs():
 @contextmanager
 def _conn(db_path: Path):
     _ensure_dirs()
-    con = sqlite3.connect(str(db_path), timeout=10, check_same_thread=False)
+    # timeout= ist Python-Wrapper-Timeout; busy_timeout ist SQLite-intern und
+    # greift bei jeder Operation, nicht nur beim ersten Connect. 30s ist
+    # großzügig für Pi-Hardware unter Last (crawler+watchdog schreiben
+    # parallel zu /api lesenden Calls).
+    con = sqlite3.connect(str(db_path), timeout=30, check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
+    con.execute("PRAGMA busy_timeout=30000")
     try:
         yield con
         con.commit()

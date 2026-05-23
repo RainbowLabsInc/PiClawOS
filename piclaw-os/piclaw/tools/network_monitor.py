@@ -140,17 +140,29 @@ def _is_valid_network(net: str) -> bool:
 
 async def _get_local_range() -> str:
     """Attempts to find the local network range (default fallback: 192.168.1.0/24)."""
+    proc = None
     try:
         proc = await asyncio.create_subprocess_shell(
             "ip -4 route show default | awk '{print $3}'",
             stdout=asyncio.subprocess.PIPE,
         )
-        out, _ = await proc.communicate()
+        # `ip route` is normally instant but if the kernel is in a weird
+        # network state (e.g. during interface flapping) it can block.
+        # 5s is generous; if even that times out, fall back to default range.
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
         gateway = out.decode().strip()
         if gateway:
             # Simple assumption: /24 network
             base = ".".join(gateway.split(".")[:3])
             return f"{base}.0/24"
+    except asyncio.TimeoutError:
+        logger.warning("ip-route lookup timeout – using fallback /24 range")
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
     except Exception:
         pass
     return "192.168.1.0/24"
@@ -235,12 +247,25 @@ async def check_new_devices() -> list[NetworkDevice]:
 async def ping_host(host: str) -> bool:
     if not _is_valid_ip_or_host(host):
         return False
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             "ping", "-c", "1", "-W", "2", host, stdout=asyncio.subprocess.DEVNULL
         )
-        await proc.wait()
+        # ping selbst hat schon -W 2 (Antwort-Timeout), aber wenn der
+        # ping-Binary irgendwo hängt (DNS-Lookup, ICMP-Filter ohne ICMP-Unreachable)
+        # garantiert das -W kein Prozess-Ende. Outer wait_for setzt eine harte
+        # Obergrenze und killt den Prozess sonst.
+        await asyncio.wait_for(proc.wait(), timeout=5)
         return proc.returncode == 0
+    except asyncio.TimeoutError:
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
+        return False
     except Exception:
         return False
 

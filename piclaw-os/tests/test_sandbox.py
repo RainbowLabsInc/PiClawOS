@@ -181,3 +181,52 @@ class TestAuditAgentTools:
         lines = {l.strip() for l in audit.splitlines()}
         svc_line = next(l for l in lines if "service_stop" in l)
         assert "✓" in svc_line or "ALLOWED" in svc_line
+
+
+# ── Invariants the sandbox depends on ─────────────────────────────
+
+class TestSandboxInvariants:
+    """The filter normalises tool names to lowercase before comparing
+    against BLOCKED_ALWAYS / BLOCKED_BY_DEFAULT. If a future maintainer
+    accidentally puts a mixed-case entry into either frozenset, that
+    entry would never match a real tool – silent security regression.
+    These contract tests fail loudly when that happens.
+    """
+
+    def test_blocked_always_is_lowercase(self):
+        for name in BLOCKED_ALWAYS:
+            assert name == name.lower(), (
+                f"BLOCKED_ALWAYS entry '{name}' must be lowercase – "
+                "the sandbox normalises tool names via .lower() before matching."
+            )
+
+    def test_blocked_by_default_is_lowercase(self):
+        for name in BLOCKED_BY_DEFAULT:
+            assert name == name.lower(), (
+                f"BLOCKED_BY_DEFAULT entry '{name}' must be lowercase – "
+                "the sandbox normalises tool names via .lower() before matching."
+            )
+
+    def test_no_overlap_between_tiers(self):
+        """A tool listed in BLOCKED_ALWAYS shouldn't also live in
+        BLOCKED_BY_DEFAULT – the Tier-1 check returns first, but
+        the duplicate would leak intent (is it always-blocked or
+        opt-in?). Pure hygiene check."""
+        assert BLOCKED_ALWAYS.isdisjoint(BLOCKED_BY_DEFAULT), (
+            f"Tools in both tiers: {BLOCKED_ALWAYS & BLOCKED_BY_DEFAULT}"
+        )
+
+    def test_capitalised_tool_name_does_not_bypass_blocklist(self):
+        """End-to-end audit: weird capitalisation must not slip through."""
+        for blocked_name in BLOCKED_ALWAYS:
+            variations = [blocked_name.upper(), blocked_name.title(),
+                          blocked_name.swapcase()]
+            for variant in variations:
+                all_tools = tools(variant, "safe_tool")
+                result = filter_tools_for_subagent(
+                    all_tools, [], trusted=True, privileged=False
+                )
+                assert variant not in names(result), (
+                    f"'{variant}' (variant of blocked '{blocked_name}') "
+                    "slipped through the sandbox filter"
+                )

@@ -120,25 +120,57 @@ class Watchdog:
         """
         Attach a SQLite UPDATE/DELETE trigger so the watchdog DB is truly
         append-only. Called once on startup.
+
+        Migration-Pfad: Wenn die DB schon aus einer früheren Version
+        existiert, deren Tabellen ohne Trigger angelegt wurden, ist
+        `CREATE TRIGGER IF NOT EXISTS` zwar idempotent – aber wenn ein
+        zuvor angelegter Trigger anders hieß (z.B. Tippfehler), bleiben
+        wir blind. Wir prüfen daher explizit sqlite_master und legen
+        fehlende Trigger nach. Außerdem busy_timeout + Connection-Close
+        im finally falls Trigger-Setup wirft.
         """
+        con = None
         try:
-            con = sqlite3.connect(str(WATCHDOG_DB))
+            con = sqlite3.connect(str(WATCHDOG_DB), timeout=30)
+            con.execute("PRAGMA busy_timeout=30000")
+
+            # Welche Trigger existieren bereits?
+            existing = {
+                row[0] for row in con.execute(
+                    "SELECT name FROM sqlite_master WHERE type='trigger'"
+                ).fetchall()
+            }
+
+            installed = 0
             for tbl in ("alerts", "reports", "integrity_log"):
-                con.execute(f"""
-                    CREATE TRIGGER IF NOT EXISTS no_update_{tbl}
-                    BEFORE UPDATE ON {tbl}
-                    BEGIN SELECT RAISE(ABORT, 'Updates not allowed on {tbl}'); END
-                """)
-                con.execute(f"""
-                    CREATE TRIGGER IF NOT EXISTS no_delete_{tbl}
-                    BEFORE DELETE ON {tbl}
-                    BEGIN SELECT RAISE(ABORT, 'Deletes not allowed on {tbl}'); END
-                """)
+                if f"no_update_{tbl}" not in existing:
+                    con.execute(f"""
+                        CREATE TRIGGER no_update_{tbl}
+                        BEFORE UPDATE ON {tbl}
+                        BEGIN SELECT RAISE(ABORT, 'Updates not allowed on {tbl}'); END
+                    """)
+                    installed += 1
+                if f"no_delete_{tbl}" not in existing:
+                    con.execute(f"""
+                        CREATE TRIGGER no_delete_{tbl}
+                        BEFORE DELETE ON {tbl}
+                        BEGIN SELECT RAISE(ABORT, 'Deletes not allowed on {tbl}'); END
+                    """)
+                    installed += 1
             con.commit()
-            con.close()
-            log.info("Watchdog DB append-only triggers installed.")
+
+            if installed:
+                log.info("Watchdog DB append-only triggers installed (%d new).", installed)
+            else:
+                log.debug("Watchdog DB append-only triggers already present.")
         except Exception as e:
             log.error("Failed to install DB triggers: %s", e)
+        finally:
+            if con is not None:
+                try:
+                    con.close()
+                except Exception:
+                    pass
 
     # ── System checks ─────────────────────────────────────────────
 

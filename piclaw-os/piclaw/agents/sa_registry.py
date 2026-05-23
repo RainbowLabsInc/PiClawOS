@@ -171,59 +171,74 @@ class SubAgentRegistry:
              gets pulled into our memory (unless tombstoned).
           5. Write merged state. Clear tombstones (consumed for this cycle).
 
-        Race window: between read and write, the other process might also
-        save. With safe_write_json's atomic rename there is no torn file,
-        but the last writer's merge wins. The window is small (milliseconds)
-        and acceptable; full lock-free correctness would require fcntl.
+        Der gesamte read-merge-write-Zyklus läuft unter with_file_lock,
+        damit ein paralleler Writer im anderen Prozess (api ↔ daemon)
+        nicht zwischen unserem Re-Read und unserem atomic write seine
+        eigene Merge-Operation einschiebt – das alte "last writer wins"
+        konnte sonst frische Sub-Agents wieder verschwinden lassen.
         """
+        from piclaw.fileutils import safe_write_json, with_file_lock
+
         SA_REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-        on_disk: dict = {}
-        if SA_REGISTRY_FILE.exists():
-            try:
-                on_disk = json.loads(SA_REGISTRY_FILE.read_text(encoding="utf-8"))
-            except Exception as e:
-                log.warning("Sub-agent registry: re-read for merge failed: %s", e)
+        try:
+            lock_ctx = with_file_lock(SA_REGISTRY_FILE)
+        except Exception as e:  # pragma: no cover
+            log.error("Sub-agent registry: lock setup failed: %s", e)
+            return
 
-        # Step 2: drop in-memory agents the other process removed
-        for aid in list(self._loaded_ids):
-            if aid not in on_disk and aid in self._agents:
-                log.info(
-                    "Sub-agent registry: dropping cached agent '%s' "
-                    "(removed by other process)",
-                    self._agents[aid].name,
-                )
-                del self._agents[aid]
-        # Forget loaded_ids that no longer exist on disk
-        self._loaded_ids = {aid for aid in self._loaded_ids if aid in on_disk}
+        try:
+            with lock_ctx:
+                on_disk: dict = {}
+                if SA_REGISTRY_FILE.exists():
+                    try:
+                        on_disk = json.loads(SA_REGISTRY_FILE.read_text(encoding="utf-8"))
+                    except Exception as e:
+                        log.warning("Sub-agent registry: re-read for merge failed: %s", e)
 
-        # Step 4: pick up external additions (unless tombstoned)
-        for aid, raw in on_disk.items():
-            if aid in self._agents or aid in self._tombstones:
-                continue
-            try:
-                self._agents[aid] = SubAgentDef(**raw)
-                self._loaded_ids.add(aid)
-            except Exception as e:
-                log.warning(
-                    "Sub-agent registry: foreign agent '%s' deserialization "
-                    "failed: %s", aid, e,
-                )
+                # Step 2: drop in-memory agents the other process removed
+                for aid in list(self._loaded_ids):
+                    if aid not in on_disk and aid in self._agents:
+                        log.info(
+                            "Sub-agent registry: dropping cached agent '%s' "
+                            "(removed by other process)",
+                            self._agents[aid].name,
+                        )
+                        del self._agents[aid]
+                # Forget loaded_ids that no longer exist on disk
+                self._loaded_ids = {aid for aid in self._loaded_ids if aid in on_disk}
 
-        # Step 5: build final state from current memory, minus tombstones
-        final = {
-            aid: asdict(agent)
-            for aid, agent in self._agents.items()
-            if aid not in self._tombstones
-        }
+                # Step 4: pick up external additions (unless tombstoned)
+                for aid, raw in on_disk.items():
+                    if aid in self._agents or aid in self._tombstones:
+                        continue
+                    try:
+                        self._agents[aid] = SubAgentDef(**raw)
+                        self._loaded_ids.add(aid)
+                    except Exception as e:
+                        log.warning(
+                            "Sub-agent registry: foreign agent '%s' deserialization "
+                            "failed: %s", aid, e,
+                        )
 
-        from piclaw.fileutils import safe_write_json
-        if safe_write_json(SA_REGISTRY_FILE, final, label="sa_registry"):
-            # Tombstones served their purpose for this save cycle.
-            # Don't keep them forever — that would block re-creation
-            # by the other process (e.g. mainagent re-adding).
-            self._tombstones.clear()
-            self._loaded_ids = set(final.keys())
+                # Step 5: build final state from current memory, minus tombstones
+                final = {
+                    aid: asdict(agent)
+                    for aid, agent in self._agents.items()
+                    if aid not in self._tombstones
+                }
+
+                if safe_write_json(SA_REGISTRY_FILE, final, label="sa_registry"):
+                    # Tombstones served their purpose for this save cycle.
+                    # Don't keep them forever — that would block re-creation
+                    # by the other process (e.g. mainagent re-adding).
+                    self._tombstones.clear()
+                    self._loaded_ids = set(final.keys())
+        except TimeoutError as e:
+            # Falls der Lock 10s nicht zu kriegen ist, hängt vermutlich ein
+            # zweiter Writer. Wir versuchen den Save später erneut; verlieren
+            # höchstens diese eine Mutation, kein Datenkorruption.
+            log.error("Sub-agent registry: %s", e)
 
     # ── CRUD ──────────────────────────────────────────────────────
 

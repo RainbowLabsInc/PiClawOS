@@ -107,10 +107,19 @@ class LLMRegistry:
 
     def _save(self):
         REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        data = {k: asdict(v) for k, v in self._backends.items()}
-        from piclaw.fileutils import safe_write_json
+        from piclaw.fileutils import safe_write_json, with_file_lock
 
-        safe_write_json(REGISTRY_FILE, data, label="llm_registry")
+        # Cross-process Lock damit zwei parallele Writer (z.B. api↔daemon)
+        # nicht ihre lokalen In-Memory-Snapshots gegenseitig überschreiben.
+        # Read-Modify-Write läuft hier zwar im selben Prozess (kein Re-Read
+        # vor dem Write), aber unter Last kann der Hot-Reload-Loop in der
+        # anderen Instanz mitten in einem add()/update() landen.
+        try:
+            with with_file_lock(REGISTRY_FILE):
+                data = {k: asdict(v) for k, v in self._backends.items()}
+                safe_write_json(REGISTRY_FILE, data, label="llm_registry")
+        except TimeoutError as e:
+            log.error("LLM registry: %s", e)
 
     # ── CRUD ──────────────────────────────────────────────────────
 
