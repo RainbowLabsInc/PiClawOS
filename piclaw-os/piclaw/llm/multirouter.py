@@ -256,11 +256,26 @@ class MultiLLMRouter(LLMBackend):
                 break
 
         # Classify the task
+        t_classify = time.time()
         classification = await self._classifier.classify(user_text)
+        classify_ms = int((time.time() - t_classify) * 1000)
         log.info(
             f"Task classified as {classification.tags} "
             f"(confidence={classification.confidence:.2f}, method={classification.method})"
         )
+
+        # Telemetry: classify-Phase (Obs.3)
+        try:
+            from piclaw.metrics import record_routing_event
+            record_routing_event(
+                "classify",
+                reason=classification.method,
+                latency_ms=classify_ms,
+                classifier_tag=",".join(classification.tags),
+                classifier_conf=float(classification.confidence),
+            )
+        except Exception:
+            pass  # Telemetrie darf nie crashen
 
         # Find matching backends
         candidates = self.registry.find_by_tags(classification.tags, min_overlap=1)
@@ -433,7 +448,22 @@ class MultiLLMRouter(LLMBackend):
             + extra_api
         )
 
+        # Telemetry: select-Phase (Obs.3) — welche Reihenfolge wurde gewählt?
+        try:
+            from piclaw.metrics import record_routing_event
+            record_routing_event(
+                "select",
+                backend=primary.name,
+                reason="primary",
+                attempted=[c.name for c in ordered],
+                classifier_tag=",".join(classification.tags),
+                classifier_conf=float(classification.confidence),
+            )
+        except Exception:
+            pass
+
         last_exc: Exception | None = None
+        attempt_names: list[str] = []
         for cfg in ordered:
             if cfg.name in tried:
                 continue
@@ -445,6 +475,7 @@ class MultiLLMRouter(LLMBackend):
                 continue
 
             tried.add(cfg.name)
+            attempt_names.append(cfg.name)
             t_start = time.time()
             try:
                 instance = self._get_instance(cfg)
@@ -455,21 +486,67 @@ class MultiLLMRouter(LLMBackend):
 
             try:
                 resp = await instance.chat(messages, tools=tools)
+                latency_ms = int((time.time() - t_start) * 1000)
                 self._health.setdefault(cfg.name, BackendHealth(cfg.name)).record_success(
-                    (time.time() - t_start) * 1000
+                    latency_ms
                 )
-                log.info("Response from '%s' (%sms)", cfg.name, int((time.time() - t_start) * 1000))
+                log.info("Response from '%s' (%sms)", cfg.name, latency_ms)
                 self._report_to_monitor("success", cfg.name)
+                # Telemetry: erfolgreicher call + final
+                try:
+                    from piclaw.metrics import record_routing_event
+                    record_routing_event(
+                        "call",
+                        backend=cfg.name,
+                        reason="success",
+                        latency_ms=latency_ms,
+                    )
+                    record_routing_event(
+                        "final",
+                        backend=cfg.name,
+                        reason=(
+                            "primary" if cfg.name == primary.name
+                            else "fallback"
+                        ),
+                        attempted=attempt_names,
+                        latency_ms=latency_ms,
+                    )
+                except Exception:
+                    pass
                 return resp
             except Exception as e:
+                latency_ms = int((time.time() - t_start) * 1000)
                 self._health.setdefault(cfg.name, BackendHealth(cfg.name)).record_failure()
                 log.warning("Backend '%s' failed: %s", cfg.name, e)
                 self._report_to_monitor("error", cfg.name, self._extract_error_code(e), str(e))
                 last_exc = e
+                # Telemetry: gescheiterter call
+                try:
+                    from piclaw.metrics import record_routing_event
+                    record_routing_event(
+                        "call",
+                        backend=cfg.name,
+                        reason="error",
+                        latency_ms=latency_ms,
+                        extra={"err": str(e)[:200],
+                               "code": self._extract_error_code(e)},
+                    )
+                except Exception:
+                    pass
 
         # All API backends exhausted → local fallback
         if primary.provider != "local":
             log.warning("All API backends failed, using local model.")
+            try:
+                from piclaw.metrics import record_routing_event
+                record_routing_event(
+                    "final",
+                    backend="local",
+                    reason="local-fallback-all-api-failed",
+                    attempted=attempt_names,
+                )
+            except Exception:
+                pass
             return await self._local.chat(messages, tools=tools)
 
         if last_exc:

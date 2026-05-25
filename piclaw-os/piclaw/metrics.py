@@ -96,6 +96,31 @@ class MetricsDB:
             con.execute(
                 "CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics(name, ts)"
             )
+            # ── routing_events (Obs.3) ─────────────────────────────
+            # Telemetry pro Request: classify → select → call(s) → final.
+            # Per request_id zusammen geclustert, sodass /api/trace/{rid}
+            # eine zeitlich geordnete Sicht aller Routing-Entscheidungen
+            # innerhalb eines Requests liefert.
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS routing_events (
+                    ts              INTEGER NOT NULL,
+                    request_id      TEXT    NOT NULL,
+                    phase           TEXT    NOT NULL,
+                    backend         TEXT    DEFAULT '',
+                    reason          TEXT    DEFAULT '',
+                    attempted       TEXT    DEFAULT '[]',
+                    latency_ms      INTEGER DEFAULT 0,
+                    classifier_tag  TEXT    DEFAULT '',
+                    classifier_conf REAL    DEFAULT 0.0,
+                    extra           TEXT    DEFAULT '{}'
+                )
+            """)
+            con.execute(
+                "CREATE INDEX IF NOT EXISTS idx_routing_request ON routing_events(request_id, ts)"
+            )
+            con.execute(
+                "CREATE INDEX IF NOT EXISTS idx_routing_ts ON routing_events(ts)"
+            )
         logger.debug("MetricsDB initialisiert: %s", self.path)
 
     # ── Schreiben ─────────────────────────────────────────────────
@@ -321,19 +346,79 @@ class MetricsDB:
             "retention_days": round(self.retention_s / _SECS_PER_DAY, 1),
         }
 
+    # ── Routing Events (Obs.3) ────────────────────────────────────
+
+    def write_routing_event(
+        self,
+        request_id: str,
+        phase: str,
+        *,
+        backend: str = "",
+        reason: str = "",
+        attempted: list[str] | None = None,
+        latency_ms: int = 0,
+        classifier_tag: str = "",
+        classifier_conf: float = 0.0,
+        extra: dict | None = None,
+    ) -> None:
+        """Schreibt ein Routing-Event. Wird typischerweise via
+        record_routing_event() unten aufgerufen, das automatisch die
+        Request-ID aus der ContextVar zieht."""
+        attempted_json = json.dumps(attempted or [], ensure_ascii=False)
+        extra_json = json.dumps(extra or {}, ensure_ascii=False)
+        ts = int(time.time())
+        with self._conn() as con:
+            con.execute(
+                """INSERT INTO routing_events
+                   (ts, request_id, phase, backend, reason, attempted,
+                    latency_ms, classifier_tag, classifier_conf, extra)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    ts, request_id, phase, backend, reason, attempted_json,
+                    latency_ms, classifier_tag, classifier_conf, extra_json,
+                ),
+            )
+
+    def query_routing_events(self, request_id: str) -> list[dict]:
+        """Liefert alle Events einer Request-ID, chronologisch."""
+        with self._conn() as con:
+            rows = con.execute(
+                """SELECT ts, phase, backend, reason, attempted, latency_ms,
+                          classifier_tag, classifier_conf, extra
+                   FROM routing_events
+                   WHERE request_id = ?
+                   ORDER BY ts ASC, ROWID ASC""",
+                (request_id,),
+            ).fetchall()
+        events = []
+        for r in rows:
+            d = dict(r)
+            # JSON-Felder aufbrechen für komfortablere Konsumenten
+            try:
+                d["attempted"] = json.loads(d.get("attempted") or "[]")
+            except (TypeError, ValueError):
+                d["attempted"] = []
+            try:
+                d["extra"] = json.loads(d.get("extra") or "{}")
+            except (TypeError, ValueError):
+                d["extra"] = {}
+            events.append(d)
+        return events
+
     # ── Wartung ───────────────────────────────────────────────────
 
     def purge_old(self) -> int:
-        """Löscht Einträge älter als retention_s. Gibt Anzahl gelöschter Zeilen zurück."""
+        """Löscht Einträge älter als retention_s aus metrics UND routing_events."""
         cutoff = int(time.time()) - self.retention_s
         with self._conn() as con:
             cur = con.execute("DELETE FROM metrics WHERE ts < ?", (cutoff,))
             deleted = cur.rowcount
-        if deleted:
+            cur2 = con.execute("DELETE FROM routing_events WHERE ts < ?", (cutoff,))
+            deleted_routing = cur2.rowcount
+        if deleted or deleted_routing:
             logger.info(
-                "MetricsDB: %d alte Einträge gelöscht (älter als %dd)",
-                deleted,
-                self.retention_s // 86400,
+                "MetricsDB: %d metrics + %d routing-events gelöscht (älter als %dd)",
+                deleted, deleted_routing, self.retention_s // 86400,
             )
         return deleted
 
@@ -516,3 +601,46 @@ async def start_collector(interval_s: int = COLLECT_S) -> MetricsCollector:
 
 def get_collector() -> MetricsCollector | None:
     return _collector
+
+
+# ── Routing-Event-Helper (Obs.3) ─────────────────────────────────
+
+def record_routing_event(
+    phase: str,
+    *,
+    backend: str = "",
+    reason: str = "",
+    attempted: list[str] | None = None,
+    latency_ms: int = 0,
+    classifier_tag: str = "",
+    classifier_conf: float = 0.0,
+    extra: dict | None = None,
+) -> None:
+    """Schreibt ein Routing-Event mit der Request-ID aus der ContextVar.
+
+    No-op wenn keine Request-ID gesetzt ist (z.B. interne Aufrufe ohne
+    Request-Scope). So bleibt die Funktion ungefährlich, wenn der
+    Router auch von Background-Tasks ohne Context aufgerufen wird.
+
+    Schreibfehler werden geloggt, nicht propagiert – Telemetrie darf
+    den Routing-Pfad nicht crashen.
+    """
+    from piclaw.request_context import get_request_id
+
+    rid = get_request_id()
+    if not rid:
+        return
+    try:
+        get_db().write_routing_event(
+            rid,
+            phase,
+            backend=backend,
+            reason=reason,
+            attempted=attempted,
+            latency_ms=latency_ms,
+            classifier_tag=classifier_tag,
+            classifier_conf=classifier_conf,
+            extra=extra,
+        )
+    except Exception as e:
+        logger.debug("routing-event write failed (%s): %s", phase, e)

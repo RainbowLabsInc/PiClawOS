@@ -33,6 +33,8 @@ from piclaw.llm.base import Message
 from piclaw.messaging import build_hub, IncomingMessage
 from piclaw.auth     import require_auth, require_auth_ws, set_token, get_token, generate_token
 from piclaw.taskutils import create_background_task
+from piclaw.request_context import new_request_id, request_scope, get_request_id
+from piclaw.logging_setup import configure_logging
 
 log = logging.getLogger("piclaw.api")
 
@@ -53,15 +55,10 @@ async def lifespan(app: FastAPI):
     global _cfg, _agent, _hub
 
     # ── Logging: INFO statt Python-Default WARNING ─────────────────
-    # Ohne diesen Aufruf bleibt der Root-Logger auf WARNING (Python-Default)
-    # → INFO-Logs aus piclaw.agents.runner, piclaw.tools.parcel_tracking etc.
-    # erscheinen NICHT in api.log. force=True überschreibt einen evtl. schon
-    # vorher (durch uvicorn/import-side-effects) initialisierten basicConfig.
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        force=True,
-    )
+    # configure_logging() installiert ContextFilter (request_id) und wählt
+    # JSON-Format wenn PICLAW_LOG_FORMAT=json gesetzt ist, sonst Text mit
+    # automatischem [rid=xxxxxxxx] Suffix sobald eine ID im Scope steht.
+    configure_logging(level=logging.INFO)
 
     # ── Token: generate once, persist in config ────────────────────
     if not _cfg.api.secret_key:
@@ -102,6 +99,24 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# ── Obs.1: Request-ID-Middleware ───────────────────────────────────
+# Jeder HTTP-Request bekommt eine eigene UUID. Bestehender Code, der
+# einen X-Request-ID-Header mitsendet (z.B. ein Reverse-Proxy), wird
+# respektiert; sonst wird eine generiert. Die ID landet als ContextVar
+# in allen Sub-Aufrufen (LLM-Routing, Memory, Tools) und kann via
+# /api/trace/{request_id} später nachverfolgt werden. Auch in jeder
+# Response als X-Request-ID-Header zurückgegeben, damit Konsumenten
+# Logs korrelieren können ohne den Server fragen zu müssen.
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    incoming = request.headers.get("X-Request-ID", "").strip()
+    rid = incoming if (incoming and len(incoming) <= 64) else new_request_id()
+    with request_scope(rid):
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
 
 
 # ── Public endpoints (no auth) ────────────────────────────────────
@@ -674,9 +689,13 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
 
             ping_task = create_background_task(_ping_loop(), name=f"ws-ping-{session_id}")
             try:
-                reply = await _agent.run(
-                    user_text, history=history, on_token=on_token,
-                )
+                # Obs.1: jede WS-Iteration kriegt eigene Request-ID.
+                # Im Unterschied zu HTTP-Requests gibt es hier keine
+                # Middleware, also setzen wir den Scope explizit.
+                with request_scope():
+                    reply = await _agent.run(
+                        user_text, history=history, on_token=on_token,
+                    )
             finally:
                 ping_task.cancel()
                 with contextlib_suppress(asyncio.CancelledError):
@@ -779,6 +798,36 @@ async def api_metrics_stats(_: str = Depends(require_auth)):
         return get_db().stats()
     except Exception as e:
         return {"error": str(e)}
+
+
+# ── Obs.4: Trace-Endpoint ─────────────────────────────────────────
+
+@app.get("/api/trace/{request_id}")
+async def api_trace(
+    request_id: str,
+    _: str = Depends(require_auth),
+):
+    """Liefert alle Routing-Events einer Request-ID, chronologisch geordnet.
+
+    Eine Anfrage durchläuft typischerweise diese Phasen:
+      classify  – Task wurde klassifiziert (tags + confidence + method)
+      select    – Backend-Reihenfolge wurde gewählt
+      call      – Backend-Aufruf (Erfolg oder Fehler mit code+latency)
+      final     – Antwort an User ausgeliefert (selected_backend + latency)
+
+    Die request_id steht im Response-Header `X-Request-ID` jedes
+    HTTP-Aufrufs, und in jeder Log-Zeile dieser Anfrage als [rid=…].
+    """
+    try:
+        from piclaw.metrics import get_db
+        events = get_db().query_routing_events(request_id)
+        return {
+            "request_id": request_id,
+            "event_count": len(events),
+            "events": events,
+        }
+    except Exception as e:
+        return {"error": str(e), "request_id": request_id, "events": []}
 
 
 # ══════════════════════════════════════════════════════════════════

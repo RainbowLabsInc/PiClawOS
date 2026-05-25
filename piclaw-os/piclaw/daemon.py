@@ -230,15 +230,14 @@ async def _daemon_main():
 
 
 def run():
-    # Single StreamHandler only — systemd captures stdout via
-    # StandardOutput=append:/var/log/piclaw/agent.log.
-    # A second FileHandler caused a deadlock with the threaded
-    # local-model loading (llama.cpp Llama() constructor).
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
+    # configure_logging() installiert ContextFilter (request_id) und wählt
+    # JSON-Format wenn PICLAW_LOG_FORMAT=json gesetzt ist, sonst Text mit
+    # [rid=xxxxxxxx]-Suffix sobald ein Request-Scope aktiv ist.
+    # systemd captures stdout via StandardOutput=append:/var/log/piclaw/agent.log;
+    # ein zweiter FileHandler hatte früher einen Deadlock mit llama.cpp's
+    # threaded model-load verursacht – daher single-handler-Strategie.
+    from piclaw.logging_setup import configure_logging
+    configure_logging(level=logging.INFO)
     asyncio.run(_daemon_main())
 
 

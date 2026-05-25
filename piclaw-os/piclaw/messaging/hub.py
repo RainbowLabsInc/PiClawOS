@@ -136,8 +136,17 @@ class MessagingHub:
 
     async def _dispatch(self, msg: IncomingMessage) -> str:
         if self._on_message:
+            # Obs.1: jede eingehende Nachricht (Telegram, Discord, WhatsApp,
+            # Threema) bekommt ihre eigene Request-ID für Trace-Korrelation.
+            # Webhook-Adapter laufen technisch schon innerhalb der API-
+            # Middleware (die hat eine ID gesetzt), aber wir generieren hier
+            # eine neue – jede Message ist semantisch ein eigener Request,
+            # auch wenn mehrere im selben Webhook-Batch geliefert werden.
+            from piclaw.request_context import request_scope
+
             try:
-                return await self._on_message(msg)
+                with request_scope():
+                    return await self._on_message(msg)
             except Exception as e:
                 log.exception("Message handler error: %s", e)
                 return "❌ Internal error processing message."
