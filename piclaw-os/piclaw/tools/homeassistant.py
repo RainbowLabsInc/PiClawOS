@@ -877,9 +877,68 @@ async def handle_tool(name: str, params: dict, client: HomeAssistantClient) -> s
 _client: HomeAssistantClient | None = None
 _listener: HAEventListener | None = None
 
+# Multi-User-Cache: user_id → (token, url, client). Wird abgeglichen mit
+# aktuellen Override-Werten, damit eine Änderung in User.overrides
+# spätestens beim nächsten Tool-Call gesehen wird.
+_user_clients: dict[str, tuple[str, str, "HomeAssistantClient"]] = {}
 
-def get_client() -> HomeAssistantClient | None:
-    return _client
+
+def get_client() -> "HomeAssistantClient | None":
+    """
+    Liefert den HA-Client. Berücksichtigt Per-User-Overrides:
+    - Kein User im ContextVar oder kein Override → globaler `_client` (Legacy).
+    - User hat Override für `homeassistant.token` und/oder `.url` → cachierter
+      User-spezifischer Client mit gemerged Settings (Token+URL aus User,
+      verify_ssl/timeout/notify_on_events fallen zurück auf global).
+    """
+    try:
+        from piclaw.agent_context import get_current_user_id
+        from piclaw.users import get_setting
+        user_id = get_current_user_id()
+    except Exception:
+        return _client
+
+    if user_id is None:
+        return _client
+
+    user_token = get_setting(user_id, "homeassistant", "token")
+    user_url = get_setting(user_id, "homeassistant", "url")
+    if not user_token and not user_url:
+        return _client  # kein Override → global
+
+    # Merge mit globaler Config als Fallback
+    global_token = _client.cfg.token if _client else ""
+    global_url = _client.cfg.url if _client else ""
+    eff_token = user_token or global_token
+    eff_url = (user_url or global_url).rstrip("/")
+    if not eff_token:
+        return None
+
+    cached = _user_clients.get(user_id)
+    if cached is not None and cached[0] == eff_token and cached[1] == eff_url:
+        return cached[2]
+
+    fallback = _client.cfg if _client else HAConfig()
+    new_cfg = HAConfig(
+        url=eff_url,
+        token=eff_token,
+        verify_ssl=fallback.verify_ssl,
+        timeout=fallback.timeout,
+        notify_on_events=list(fallback.notify_on_events),
+        area_aliases=dict(fallback.area_aliases),
+    )
+    new_client = HomeAssistantClient(new_cfg)
+    _user_clients[user_id] = (eff_token, eff_url, new_client)
+    return new_client
+
+
+def clear_user_client_cache(user_id: str | None = None) -> None:
+    """Invalidiert User-spezifische HA-Client-Caches.
+    user_id=None: alle invalidieren (Test-Setup, Override-Update via API)."""
+    if user_id is None:
+        _user_clients.clear()
+    else:
+        _user_clients.pop(user_id, None)
 
 
 def _make_config() -> HAConfig | None:

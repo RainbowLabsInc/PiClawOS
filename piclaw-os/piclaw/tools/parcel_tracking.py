@@ -1181,6 +1181,10 @@ async def _scan_agentmail_inbox() -> list[str]:
     """
     Scannt die AgentMail-Inbox auf neue E-Mails mit Trackingnummern.
     Gibt Liste von Benachrichtigungen zurück (neue Pakete die hinzugefügt wurden).
+
+    Multi-User: nutzt User-Override `agentmail.inbox_id` falls vorhanden,
+    sonst die globale `inbox_id` aus config.toml. api_key bleibt immer
+    global (eine Plattform-Lizenz für alle).
     """
     try:
         import tomllib
@@ -1189,7 +1193,15 @@ async def _scan_agentmail_inbox() -> list[str]:
             return []
         cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
         api_key = cfg.get("agentmail", {}).get("api_key", "")
-        inbox_id = cfg.get("agentmail", {}).get("inbox_id", "")
+        global_inbox = cfg.get("agentmail", {}).get("inbox_id", "")
+        # Per-User-Override für inbox_id (falls ein User-Kontext aktiv ist)
+        try:
+            from piclaw.users import get_setting_for_current
+            inbox_id = get_setting_for_current(
+                "agentmail", "inbox_id", fallback=global_inbox
+            )
+        except Exception:
+            inbox_id = global_inbox
         if not api_key or not inbox_id:
             return []
     except Exception:
