@@ -153,7 +153,8 @@ def test_tag_routines_preserves_system(migrate_mod, tmp_path):
 # ── tag_subagents ─────────────────────────────────────────────────
 
 
-def test_tag_subagents(migrate_mod, tmp_path):
+def test_tag_subagents_list_format(migrate_mod, tmp_path):
+    """List-Format (Test-Fixtures, vermutlich auch alte Pi-Installationen)."""
     p = tmp_path / "subagents.json"
     p.write_text(json.dumps([
         {"id": "a", "name": "Monitor"},
@@ -164,6 +165,27 @@ def test_tag_subagents(migrate_mod, tmp_path):
     data = json.loads(p.read_text(encoding="utf-8"))
     assert data[0]["owner_id"] == "patrick-id"
     assert data[1]["owner_id"] == "existing"
+
+
+def test_tag_subagents_dict_format(migrate_mod, tmp_path):
+    """Dict-Format {id: def} — das echte Pi-Format aus sa_registry._save."""
+    p = tmp_path / "subagents.json"
+    p.write_text(json.dumps({
+        "cbe61af9": {"name": "CronJob_0715", "mission": "x"},
+        "abcd1234": {"name": "Monitor_Pakete", "owner_id": "existing"},
+    }), encoding="utf-8")
+    count = migrate_mod.tag_subagents(tmp_path, "patrick-id")
+    assert count == 1
+    data = json.loads(p.read_text(encoding="utf-8"))
+    assert data["cbe61af9"]["owner_id"] == "patrick-id"
+    assert data["abcd1234"]["owner_id"] == "existing"
+
+
+def test_tag_subagents_unknown_format(migrate_mod, tmp_path):
+    """Unbekannter Top-Level-Typ → 0, kein Crash."""
+    p = tmp_path / "subagents.json"
+    p.write_text(json.dumps("not a list or dict"), encoding="utf-8")
+    assert migrate_mod.tag_subagents(tmp_path, "x") == 0
 
 
 # ── tag_jobs_db ───────────────────────────────────────────────────

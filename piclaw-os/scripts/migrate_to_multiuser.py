@@ -227,16 +227,31 @@ def tag_routines(config_dir: Path, owner_id: str) -> tuple[int, int]:
 
 
 def tag_subagents(config_dir: Path, owner_id: str) -> int:
-    """Tagged SubAgents mit owner_id. Returns count."""
+    """Tagged SubAgents mit owner_id. Returns count.
+
+    Akzeptiert beide bekannten Formate:
+      - dict {id: def, ...}   (echtes Pi-Format, sa_registry._load)
+      - list [def, ...]       (gelegentlich in Test-Fixtures)
+    """
     path = config_dir / "subagents.json"
     if not path.exists():
         return 0
     agents = json.loads(path.read_text(encoding="utf-8"))
     count = 0
-    for sa in agents:
-        if not sa.get("owner_id"):
-            sa["owner_id"] = owner_id
-            count += 1
+    if isinstance(agents, dict):
+        # echtes Pi-Format: {id: def}
+        for _id, sa in agents.items():
+            if isinstance(sa, dict) and not sa.get("owner_id"):
+                sa["owner_id"] = owner_id
+                count += 1
+    elif isinstance(agents, list):
+        for sa in agents:
+            if isinstance(sa, dict) and not sa.get("owner_id"):
+                sa["owner_id"] = owner_id
+                count += 1
+    else:
+        log.warning("subagents.json: unbekannter Top-Level-Typ %s", type(agents).__name__)
+        return 0
     if count:
         _atomic_write_json(path, agents)
     return count
