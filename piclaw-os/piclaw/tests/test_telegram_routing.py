@@ -291,3 +291,56 @@ async def test_unknown_command_passes_through(isolated_registry):
     await a._handle_message("/foo", "111", _msg("111", "/foo"), _noop_handler)
     # Agent-Echo enthält den unbekannten Command
     assert any("agent-echo:/foo" in t for _, t in a.sent)
+
+
+@pytest.mark.asyncio
+async def test_approve_notifies_promoted_user(isolated_registry):
+    """Nach /approve <Name> bekommt der frischgebackene User eine DM."""
+    isolated_registry.register_pending("Patrick", "111")  # admin
+    isolated_registry.register_pending("Anna", "222")     # pending
+    a = _FakeAdapter()
+    # Patrick (chat 111) schickt /approve Anna
+    await a._handle_message(
+        "/approve Anna", "111",
+        _msg("111", "/approve Anna", "Patrick"),
+        _noop_handler,
+    )
+    # Mindestens 2 Sends: 1 an Patrick (Bestätigung) + 1 an Anna (Promote-Notify)
+    chats = [c for c, _t in a.sent]
+    assert "111" in chats           # Patrick bekommt Bestätigung
+    assert "222" in chats           # Anna bekommt Promote-DM
+    anna_msgs = [t for c, t in a.sent if c == "222"]
+    assert any("freigeschaltet" in t.lower() for t in anna_msgs)
+    assert any("/web_token" in t for t in anna_msgs)
+
+
+@pytest.mark.asyncio
+async def test_approve_no_notify_when_target_was_not_pending(isolated_registry):
+    """Approve eines Users, der bereits aktiv ist → keine Promote-DM."""
+    isolated_registry.register_pending("Patrick", "111")  # admin
+    anna = isolated_registry.register_pending("Anna", "222")
+    isolated_registry.approve(anna.id)  # Anna ist schon user
+    a = _FakeAdapter()
+    await a._handle_message(
+        "/approve Anna", "111",
+        _msg("111", "/approve Anna", "Patrick"),
+        _noop_handler,
+    )
+    # Anna war nicht im pre-snapshot der pending → keine Notify an chat 222
+    chats = [c for c, _t in a.sent]
+    assert "222" not in chats
+
+
+@pytest.mark.asyncio
+async def test_approve_unknown_does_not_notify(isolated_registry):
+    """/approve <ghost> verändert niemanden → keine Promote-DM."""
+    isolated_registry.register_pending("Patrick", "111")
+    a = _FakeAdapter()
+    await a._handle_message(
+        "/approve ghost", "111",
+        _msg("111", "/approve ghost", "Patrick"),
+        _noop_handler,
+    )
+    # Nur 1 Send: die Fehler-Antwort an Patrick
+    assert len(a.sent) == 1
+    assert a.sent[0][0] == "111"

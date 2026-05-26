@@ -167,6 +167,9 @@ class TelegramAdapter(MessagingAdapter):
         # ── Slash-Command? ────────────────────────────────────────
         if text.startswith("/"):
             user_before = registry.find_by_chat_id(from_id)
+            # Snapshot aller pending User VOR dem Command, damit wir nach
+            # /approve den Übergang pending → user erkennen können.
+            pending_chat_ids_before = {u.telegram_chat_id for u in registry.pending()}
             reply = bot_commands.handle(text, from_id, sender_name, registry)
             if reply is not None:
                 await self.send(reply, chat_id=from_id)
@@ -180,6 +183,9 @@ class TelegramAdapter(MessagingAdapter):
                     and user_after.role == "pending"
                 ):
                     await self._notify_admins_new_pending(user_after, exclude_chat=from_id)
+                # Falls /approve einen User von pending → user/admin gehoben hat:
+                # diesen User direkt benachrichtigen ("Du wurdest freigeschaltet").
+                await self._notify_promoted_users(pending_chat_ids_before)
                 return
 
         # ── Nicht-Command: User aus Registry ──────────────────────
@@ -209,6 +215,29 @@ class TelegramAdapter(MessagingAdapter):
         reply = await on_message(inc)
         if reply:
             await self.send(reply, chat_id=from_id)
+
+    async def _notify_promoted_users(self, pending_chat_ids_before: set[str]) -> None:
+        """
+        Findet User die VORHER pending waren und JETZT aktiv sind (z.B. nach
+        /approve). Schickt jedem eine Willkommens-DM mit Hinweis auf /web_token.
+        """
+        registry = users_mod.registry()
+        # Alle aktiven User die VORHER pending waren
+        for u in registry.active():
+            if u.telegram_chat_id in pending_chat_ids_before and u.telegram_chat_id:
+                text = (
+                    f"✅ Hallo {u.name}, du wurdest soeben freigeschaltet!\n\n"
+                    f"Du kannst dem Bot jetzt ganz normal Nachrichten schicken.\n"
+                    f"Falls du die Web-UI nutzen willst, schick `/web_token` —\n"
+                    f"dann bekommst du deinen Login-Schlüssel."
+                )
+                try:
+                    await self.send(text, chat_id=u.telegram_chat_id)
+                except Exception as e:
+                    log.warning(
+                        "Promote-Notify an %s (chat=%s) fehlgeschlagen: %s",
+                        u.name, u.telegram_chat_id, e,
+                    )
 
     async def _notify_admins_new_pending(self, new_user, *, exclude_chat: str = "") -> None:
         registry = users_mod.registry()
