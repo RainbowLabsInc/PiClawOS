@@ -272,6 +272,24 @@ class LocalBackend(LLMBackend):
                 f"Lokales KI-Modell nicht gefunden unter: {self.model_path}\n"
                 "Bitte lade das Standard-Modell herunter mit: piclaw model download"
             )
+        # Pre-flight RAM check: ein 2.4-GB-Modell zu mmappen, wenn nur noch
+        # einige hundert MB frei sind, treibt den Kernel in folio_wait_bit_common-
+        # Thrash (siehe Incident 2026-05-26). Lieber schnell fehlschlagen, dann
+        # gibt der Caller einen sauberen Fehler an den User zurück, statt den
+        # Pi für >7 Min mit 400% CPU lahmzulegen. 1.5 GB Schwelle = grobe
+        # Schätzung der residenten Pages bei erster Inferenz (Weights touched
+        # + KV cache + runtime overhead).
+        try:
+            import psutil
+            avail_mb = psutil.virtual_memory().available // (1024 * 1024)
+            if avail_mb < 1536:
+                raise RuntimeError(
+                    f"Zu wenig freier RAM zum Laden des lokalen Modells "
+                    f"({avail_mb} MB verfügbar, mindestens 1536 MB nötig). "
+                    "Lokaler Fallback übersprungen."
+                )
+        except ImportError:
+            pass  # psutil optional – ohne Check weitermachen
         log.info(
             "Loading local model: %s (n_ctx=%s, threads=%s)",
             self.model_path, self.n_ctx, self.n_threads,

@@ -144,9 +144,17 @@ class MultiLLMRouter(LLMBackend):
         # Pattern-Matching reicht für >95% aller Anfragen aus (HA, Marketplace, allgemein).
         self._classifier = TaskClassifier(llm_for_classification=None)
 
-        # Pre-warm local model im Hintergrund für schnellen Fallback
-        # (RAM ist auf Pi 5 ausreichend; Modell ist dann sofort bereit)
-        create_background_task(self._preload_local(), name="local-preload")
+        # Kein Boot-Preload mehr. Vorheriges Verhalten (preload via
+        # create_background_task) hielt die ~2.4 GB Gemma-mmap-Pages in
+        # beiden Prozessen (piclaw-api + piclaw-agent) 24/7 resident und
+        # führte unter Groq-Rate-Limit-Backlog zu mmap-Page-Thrashing
+        # (D-state folio_wait_bit_common, OOM-Risiko) auf dem 8-GB-Pi 5.
+        # Lazy-Load via LocalBackend.chat()/stream_chat() reicht – der
+        # Fallback-Pfad in _call_with_fallback / stream_chat triggert
+        # _load() automatisch beim ersten Bedarf. Erst-Lade-Latenz
+        # (~30-60 s) trifft nur, wenn alle Cloud-Backends gleichzeitig
+        # ausfallen – ein seltener Pfad, der die ständige Speicherlast
+        # nicht rechtfertigt.
 
         self._boot_complete.set()
         backends = [b.name for b in self.registry.list_enabled()]
