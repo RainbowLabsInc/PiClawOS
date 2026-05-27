@@ -32,6 +32,7 @@ class IncomingMessage:
     sender_id: str  # platform-specific user/chat ID
     text: str
     raw: dict = None  # original payload for advanced use
+    user_id: str | None = None  # piclaw User.id, gesetzt sobald via Registry aufgelöst
 
 
 MessageHandler = Callable[[IncomingMessage], Awaitable[str]]
@@ -126,6 +127,42 @@ class MessagingHub:
         log.warning("Channel '%s' nicht gefunden – sende an alle", channel)
         await self.send_all(text)
 
+    async def send_to_user(self, user_id: str, text: str) -> bool:
+        """
+        Multi-User: sendet eine Nachricht an die telegram_chat_id eines
+        spezifischen Users (statt an alle/Default-Empfänger).
+
+        Returns True wenn der User gefunden und gesendet wurde, False sonst
+        (kein User mit dieser ID, oder keine telegram_chat_id beim User).
+        Bei False fällt der Aufrufer typisch auf send_all() zurück.
+        """
+        try:
+            from piclaw.users import find_by_id
+        except ImportError:
+            log.error("send_to_user: piclaw.users nicht verfügbar")
+            return False
+        user = find_by_id(user_id)
+        if user is None:
+            log.warning("send_to_user: User %s nicht gefunden – Notify verworfen", user_id)
+            return False
+        chat_id = user.telegram_chat_id
+        if not chat_id:
+            log.warning(
+                "send_to_user: User %s hat keine telegram_chat_id – Notify verworfen",
+                user.name,
+            )
+            return False
+        for adapter in self._adapters:
+            if adapter.name == "telegram":
+                try:
+                    await adapter.send(text, chat_id=chat_id)
+                    return True
+                except Exception as e:
+                    log.error("send_to_user [telegram] error: %s", e)
+                    return False
+        log.warning("send_to_user: kein Telegram-Adapter aktiv")
+        return False
+
     async def send_alert_all(self, text: str):
         """Broadcast alert to all active adapters."""
         for adapter in self._adapters:
@@ -136,8 +173,17 @@ class MessagingHub:
 
     async def _dispatch(self, msg: IncomingMessage) -> str:
         if self._on_message:
+            # Obs.1: jede eingehende Nachricht (Telegram, Discord, WhatsApp,
+            # Threema) bekommt ihre eigene Request-ID für Trace-Korrelation.
+            # Webhook-Adapter laufen technisch schon innerhalb der API-
+            # Middleware (die hat eine ID gesetzt), aber wir generieren hier
+            # eine neue – jede Message ist semantisch ein eigener Request,
+            # auch wenn mehrere im selben Webhook-Batch geliefert werden.
+            from piclaw.request_context import request_scope
+
             try:
-                return await self._on_message(msg)
+                with request_scope():
+                    return await self._on_message(msg)
             except Exception as e:
                 log.exception("Message handler error: %s", e)
                 return "❌ Internal error processing message."

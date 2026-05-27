@@ -632,7 +632,16 @@ def _setup_telegram(cfg):
     cfg.telegram.chat_id = chat_id
     save(cfg)
     print("\n✅ Telegram konfiguriert.")
-    print("   Neustart: sudo systemctl restart piclaw-api\n")
+    _offer_bootstrap_admin(cfg, chat_id)
+    print("\n   Neustart: sudo systemctl restart piclaw-api\n")
+
+
+def _offer_bootstrap_admin(cfg, chat_id: str) -> None:
+    """Multi-User: bietet an, die Telegram-chat_id direkt als Admin zu bootstrappen.
+    Delegiert an die gemeinsame Implementation in wizard_users.offer_bootstrap_admin
+    (wird auch vom Setup-Wizard step_telegram benutzt)."""
+    from piclaw.wizard_users import offer_bootstrap_admin
+    offer_bootstrap_admin(cfg, chat_id)
 
 
 def _setup_discord(cfg):
@@ -1357,6 +1366,9 @@ def main():
         cmd_secrets(args[1:])
     elif cmd == "debug":
         cmd_debug(args[1:])
+    elif cmd == "user":
+        from piclaw.cli_users import cmd_user
+        sys.exit(cmd_user(args[1:]))
     elif cmd in ("help", "-h", "--help"):
         print(BANNER + HELP)
     else:

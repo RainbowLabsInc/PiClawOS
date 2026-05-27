@@ -168,7 +168,7 @@ def extract_tracking_numbers(text: str) -> list[dict]:
 # ── Storage Management ───────────────────────────────────────────────────────
 
 def _load_parcels() -> dict:
-    """Lädt alle verfolgten Pakete aus parcels.json."""
+    """Lädt alle verfolgten Pakete aus parcels.json (volle Sicht, ungefiltert)."""
     if PARCELS_FILE.exists():
         try:
             return json.loads(PARCELS_FILE.read_text(encoding="utf-8"))
@@ -184,6 +184,43 @@ def _save_parcels(data: dict) -> None:
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+# ── Multi-User-Helper ────────────────────────────────────────────────────────
+#
+# Modell: parcels.json bleibt EIN gemeinsames File, jedes Paket hat ein
+# optionales `owner_id`-Feld. Loader-Funktion gibt nur Pakete des aktuellen
+# Users zurück; bei user_id=None wird die volle Sicht geliefert
+# (Admin/Legacy/System).
+
+def _parcel_visible_to(parcel: dict, user_id: str | None) -> bool:
+    """True wenn `user_id` (oder None=System) das Paket sehen darf."""
+    if user_id is None:
+        return True
+    return parcel.get("owner_id") == user_id
+
+
+def _filter_for_user(data: dict, user_id: str | None) -> dict:
+    """
+    Erzeugt eine gefilterte View für einen User. Modifiziert `data` NICHT —
+    der Aufrufer arbeitet mit der View und ruft danach _upsert_parcel /
+    _remove_parcel mit der gewünschten Mutation auf, die direkt im
+    Gesamtdatensatz arbeiten.
+    """
+    if user_id is None:
+        return data
+    return {
+        "parcels": {tn: p for tn, p in data.get("parcels", {}).items()
+                    if _parcel_visible_to(p, user_id)},
+        "archive": {tn: p for tn, p in data.get("archive", {}).items()
+                    if _parcel_visible_to(p, user_id)},
+    }
+
+
+def _current_user_id() -> str | None:
+    """ContextVar-Lookup. Lazy-Import um Zirkularitäten zu vermeiden."""
+    from piclaw.agent_context import get_current_user_id
+    return get_current_user_id()
 
 
 def _latest_event_ts(events: list[dict]) -> str:
@@ -1021,9 +1058,15 @@ async def parcel_add(
     if carrier == "auto":
         carrier = detect_carrier(tn)
 
+    user_id = _current_user_id()
     data = _load_parcels()
-    if tn in data["parcels"]:
+    existing = data["parcels"].get(tn)
+    if existing is not None and _parcel_visible_to(existing, user_id):
         return f"ℹ️ Paket {tn} wird bereits verfolgt."
+    if existing is not None:
+        # Tracking-Nummer existiert global, gehört aber einem anderen User.
+        # Wir lassen es bei strikter Trennung: kein doppeltes Tracking.
+        return f"❌ Paket {tn} ist bereits einem anderen Nutzer zugeordnet."
 
     # Ersten Status abrufen
     status = await track_single(tn, carrier)
@@ -1039,6 +1082,7 @@ async def parcel_add(
         "events": status.get("events", [])[:5],  # Nur die letzten 5 Events
         "added_at": time.time(),
         "updated_at": time.time(),
+        "owner_id": user_id,  # Multi-User: None = System/Legacy-Pakete
     }
     _save_parcels(data)
 
@@ -1059,7 +1103,8 @@ async def parcel_add(
 
 async def parcel_status(tracking_number: str | None = None) -> str:
     """Zeigt den Status aller (oder eines bestimmten) Pakete."""
-    data = _load_parcels()
+    user_id = _current_user_id()
+    data = _filter_for_user(_load_parcels(), user_id)
 
     if not data["parcels"]:
         return "📭 Keine Pakete in Verfolgung. Sende mir eine Trackingnummer!"
@@ -1094,9 +1139,13 @@ async def parcel_status(tracking_number: str | None = None) -> str:
 async def parcel_remove(tracking_number: str) -> str:
     """Entfernt ein Paket aus der Verfolgung."""
     tn = tracking_number.strip().replace(" ", "")
+    user_id = _current_user_id()
     data = _load_parcels()
-    if tn not in data["parcels"]:
+    p = data["parcels"].get(tn)
+    if p is None:
         return f"❌ Paket {tn} nicht gefunden."
+    if not _parcel_visible_to(p, user_id):
+        return f"❌ Paket {tn} nicht gefunden."  # nicht verraten dass es einem anderen gehört
 
     removed = data["parcels"].pop(tn)
     data["archive"][tn] = removed
@@ -1132,6 +1181,10 @@ async def _scan_agentmail_inbox() -> list[str]:
     """
     Scannt die AgentMail-Inbox auf neue E-Mails mit Trackingnummern.
     Gibt Liste von Benachrichtigungen zurück (neue Pakete die hinzugefügt wurden).
+
+    Multi-User: nutzt User-Override `agentmail.inbox_id` falls vorhanden,
+    sonst die globale `inbox_id` aus config.toml. api_key bleibt immer
+    global (eine Plattform-Lizenz für alle).
     """
     try:
         import tomllib
@@ -1140,7 +1193,15 @@ async def _scan_agentmail_inbox() -> list[str]:
             return []
         cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
         api_key = cfg.get("agentmail", {}).get("api_key", "")
-        inbox_id = cfg.get("agentmail", {}).get("inbox_id", "")
+        global_inbox = cfg.get("agentmail", {}).get("inbox_id", "")
+        # Per-User-Override für inbox_id (falls ein User-Kontext aktiv ist)
+        try:
+            from piclaw.users import get_setting_for_current
+            inbox_id = get_setting_for_current(
+                "agentmail", "inbox_id", fallback=global_inbox
+            )
+        except Exception:
+            inbox_id = global_inbox
         if not api_key or not inbox_id:
             return []
     except Exception:

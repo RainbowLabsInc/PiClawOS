@@ -199,6 +199,7 @@ class AgentTask:
     user_input: str
     history: list[Message] | None = None
     on_token: Callable | None = None
+    user_id: str | None = None  # Multi-User: wer hat den Request ausgelöst?
     # future wird NICHT im dataclass-field erstellt – asyncio.get_running_loop()
     # darf nicht beim Import aufgerufen werden (kein Event Loop beim Modulload).
     # Stattdessen: None als Default, wird in __post_init__ gesetzt.
@@ -269,6 +270,10 @@ class Agent:
         self.sa_registry = SubAgentRegistry()
         self.sa_runner: SubAgentRunner | None = None  # built after notify is set
         self._telegram_send = lambda text: None  # replaced by messaging hub
+        # Multi-User: pro-Owner-Routing. Wird von api.py/daemon.py mit einem
+        # Lambda überschrieben, das hub.send_to_user(user_id, text) aufruft.
+        # Default no-op: ohne Wiring fällt der Runner auf broadcast (_telegram_send) zurück.
+        self._telegram_send_to_user = lambda text, user_id: None
         self._build_tools()
 
         # Request queue (parallele CLI + Telegram)
@@ -537,6 +542,14 @@ class Agent:
             if asyncio.iscoroutine(result):
                 await result
 
+        async def _notify_user(text: str, user_id: str):
+            # Multi-User: routet zur chat_id des owner_id. Spätbindung wie _notify,
+            # damit api.py/daemon.py das Lambda nach boot ersetzen kann.
+            fn = self._telegram_send_to_user
+            result = fn(text, user_id)
+            if asyncio.iscoroutine(result):
+                await result
+
         async def _memory_log(entry: str):
             # Write sub-agent output into QMD memory so the mainagent can
             # answer questions like "Was hat TempMonitor gestern gemeldet?"
@@ -560,6 +573,7 @@ class Agent:
             tool_defs=self._tool_defs,
             handlers=self._handlers,
             notify=_notify,
+            notify_user=_notify_user,
             memory_log=_memory_log,
             report_to_main=_report_to_main,
         )
@@ -610,12 +624,16 @@ class Agent:
 
     async def _worker_loop(self):
         """Processes tasks from the queue sequentially (per worker)."""
+        from piclaw.agent_context import user_scope
         while True:
             task = await self._queue.get()
             try:
-                result = await self._run_internal(
-                    task.user_input, task.history, task.on_token
-                )
+                # ContextVar setzt user_id für die Dauer des Runs.
+                # Tool-Handler lesen ihn via agent_context.get_current_user_id().
+                with user_scope(task.user_id):
+                    result = await self._run_internal(
+                        task.user_input, task.history, task.on_token
+                    )
                 task.future.set_result(result)
             except Exception as e:
                 log.error("Worker error: %s", e)
@@ -639,8 +657,11 @@ class Agent:
         user_input: str,
         history: list[Message] | None = None,
         on_token=None,
+        user_id: str | None = None,
     ) -> str:
-        """Enqueue a request and wait for the result."""
+        """Enqueue a request and wait for the result.
+        Multi-User: `user_id` wird über ContextVar an Tool-Handler weitergereicht.
+        """
         self._register_late_tools()
         # _start_workers() absichtlich hier entfernt – wird in boot() gestartet.
         # run() vor boot() aufzurufen ist ein Fehler, kein Graceful-Fallback.
@@ -654,7 +675,7 @@ class Agent:
             INSTALLER_LOCK_FILE.write_text(request, encoding="utf-8")
             return await self._delegate_to_installer(request)
 
-        task = AgentTask(user_input, history, on_token)
+        task = AgentTask(user_input, history, on_token, user_id=user_id)
         await self._queue.put(task)
         return await task.future
 

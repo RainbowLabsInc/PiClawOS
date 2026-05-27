@@ -43,12 +43,15 @@ class Routine:
     name: str
     enabled: bool
     cron: str  # cron expression
-    action: str  # "briefing" | "ha_scene" | "agent_prompt" | "notify"
+    action: str  # "briefing" | "ha_scene" | "agent_prompt" | "notify" | "direct_check"
     params: dict  # action-specific params
     channel: str = "all"  # "all" | "telegram" | "discord" | "whatsapp"
     conditions: dict = field(default_factory=dict)  # optional conditions
     last_run: str = ""
     run_count: int = 0
+    # Multi-User: None = System-/geteilte Routine (z.B. temp_check),
+    # sonst Owner-User-ID. Filterung via RoutineRegistry.enabled(user_id=...).
+    owner_id: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -61,6 +64,22 @@ class Routine:
         status = "✓" if self.enabled else "✗"
         last = f"  (zuletzt: {self.last_run[:16]})" if self.last_run else ""
         return f"[{status}] {self.name}  [{self.cron}]  → {self.action}{last}"
+
+    def visible_to(self, user_id: str | None) -> bool:
+        """True wenn der User die Routine sehen darf.
+        - System-Routinen (owner_id=None) sind global sichtbar (read-only).
+        - Aufruf mit user_id=None (Scheduler/Admin) sieht alle Routinen.
+        - Sonst nur eigene + System.
+        """
+        if user_id is None:
+            return True
+        if self.owner_id is None:
+            return True
+        return self.owner_id == user_id
+
+    @property
+    def is_system(self) -> bool:
+        return self.owner_id is None
 
 
 # ── Standard-Routinen ─────────────────────────────────────────────
@@ -179,19 +198,28 @@ class RoutineRegistry:
         except TimeoutError as e:
             log.error("Routines registry: %s", e)
 
-    def all(self) -> list[Routine]:
-        return list(self._routines.values())
+    def all(self, user_id: str | None = None) -> list[Routine]:
+        """Alle Routinen. Mit user_id: nur eigene + System-Routinen."""
+        return [r for r in self._routines.values() if r.visible_to(user_id)]
 
-    def enabled(self) -> list[Routine]:
-        return [r for r in self._routines.values() if r.enabled]
+    def enabled(self, user_id: str | None = None) -> list[Routine]:
+        """Alle aktivierten Routinen. Mit user_id: nur eigene + System-Routinen.
+        Scheduler ruft typischerweise mit user_id=None auf (sieht alle Owner)
+        und nutzt routine.owner_id für den Kontext-Wechsel beim Trigger."""
+        return [r for r in self._routines.values()
+                if r.enabled and r.visible_to(user_id)]
 
-    def get(self, id_or_name: str) -> Routine | None:
-        if id_or_name in self._routines:
-            return self._routines[id_or_name]
-        for r in self._routines.values():
-            if r.name.lower() == id_or_name.lower():
-                return r
-        return None
+    def get(self, id_or_name: str, user_id: str | None = None) -> Routine | None:
+        """Routine per ID oder Name suchen. Wenn user_id gesetzt, nur eigene + System."""
+        r = self._routines.get(id_or_name)
+        if r is None:
+            for cand in self._routines.values():
+                if cand.name.lower() == id_or_name.lower():
+                    r = cand
+                    break
+        if r is None or not r.visible_to(user_id):
+            return None
+        return r
 
     def add(self, routine: Routine) -> None:
         self._routines[routine.id] = routine
@@ -239,6 +267,7 @@ class RoutineRegistry:
         action: str,
         params: dict,
         channel: str = "all",
+        owner_id: str | None = None,
     ) -> Routine:
         r = Routine(
             id=str(uuid.uuid4())[:8],
@@ -248,6 +277,7 @@ class RoutineRegistry:
             action=action,
             params=params,
             channel=channel,
+            owner_id=owner_id,
         )
         self.add(r)
         return r
@@ -356,15 +386,21 @@ TOOL_DEFS = [
 
 
 def build_handlers(registry: RoutineRegistry, runner: ProactiveRunner) -> dict:
-    """Baut die Tool-Handler für den Agent."""
+    """Baut die Tool-Handler für den Agent.
+    Multi-User: liest user_id aus agent_context.ContextVar — Tools filtern + setzen
+    owner_id beim Anlegen automatisch.
+    """
+    from piclaw.agent_context import get_current_user_id
 
     async def routine_list(**_) -> str:
-        routines = registry.all()
+        user_id = get_current_user_id()
+        routines = registry.all(user_id)
         if not routines:
             return "Keine Routinen definiert."
         lines = ["Routinen:\n"]
         for r in routines:
-            lines.append(f"  {r.describe()}")
+            scope = "[system]" if r.is_system else ""
+            lines.append(f"  {r.describe()} {scope}".rstrip())
             if r.params:
                 for k, v in r.params.items():
                     if k != "silent_on_ok":
@@ -372,15 +408,24 @@ def build_handlers(registry: RoutineRegistry, runner: ProactiveRunner) -> dict:
         return "\n".join(lines)
 
     async def routine_enable(name: str, **_) -> str:
-        if registry.enable(name):
-            r = registry.get(name)
-            return f"✓ Routine '{r.name}' aktiviert. Nächster Lauf: {r.cron}"
-        return f"Routine '{name}' nicht gefunden."
+        user_id = get_current_user_id()
+        r = registry.get(name, user_id)
+        if r is None:
+            return f"Routine '{name}' nicht gefunden."
+        if r.is_system and user_id is not None:
+            return f"Routine '{r.name}' ist eine System-Routine und kann nicht pro User aktiviert werden."
+        registry.enable(r.id)
+        return f"✓ Routine '{r.name}' aktiviert. Nächster Lauf: {r.cron}"
 
     async def routine_disable(name: str, **_) -> str:
-        if registry.disable(name):
-            return f"✓ Routine '{name}' deaktiviert."
-        return f"Routine '{name}' nicht gefunden."
+        user_id = get_current_user_id()
+        r = registry.get(name, user_id)
+        if r is None:
+            return f"Routine '{name}' nicht gefunden."
+        if r.is_system and user_id is not None:
+            return f"Routine '{r.name}' ist eine System-Routine und kann nicht pro User deaktiviert werden."
+        registry.disable(r.id)
+        return f"✓ Routine '{r.name}' deaktiviert."
 
     async def routine_create(
         name: str,
@@ -403,7 +448,8 @@ def build_handlers(registry: RoutineRegistry, runner: ProactiveRunner) -> dict:
         elif action == "briefing":
             params["type"] = "status"
 
-        r = registry.create_custom(name, cron, action, params, channel)
+        owner_id = get_current_user_id()  # User-Kontext → eigene Routine
+        r = registry.create_custom(name, cron, action, params, channel, owner_id=owner_id)
         return f"✓ Routine '{name}' erstellt (ID: {r.id}). Läuft: {cron}"
 
     async def routine_run_now(name: str, **_) -> str:

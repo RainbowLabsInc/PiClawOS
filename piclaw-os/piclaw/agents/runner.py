@@ -96,16 +96,27 @@ class SubAgentRunner:
         notify: Callable[[str], Awaitable] | None = None,
         memory_log: Callable[[str], Awaitable] | None = None,
         report_to_main: Callable[[str], Awaitable] | None = None,
+        notify_user: Callable[[str, str], Awaitable] | None = None,
     ):
         self.registry = registry
         self.llm = llm
         self.tool_defs = tool_defs
         self.handlers = handlers
-        self.notify = notify  # async fn(text) → sends to messaging hub
+        self.notify = notify  # async fn(text) → sends to messaging hub (broadcast)
+        # Multi-User: optional async fn(text, user_id) → routet zur chat_id des
+        # Owners. Wenn None oder agent.owner_id is None → Fallback auf notify
+        # (System-Sub-Agents wie temp_check senden weiter an die Default-chat_id).
+        self.notify_user = notify_user
         self.report_to_main = report_to_main  # async fn(prompt) → Main Agent antwortet
         self.memory_log = memory_log  # async fn(text) → writes to QMD memory
         self._tasks: dict[str, asyncio.Task] = {}  # agent_id → Task
         self._stop_events: dict[str, asyncio.Event] = {}
+        # Tasks the hard-cap watchdog abandoned because they refused to honour
+        # cancellation (typically blocked on asyncio.to_thread / scrapling).
+        # Keyed by agent_id; the previous abandoned task is overwritten when a
+        # new one is leaked, so its done-callback is the last chance to log
+        # when (if ever) the runaway work actually finishes. See _execute().
+        self._abandoned: dict[str, asyncio.Task] = {}
 
     # ── Public API ─────────────────────────────────────────────────
 
@@ -278,6 +289,109 @@ class SubAgentRunner:
 
     # ── Execution ─────────────────────────────────────────────────
 
+    # Grace window we give a hard-timed-out task to honour `task.cancel()`
+    # before we give up and abandon it to the background. Plenty for a
+    # cooperative coroutine to unwind its `async with`/`finally` blocks,
+    # short enough that a frozen scrapling/Playwright thread can't keep
+    # the daemon loop blocked.
+    _HARD_TIMEOUT_GRACE_S = 2.0
+
+    async def _run_with_hard_timeout(
+        self,
+        coro: Awaitable,
+        *,
+        timeout: int,
+        agent: SubAgentDef,
+    ):
+        """Run ``coro`` with a hard wall-clock cap of ``timeout`` seconds.
+
+        Why not ``asyncio.wait_for``? In Python 3.11+, ``wait_for`` cancels
+        the inner task and then **awaits its completion** before raising
+        ``TimeoutError``. If the inner task is suspended on an
+        ``asyncio.to_thread(...)`` call (scrapling / Playwright / any
+        sync I/O), the underlying OS thread cannot be cancelled and
+        ``wait_for`` blocks indefinitely – the failure mode that let
+        ``Monitor_TW_PLZ21224_250km`` run for 38 536 s while holding the
+        LLM lock.
+
+        ``asyncio.wait`` does not have this behaviour: it returns the
+        moment the timeout fires, even if pending tasks refuse to
+        cancel. We best-effort cancel, give the task a short grace
+        window to unwind cleanly, and abandon it if it still hasn't
+        finished.
+        """
+        task = asyncio.create_task(
+            coro, name=f"subagent-run-{agent.id}-{agent.name}"
+        )
+        done, _pending = await asyncio.wait({task}, timeout=timeout)
+        if task in done:
+            return task.result()
+
+        # Hard cap exceeded – stop pretending we can run it to completion.
+        task.cancel()
+        # Brief grace period for cooperative cancellation (closes aiohttp
+        # sessions, releases locks, etc.). Survives the second timeout
+        # because asyncio.wait, not wait_for.
+        done, _pending = await asyncio.wait(
+            {task}, timeout=self._HARD_TIMEOUT_GRACE_S
+        )
+        if task in done:
+            # It honoured the cancel within grace – consume the
+            # CancelledError so it isn't reported as an unhandled
+            # exception, then raise TimeoutError below.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                task.result()
+        else:
+            self._abandon_runaway_task(task, agent, timeout)
+
+        raise TimeoutError(
+            f"Sub-agent '{agent.name}' hard-capped after {timeout}s"
+        )
+
+    def _abandon_runaway_task(
+        self, task: asyncio.Task, agent: SubAgentDef, timeout: int
+    ) -> None:
+        """Track a task that ignored our cancel so it can't accumulate
+        silently. Replaces any previously abandoned task for the same
+        agent; the prior task's done-callback is still wired up – we
+        just stop holding a reference to it here."""
+        log.error(
+            "Sub-agent '%s' ignored cancel after %ss hard timeout "
+            "(likely blocked on asyncio.to_thread / sync I/O). "
+            "Abandoning task to the background; daemon loop continues.",
+            agent.name, timeout,
+        )
+        prev = self._abandoned.get(agent.id)
+        if prev is not None and not prev.done():
+            log.warning(
+                "Sub-agent '%s': previous abandoned task still alive – "
+                "indicates a persistent block (e.g. captive portal, "
+                "wedged Playwright). Consider disabling this agent.",
+                agent.name,
+            )
+        self._abandoned[agent.id] = task
+
+        def _on_runaway_done(t: asyncio.Task) -> None:
+            if self._abandoned.get(agent.id) is t:
+                self._abandoned.pop(agent.id, None)
+            if t.cancelled():
+                log.info(
+                    "Sub-agent '%s': abandoned task finally cancelled.",
+                    agent.name,
+                )
+            elif t.exception() is not None:
+                log.warning(
+                    "Sub-agent '%s': abandoned task ended with %r.",
+                    agent.name, t.exception(),
+                )
+            else:
+                log.info(
+                    "Sub-agent '%s': abandoned task eventually completed.",
+                    agent.name,
+                )
+
+        task.add_done_callback(_on_runaway_done)
+
     async def _execute(self, agent: SubAgentDef):
         """Run one cycle of the sub-agent's agentic loop."""
         log.info("Sub-agent '%s' executing…", agent.name)
@@ -287,15 +401,12 @@ class SubAgentRunner:
         try:
             # ── Direct Mode: Tool direkt aufrufen, kein LLM ────────
             if agent.direct_tool:
-                result = await asyncio.wait_for(
-                    self._direct_tool_call(agent),
-                    timeout=agent.timeout,
-                )
+                inner = self._direct_tool_call(agent)
             else:
-                result = await asyncio.wait_for(
-                    self._agentic_loop(agent),
-                    timeout=agent.timeout,
-                )
+                inner = self._agentic_loop(agent)
+            result = await self._run_with_hard_timeout(
+                inner, timeout=agent.timeout, agent=agent
+            )
             status = "ok"
             log.info(
                 "Sub-agent '%s' done in %ss",
@@ -372,6 +483,27 @@ class SubAgentRunner:
         log.info("Sub-agent '%s': result=%s notify=%s",
                  agent.name, "ok" if _has_output else "empty", agent.notify)
 
+        # ── Multi-User-Notify-Helper ────────────────────────────────
+        # Wenn dem Sub-Agent ein owner_id zugeordnet ist UND ein notify_user-
+        # Callback gewired ist → schicke an die chat_id des Owners. Sonst
+        # Fallback auf den klassischen Broadcast-Pfad (notify). Letzteres
+        # gilt für System-Sub-Agents (owner_id=None) wie temp_check und
+        # bei Migrationen, in denen notify_user noch nicht gewired ist.
+        async def _send_notify(text: str) -> None:
+            owner = getattr(agent, "owner_id", None)
+            if owner and self.notify_user is not None:
+                try:
+                    await self.notify_user(text, owner)
+                    return
+                except Exception as e:
+                    log.warning(
+                        "Sub-agent '%s': notify_user fehlgeschlagen (owner=%s, %s) "
+                        "– Fallback auf broadcast.",
+                        agent.name, owner, e,
+                    )
+            if self.notify is not None:
+                await self.notify(text)
+
         # ── Heartbeat-Helper (Netzwerk-Monitor, max 1x/Stunde) ─────
         async def _maybe_send_heartbeat() -> None:
             """Sendet gedrosselten Heartbeat für den Netzwerk-Monitor."""
@@ -389,7 +521,7 @@ class SubAgentRunner:
             hb_msg = (f"🤖 *{_escape_md_v1(_display_name(agent.name))}* [heartbeat]\n"
                       "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde.")
             try:
-                await self.notify(hb_msg)
+                await _send_notify(hb_msg)
                 log.info("Sub-agent '%s': Heartbeat gesendet", agent.name)
             except Exception as e:
                 log.warning("Sub-agent '%s': Heartbeat-Fehler: %s", agent.name, e)
@@ -410,7 +542,7 @@ class SubAgentRunner:
                 try:
                     summary = await self.report_to_main(fallback_prompt)
                     if summary and summary.strip():
-                        await self.notify(
+                        await _send_notify(
                             f"🤖 *{_escape_md_v1(_display_name(agent.name))}* [status]\n"
                             + _escape_md_v1(summary[:1500])
                         )
@@ -438,8 +570,11 @@ class SubAgentRunner:
                     body = result[:1500]
                 else:
                     body = _escape_md_v1(result[:1500])
-                await self.notify(f"🤖 *{safe_name}* [{status}]\n" + body)
-                log.info("Sub-agent '%s': Telegram-Notify OK (%d Zeichen)", agent.name, len(result))
+                await _send_notify(f"🤖 *{safe_name}* [{status}]\n" + body)
+                log.info(
+                    "Sub-agent '%s': Telegram-Notify OK (%d Zeichen, owner=%s)",
+                    agent.name, len(result), getattr(agent, "owner_id", None) or "broadcast",
+                )
             except Exception as e:
                 log.error("Sub-agent '%s': Notify FEHLER: %s", agent.name, e)
 

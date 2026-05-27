@@ -31,8 +31,12 @@ from piclaw.config   import load as load_cfg, save as save_cfg, PiClawConfig
 from piclaw.agent    import Agent
 from piclaw.llm.base import Message
 from piclaw.messaging import build_hub, IncomingMessage
-from piclaw.auth     import require_auth, require_auth_ws, set_token, get_token, generate_token
+from piclaw.auth     import require_auth, require_auth_ws, require_admin, set_token, get_token, generate_token
 from piclaw.taskutils import create_background_task
+from piclaw.request_context import new_request_id, request_scope, get_request_id
+from piclaw.logging_setup import configure_logging
+from piclaw.users    import User
+from piclaw import users as users_mod
 
 log = logging.getLogger("piclaw.api")
 
@@ -42,10 +46,12 @@ _hub                 = None   # MessagingHub
 
 
 async def _agent_message_handler(msg: IncomingMessage) -> str:
-    """Route incoming message from any platform to the agent."""
+    """Route incoming message from any platform to the agent.
+    msg.user_id wird an Agent.run gegeben → setzt ContextVar für Tool-Handler.
+    """
     if not _agent:
         return "Agent not ready yet."
-    return await _agent.run(msg.text)
+    return await _agent.run(msg.text, user_id=msg.user_id)
 
 
 @asynccontextmanager
@@ -53,15 +59,10 @@ async def lifespan(app: FastAPI):
     global _cfg, _agent, _hub
 
     # ── Logging: INFO statt Python-Default WARNING ─────────────────
-    # Ohne diesen Aufruf bleibt der Root-Logger auf WARNING (Python-Default)
-    # → INFO-Logs aus piclaw.agents.runner, piclaw.tools.parcel_tracking etc.
-    # erscheinen NICHT in api.log. force=True überschreibt einen evtl. schon
-    # vorher (durch uvicorn/import-side-effects) initialisierten basicConfig.
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        force=True,
-    )
+    # configure_logging() installiert ContextFilter (request_id) und wählt
+    # JSON-Format wenn PICLAW_LOG_FORMAT=json gesetzt ist, sonst Text mit
+    # automatischem [rid=xxxxxxxx] Suffix sobald eine ID im Scope steht.
+    configure_logging(level=logging.INFO)
 
     # ── Token: generate once, persist in config ────────────────────
     if not _cfg.api.secret_key:
@@ -76,6 +77,12 @@ async def lifespan(app: FastAPI):
     create_background_task(_agent.boot(start_sub_agents=False), name="agent-boot")
     _hub = build_hub(_cfg)
     _agent._telegram_send = lambda text: create_background_task(_hub.send_all(text))
+    # Multi-User: Sub-Agents mit owner_id senden ihre Notifications an die
+    # chat_id des Owners (statt an die Default-chat_id). Fallback wenn der User
+    # nicht gefunden wird, liegt in hub.send_to_user / runner._send_notify.
+    _agent._telegram_send_to_user = lambda text, user_id: create_background_task(
+        _hub.send_to_user(user_id, text)
+    )
     create_background_task(_hub.start(_agent_message_handler), name="messaging-hub")
     log.info("PiClaw API started on :%s", _cfg.api.port)
     yield
@@ -104,6 +111,24 @@ app.add_middleware(
 )
 
 
+# ── Obs.1: Request-ID-Middleware ───────────────────────────────────
+# Jeder HTTP-Request bekommt eine eigene UUID. Bestehender Code, der
+# einen X-Request-ID-Header mitsendet (z.B. ein Reverse-Proxy), wird
+# respektiert; sonst wird eine generiert. Die ID landet als ContextVar
+# in allen Sub-Aufrufen (LLM-Routing, Memory, Tools) und kann via
+# /api/trace/{request_id} später nachverfolgt werden. Auch in jeder
+# Response als X-Request-ID-Header zurückgegeben, damit Konsumenten
+# Logs korrelieren können ohne den Server fragen zu müssen.
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    incoming = request.headers.get("X-Request-ID", "").strip()
+    rid = incoming if (incoming and len(incoming) <= 64) else new_request_id()
+    with request_scope(rid):
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
+
+
 # ── Public endpoints (no auth) ────────────────────────────────────
 
 @app.get("/health")
@@ -114,16 +139,30 @@ async def health():
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Serve web UI with token injected as JS variable."""
+    """
+    Serve web UI.
+    Multi-User: kein Token mehr im HTML injiziert. Der Client liest seinen
+    Token aus LocalStorage (Key: `piclaw_token`) und wird beim ersten Besuch
+    via prompt() danach gefragt. Der User holt den Token via `/web_token`
+    im Telegram-Bot oder via `piclaw user token <name>` per SSH.
+    """
     html_path = Path(__file__).parent / "web" / "index.html"
     if not html_path.exists():
         return HTMLResponse("<h1>PiClaw OS</h1><p>Web UI not found.</p>")
     html = html_path.read_text(encoding="utf-8")
-    # Inject token so the dashboard can authenticate API calls.
-    # The token is only embedded in the HTML if the server is serving it –
-    # i.e. you must have network access to the Pi to receive it.
-    token_script = f'<script>window.PICLAW_TOKEN = "{get_token()}";</script>'
-    html = html.replace("</head>", f"{token_script}\n</head>", 1)
+    # Login-Bootstrap: Token aus LocalStorage oder prompten
+    bootstrap = (
+        "<script>(function(){\n"
+        "  let t = localStorage.getItem('piclaw_token');\n"
+        "  if (!t) {\n"
+        "    t = prompt('PiClaw Web-Token (im Telegram /web_token, oder per CLI piclaw user token <Name>):');\n"
+        "    if (t) localStorage.setItem('piclaw_token', t);\n"
+        "  }\n"
+        "  window.PICLAW_TOKEN = t || '';\n"
+        "  window.PICLAW_LOGOUT = function(){ localStorage.removeItem('piclaw_token'); location.reload(); };\n"
+        "})();</script>"
+    )
+    html = html.replace("</head>", f"{bootstrap}\n</head>", 1)
     return HTMLResponse(html)
 
 
@@ -181,23 +220,94 @@ async def threema_incoming(request: Request):
 # All routes below require: Authorization: Bearer <token>
 
 @app.get("/api/messaging")
-async def messaging_status(_: str = Depends(require_auth)):
+async def messaging_status(_: User = Depends(require_auth)):
     if not _hub:
         return {"adapters": []}
     return {"adapters": _hub.active_adapters()}
 
 
+# ── User Management (Admin) ───────────────────────────────────────
+
+
+@app.get("/api/whoami")
+async def whoami(user: User = Depends(require_auth)):
+    """Wer bin ich? Liefert das eigene User-Objekt (ohne web_token)."""
+    return {
+        "id": user.id,
+        "name": user.name,
+        "role": user.role,
+        "telegram_chat_id": user.telegram_chat_id,
+        "is_admin": user.is_admin,
+        "last_seen": user.last_seen,
+    }
+
+
+def _user_to_dict(u: User, include_token: bool = False) -> dict:
+    d = {
+        "id": u.id, "name": u.name, "role": u.role,
+        "telegram_chat_id": u.telegram_chat_id,
+        "created_at": u.created_at, "last_seen": u.last_seen,
+    }
+    if include_token:
+        d["web_token"] = u.web_token
+    return d
+
+
+@app.get("/api/users")
+async def list_users(_: User = Depends(require_admin)):
+    """Admin: Liste aller aktiven User (ohne Tokens)."""
+    reg = users_mod.registry()
+    return {"users": [_user_to_dict(u) for u in reg.active()]}
+
+
+@app.get("/api/users/pending")
+async def list_pending(_: User = Depends(require_admin)):
+    """Admin: User die /start gemacht haben und auf Freigabe warten."""
+    reg = users_mod.registry()
+    return {"pending": [_user_to_dict(u) for u in reg.pending()]}
+
+
+@app.post("/api/users/{id_or_name}/approve")
+async def approve_user(id_or_name: str, _: User = Depends(require_admin)):
+    """Admin: pending User → user."""
+    reg = users_mod.registry()
+    u = reg.approve(id_or_name)
+    if u is None:
+        raise HTTPException(404, f"User '{id_or_name}' not found")
+    return {"approved": True, "user": _user_to_dict(u)}
+
+
+@app.post("/api/users/{id_or_name}/revoke")
+async def revoke_user(id_or_name: str, _: User = Depends(require_admin)):
+    """Admin: User entfernen. Letzter Admin kann sich nicht selbst entfernen."""
+    reg = users_mod.registry()
+    target = reg.find_by_id(id_or_name) or reg.find_by_name(id_or_name)
+    if target is None:
+        raise HTTPException(404, f"User '{id_or_name}' not found")
+    if not reg.revoke(target.id):
+        raise HTTPException(409, "Cannot revoke last admin")
+    return {"revoked": True, "name": target.name}
+
+
 # ── Sub-agent endpoints ───────────────────────────────────────────
 
 @app.get("/api/subagents")
-async def subagents_status(_: str = Depends(require_auth)):
+async def subagents_status(user: User = Depends(require_auth)):
+    """Sub-Agenten: User sieht eigene + System; Admin (oder Lookup mit
+    user_id=None) sieht alle."""
     if not _agent or not _agent.sa_runner:
         return {"sub_agents": []}
-    return _agent.sa_runner.status_dict()
+    full = _agent.sa_runner.status_dict()
+    if user.is_admin:
+        return full
+    # Non-admin: filter durch sa_registry
+    visible_ids = {a.id for a in _agent.sa_registry.list_all(user.id)}
+    full["sub_agents"] = [a for a in full.get("sub_agents", []) if a.get("id") in visible_ids]
+    return full
 
 
 @app.post("/api/subagents")
-async def subagent_create(request: Request, _: str = Depends(require_auth)):
+async def subagent_create(request: Request, user: User = Depends(require_auth)):
     if not _agent or not _agent.sa_runner:
         raise HTTPException(503, "Agent not ready")
     body     = await request.json()
@@ -206,6 +316,9 @@ async def subagent_create(request: Request, _: str = Depends(require_auth)):
     if missing:
         raise HTTPException(400, f"Missing required fields: {missing}")
     from piclaw.agents.sa_registry import SubAgentDef
+    # Multi-User: API-erstellte Sub-Agenten gehören dem aufrufenden User.
+    # Admins können privileged/trusted setzen, Non-Admin nicht.
+    owner_id = None if user.is_admin else user.id
     agent_def = SubAgentDef(
         name        = body["name"],
         description = body["description"],
@@ -214,10 +327,12 @@ async def subagent_create(request: Request, _: str = Depends(require_auth)):
         schedule    = body.get("schedule", "once"),
         llm_tags    = body.get("llm_tags", []),
         notify      = body.get("notify", True),
-        trusted     = body.get("trusted", False),
+        trusted     = body.get("trusted", False) if user.is_admin else False,
+        privileged  = body.get("privileged", False) if user.is_admin else False,
         max_steps   = body.get("max_steps", 10),
         timeout     = body.get("timeout", 300),
         created_by  = "api",
+        owner_id    = owner_id,
     )
     agent_id = _agent.sa_registry.add(agent_def)
     if body.get("start_now"):
@@ -226,12 +341,17 @@ async def subagent_create(request: Request, _: str = Depends(require_auth)):
 
 
 @app.delete("/api/subagents/{name}")
-async def subagent_remove(name: str, _: str = Depends(require_auth)):
+async def subagent_remove(name: str, user: User = Depends(require_auth)):
     if not _agent or not _agent.sa_runner:
         raise HTTPException(503, "Agent not ready")
     sa = _agent.sa_registry.get(name)
     if not sa:
         raise HTTPException(404, f"Sub-agent '{name}' not found")
+    # Multi-User: nur eigene oder Admin darf System-Sub-Agenten löschen
+    if not sa.visible_to(user.id):
+        raise HTTPException(404, f"Sub-agent '{name}' not found")
+    if sa.is_system and not user.is_admin:
+        raise HTTPException(403, "Only admins can remove system sub-agents")
     agent_id = sa.id
     # API process: stop our copy of the task (no-op for the daemon's task,
     # different process), then remove from our registry memory + disk.
@@ -285,7 +405,7 @@ async def soul_get(_: str = Depends(require_auth)):
 
 
 @app.post("/api/soul")
-async def soul_set(request: Request, _: str = Depends(require_auth)):
+async def soul_set(request: Request, _: User = Depends(require_admin)):
     from piclaw import soul as soul_mod
     body    = await request.json()
     content = body.get("content", "")
@@ -296,7 +416,7 @@ async def soul_set(request: Request, _: str = Depends(require_auth)):
 
 
 @app.post("/api/soul/append")
-async def soul_append(request: Request, _: str = Depends(require_auth)):
+async def soul_append(request: Request, _: User = Depends(require_admin)):
     from piclaw import soul as soul_mod
     body    = await request.json()
     section = body.get("section", "")
@@ -591,7 +711,7 @@ async def sensor_read_one(name: str, _: str = Depends(require_auth)):
 
 
 @app.post("/api/sensors")
-async def sensor_add(request: Request, _: str = Depends(require_auth)):
+async def sensor_add(request: Request, _: User = Depends(require_admin)):
     """Register a new named sensor."""
     try:
         from piclaw.hardware import get_sensor_registry
@@ -619,7 +739,7 @@ async def sensor_add(request: Request, _: str = Depends(require_auth)):
 
 
 @app.delete("/api/sensors/{name}")
-async def sensor_delete(name: str, _: str = Depends(require_auth)):
+async def sensor_delete(name: str, _: User = Depends(require_admin)):
     """Remove a named sensor."""
     try:
         from piclaw.hardware import get_sensor_registry
@@ -674,9 +794,13 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
 
             ping_task = create_background_task(_ping_loop(), name=f"ws-ping-{session_id}")
             try:
-                reply = await _agent.run(
-                    user_text, history=history, on_token=on_token,
-                )
+                # Obs.1: jede WS-Iteration kriegt eigene Request-ID.
+                # Im Unterschied zu HTTP-Requests gibt es hier keine
+                # Middleware, also setzen wir den Scope explizit.
+                with request_scope():
+                    reply = await _agent.run(
+                        user_text, history=history, on_token=on_token,
+                    )
             finally:
                 ping_task.cancel()
                 with contextlib_suppress(asyncio.CancelledError):
@@ -781,6 +905,36 @@ async def api_metrics_stats(_: str = Depends(require_auth)):
         return {"error": str(e)}
 
 
+# ── Obs.4: Trace-Endpoint ─────────────────────────────────────────
+
+@app.get("/api/trace/{request_id}")
+async def api_trace(
+    request_id: str,
+    _: str = Depends(require_auth),
+):
+    """Liefert alle Routing-Events einer Request-ID, chronologisch geordnet.
+
+    Eine Anfrage durchläuft typischerweise diese Phasen:
+      classify  – Task wurde klassifiziert (tags + confidence + method)
+      select    – Backend-Reihenfolge wurde gewählt
+      call      – Backend-Aufruf (Erfolg oder Fehler mit code+latency)
+      final     – Antwort an User ausgeliefert (selected_backend + latency)
+
+    Die request_id steht im Response-Header `X-Request-ID` jedes
+    HTTP-Aufrufs, und in jeder Log-Zeile dieser Anfrage als [rid=…].
+    """
+    try:
+        from piclaw.metrics import get_db
+        events = get_db().query_routing_events(request_id)
+        return {
+            "request_id": request_id,
+            "event_count": len(events),
+            "events": events,
+        }
+    except Exception as e:
+        return {"error": str(e), "request_id": request_id, "events": []}
+
+
 # ══════════════════════════════════════════════════════════════════
 # Kamera API (v0.10)
 # ══════════════════════════════════════════════════════════════════
@@ -861,7 +1015,7 @@ async def api_backup_list(_: str = Depends(require_auth)):
 async def api_backup_create(
     note: str = "",
     include_metrics: bool = False,
-    _: str = Depends(require_auth),
+    _: User = Depends(require_admin),
 ):
     """Erstellt ein neues Backup."""
     try:
@@ -947,7 +1101,7 @@ async def wizard_get_config(_: str = Depends(require_auth)):
 
 
 @app.post("/api/wizard/save")
-async def wizard_save_config(body: dict, _: str = Depends(require_auth)):
+async def wizard_save_config(body: dict, _: User = Depends(require_admin)):
     """
     Speichert Konfigurationsänderungen aus dem Browser-Wizard.
     Felder die mit '●' anfangen werden ignoriert (unveränderte maskierte Werte).
@@ -1048,7 +1202,7 @@ async def wizard_save_config(body: dict, _: str = Depends(require_auth)):
 
 
 @app.post("/api/wizard/test/llm")
-async def wizard_test_llm(_: str = Depends(require_auth)):
+async def wizard_test_llm(_: User = Depends(require_admin)):
     """Sendet einen schnellen Test-Ping an das konfigurierte LLM."""
     try:
         from piclaw.config import load
@@ -1069,7 +1223,7 @@ async def wizard_test_llm(_: str = Depends(require_auth)):
 
 
 @app.post("/api/wizard/test/telegram")
-async def wizard_test_telegram(_: str = Depends(require_auth)):
+async def wizard_test_telegram(_: User = Depends(require_admin)):
     """Sendet eine Test-Nachricht via Telegram."""
     try:
         from piclaw.config import load

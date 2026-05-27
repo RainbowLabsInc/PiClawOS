@@ -65,6 +65,8 @@ class CrawlJob:
     last_result: str = ""  # summary of last crawl
     error: str = ""
     stopped_at: str = ""
+    # Multi-User: leerer String = System-Job (Legacy), sonst Owner-User-ID.
+    owner_user_id: str = ""
 
 
 # ── Alert schema (Watchdog IPC) ──────────────────────────────────
@@ -154,9 +156,15 @@ def init_jobs_db():
                 run_count    INTEGER DEFAULT 0,
                 last_result  TEXT,
                 error        TEXT,
-                stopped_at   TEXT
+                stopped_at   TEXT,
+                owner_user_id TEXT DEFAULT ''
             )
         """)
+        # Migration: alte DBs ohne owner_user_id-Spalte nachträglich erweitern
+        cols = [r[1] for r in con.execute("PRAGMA table_info(jobs)").fetchall()]
+        if "owner_user_id" not in cols:
+            con.execute("ALTER TABLE jobs ADD COLUMN owner_user_id TEXT DEFAULT ''")
+            log.info("ipc.jobs: owner_user_id-Spalte nachträglich hinzugefügt.")
         con.execute("""
             CREATE TABLE IF NOT EXISTS job_results (
                 id          TEXT PRIMARY KEY,
@@ -181,7 +189,8 @@ def write_job(job: CrawlJob):
                 :id,:query,:urls,:mode,:cron,:interval_sec,
                 :max_depth,:max_pages,:timeout_sec,:until_pattern,
                 :notify_chat,:created_at,:status,:last_run,
-                :run_count,:last_result,:error,:stopped_at
+                :run_count,:last_result,:error,:stopped_at,
+                :owner_user_id
             )""",
             d,
         )
@@ -194,15 +203,27 @@ def get_job(job_id: str) -> CrawlJob | None:
     return _row_to_job(row) if row else None
 
 
-def list_jobs(status: str | None = None) -> list[CrawlJob]:
+def list_jobs(
+    status: str | None = None,
+    owner_user_id: str | None = None,
+) -> list[CrawlJob]:
+    """List jobs, optional filter by status and/or owner.
+    owner_user_id=None: alle Jobs sichtbar (Admin/Crawler).
+    owner_user_id='': nur System-Jobs (Legacy, kein User).
+    owner_user_id='<uuid>': nur Jobs dieses Users.
+    """
     init_jobs_db()
+    where, args = [], []
+    if status:
+        where.append("status=?"); args.append(status)
+    if owner_user_id is not None:
+        where.append("owner_user_id=?"); args.append(owner_user_id)
+    sql = "SELECT * FROM jobs"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY created_at DESC"
     with _conn(JOBS_DB) as con:
-        if status:
-            rows = con.execute(
-                "SELECT * FROM jobs WHERE status=? ORDER BY created_at DESC", (status,)
-            ).fetchall()
-        else:
-            rows = con.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall()
+        rows = con.execute(sql, tuple(args)).fetchall()
     return [_row_to_job(r) for r in rows]
 
 

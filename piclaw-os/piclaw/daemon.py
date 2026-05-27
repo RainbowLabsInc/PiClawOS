@@ -69,6 +69,15 @@ async def _daemon_main():
     # erstellt) Ergebnisse via Telegram/Discord senden können.
     # Gleiche Late-Binding-Logik wie in api.py.
     agent._telegram_send = lambda text: create_background_task(_notify_all(text), name="telegram-notify")
+    # Multi-User: Sub-Agents mit owner_id → DM an Owner statt broadcast.
+    # Fallback (User weg / kein chat_id) liegt in hub.send_to_user.
+    def _send_to_owner(text: str, user_id: str):
+        if _hub is None:
+            return
+        return create_background_task(
+            _hub.send_to_user(user_id, text), name="telegram-notify-owner",
+        )
+    agent._telegram_send_to_user = _send_to_owner
 
     # agent.boot() kann das lokale Gemma-Modell laden; llama-cpp-python
     # ruft intern suppress_stdout_stderr() → dup2(devnull, 1/2) → JEDE
@@ -230,15 +239,14 @@ async def _daemon_main():
 
 
 def run():
-    # Single StreamHandler only — systemd captures stdout via
-    # StandardOutput=append:/var/log/piclaw/agent.log.
-    # A second FileHandler caused a deadlock with the threaded
-    # local-model loading (llama.cpp Llama() constructor).
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
+    # configure_logging() installiert ContextFilter (request_id) und wählt
+    # JSON-Format wenn PICLAW_LOG_FORMAT=json gesetzt ist, sonst Text mit
+    # [rid=xxxxxxxx]-Suffix sobald ein Request-Scope aktiv ist.
+    # systemd captures stdout via StandardOutput=append:/var/log/piclaw/agent.log;
+    # ein zweiter FileHandler hatte früher einen Deadlock mit llama.cpp's
+    # threaded model-load verursacht – daher single-handler-Strategie.
+    from piclaw.logging_setup import configure_logging
+    configure_logging(level=logging.INFO)
     asyncio.run(_daemon_main())
 
 
