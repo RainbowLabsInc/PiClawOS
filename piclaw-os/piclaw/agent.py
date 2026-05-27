@@ -270,6 +270,10 @@ class Agent:
         self.sa_registry = SubAgentRegistry()
         self.sa_runner: SubAgentRunner | None = None  # built after notify is set
         self._telegram_send = lambda text: None  # replaced by messaging hub
+        # Multi-User: pro-Owner-Routing. Wird von api.py/daemon.py mit einem
+        # Lambda überschrieben, das hub.send_to_user(user_id, text) aufruft.
+        # Default no-op: ohne Wiring fällt der Runner auf broadcast (_telegram_send) zurück.
+        self._telegram_send_to_user = lambda text, user_id: None
         self._build_tools()
 
         # Request queue (parallele CLI + Telegram)
@@ -538,6 +542,14 @@ class Agent:
             if asyncio.iscoroutine(result):
                 await result
 
+        async def _notify_user(text: str, user_id: str):
+            # Multi-User: routet zur chat_id des owner_id. Spätbindung wie _notify,
+            # damit api.py/daemon.py das Lambda nach boot ersetzen kann.
+            fn = self._telegram_send_to_user
+            result = fn(text, user_id)
+            if asyncio.iscoroutine(result):
+                await result
+
         async def _memory_log(entry: str):
             # Write sub-agent output into QMD memory so the mainagent can
             # answer questions like "Was hat TempMonitor gestern gemeldet?"
@@ -561,6 +573,7 @@ class Agent:
             tool_defs=self._tool_defs,
             handlers=self._handlers,
             notify=_notify,
+            notify_user=_notify_user,
             memory_log=_memory_log,
             report_to_main=_report_to_main,
         )

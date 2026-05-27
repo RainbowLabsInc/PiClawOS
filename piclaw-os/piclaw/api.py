@@ -77,6 +77,12 @@ async def lifespan(app: FastAPI):
     create_background_task(_agent.boot(start_sub_agents=False), name="agent-boot")
     _hub = build_hub(_cfg)
     _agent._telegram_send = lambda text: create_background_task(_hub.send_all(text))
+    # Multi-User: Sub-Agents mit owner_id senden ihre Notifications an die
+    # chat_id des Owners (statt an die Default-chat_id). Fallback wenn der User
+    # nicht gefunden wird, liegt in hub.send_to_user / runner._send_notify.
+    _agent._telegram_send_to_user = lambda text, user_id: create_background_task(
+        _hub.send_to_user(user_id, text)
+    )
     create_background_task(_hub.start(_agent_message_handler), name="messaging-hub")
     log.info("PiClaw API started on :%s", _cfg.api.port)
     yield

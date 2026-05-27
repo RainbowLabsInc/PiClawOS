@@ -96,12 +96,17 @@ class SubAgentRunner:
         notify: Callable[[str], Awaitable] | None = None,
         memory_log: Callable[[str], Awaitable] | None = None,
         report_to_main: Callable[[str], Awaitable] | None = None,
+        notify_user: Callable[[str, str], Awaitable] | None = None,
     ):
         self.registry = registry
         self.llm = llm
         self.tool_defs = tool_defs
         self.handlers = handlers
-        self.notify = notify  # async fn(text) → sends to messaging hub
+        self.notify = notify  # async fn(text) → sends to messaging hub (broadcast)
+        # Multi-User: optional async fn(text, user_id) → routet zur chat_id des
+        # Owners. Wenn None oder agent.owner_id is None → Fallback auf notify
+        # (System-Sub-Agents wie temp_check senden weiter an die Default-chat_id).
+        self.notify_user = notify_user
         self.report_to_main = report_to_main  # async fn(prompt) → Main Agent antwortet
         self.memory_log = memory_log  # async fn(text) → writes to QMD memory
         self._tasks: dict[str, asyncio.Task] = {}  # agent_id → Task
@@ -478,6 +483,27 @@ class SubAgentRunner:
         log.info("Sub-agent '%s': result=%s notify=%s",
                  agent.name, "ok" if _has_output else "empty", agent.notify)
 
+        # ── Multi-User-Notify-Helper ────────────────────────────────
+        # Wenn dem Sub-Agent ein owner_id zugeordnet ist UND ein notify_user-
+        # Callback gewired ist → schicke an die chat_id des Owners. Sonst
+        # Fallback auf den klassischen Broadcast-Pfad (notify). Letzteres
+        # gilt für System-Sub-Agents (owner_id=None) wie temp_check und
+        # bei Migrationen, in denen notify_user noch nicht gewired ist.
+        async def _send_notify(text: str) -> None:
+            owner = getattr(agent, "owner_id", None)
+            if owner and self.notify_user is not None:
+                try:
+                    await self.notify_user(text, owner)
+                    return
+                except Exception as e:
+                    log.warning(
+                        "Sub-agent '%s': notify_user fehlgeschlagen (owner=%s, %s) "
+                        "– Fallback auf broadcast.",
+                        agent.name, owner, e,
+                    )
+            if self.notify is not None:
+                await self.notify(text)
+
         # ── Heartbeat-Helper (Netzwerk-Monitor, max 1x/Stunde) ─────
         async def _maybe_send_heartbeat() -> None:
             """Sendet gedrosselten Heartbeat für den Netzwerk-Monitor."""
@@ -495,7 +521,7 @@ class SubAgentRunner:
             hb_msg = (f"🤖 *{_escape_md_v1(_display_name(agent.name))}* [heartbeat]\n"
                       "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde.")
             try:
-                await self.notify(hb_msg)
+                await _send_notify(hb_msg)
                 log.info("Sub-agent '%s': Heartbeat gesendet", agent.name)
             except Exception as e:
                 log.warning("Sub-agent '%s': Heartbeat-Fehler: %s", agent.name, e)
@@ -516,7 +542,7 @@ class SubAgentRunner:
                 try:
                     summary = await self.report_to_main(fallback_prompt)
                     if summary and summary.strip():
-                        await self.notify(
+                        await _send_notify(
                             f"🤖 *{_escape_md_v1(_display_name(agent.name))}* [status]\n"
                             + _escape_md_v1(summary[:1500])
                         )
@@ -544,8 +570,11 @@ class SubAgentRunner:
                     body = result[:1500]
                 else:
                     body = _escape_md_v1(result[:1500])
-                await self.notify(f"🤖 *{safe_name}* [{status}]\n" + body)
-                log.info("Sub-agent '%s': Telegram-Notify OK (%d Zeichen)", agent.name, len(result))
+                await _send_notify(f"🤖 *{safe_name}* [{status}]\n" + body)
+                log.info(
+                    "Sub-agent '%s': Telegram-Notify OK (%d Zeichen, owner=%s)",
+                    agent.name, len(result), getattr(agent, "owner_id", None) or "broadcast",
+                )
             except Exception as e:
                 log.error("Sub-agent '%s': Notify FEHLER: %s", agent.name, e)
 

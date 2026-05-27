@@ -127,6 +127,42 @@ class MessagingHub:
         log.warning("Channel '%s' nicht gefunden – sende an alle", channel)
         await self.send_all(text)
 
+    async def send_to_user(self, user_id: str, text: str) -> bool:
+        """
+        Multi-User: sendet eine Nachricht an die telegram_chat_id eines
+        spezifischen Users (statt an alle/Default-Empfänger).
+
+        Returns True wenn der User gefunden und gesendet wurde, False sonst
+        (kein User mit dieser ID, oder keine telegram_chat_id beim User).
+        Bei False fällt der Aufrufer typisch auf send_all() zurück.
+        """
+        try:
+            from piclaw.users import find_by_id
+        except ImportError:
+            log.error("send_to_user: piclaw.users nicht verfügbar")
+            return False
+        user = find_by_id(user_id)
+        if user is None:
+            log.warning("send_to_user: User %s nicht gefunden – Notify verworfen", user_id)
+            return False
+        chat_id = user.telegram_chat_id
+        if not chat_id:
+            log.warning(
+                "send_to_user: User %s hat keine telegram_chat_id – Notify verworfen",
+                user.name,
+            )
+            return False
+        for adapter in self._adapters:
+            if adapter.name == "telegram":
+                try:
+                    await adapter.send(text, chat_id=chat_id)
+                    return True
+                except Exception as e:
+                    log.error("send_to_user [telegram] error: %s", e)
+                    return False
+        log.warning("send_to_user: kein Telegram-Adapter aktiv")
+        return False
+
     async def send_alert_all(self, text: str):
         """Broadcast alert to all active adapters."""
         for adapter in self._adapters:

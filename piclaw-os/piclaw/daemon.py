@@ -69,6 +69,15 @@ async def _daemon_main():
     # erstellt) Ergebnisse via Telegram/Discord senden können.
     # Gleiche Late-Binding-Logik wie in api.py.
     agent._telegram_send = lambda text: create_background_task(_notify_all(text), name="telegram-notify")
+    # Multi-User: Sub-Agents mit owner_id → DM an Owner statt broadcast.
+    # Fallback (User weg / kein chat_id) liegt in hub.send_to_user.
+    def _send_to_owner(text: str, user_id: str):
+        if _hub is None:
+            return
+        return create_background_task(
+            _hub.send_to_user(user_id, text), name="telegram-notify-owner",
+        )
+    agent._telegram_send_to_user = _send_to_owner
 
     # agent.boot() kann das lokale Gemma-Modell laden; llama-cpp-python
     # ruft intern suppress_stdout_stderr() → dup2(devnull, 1/2) → JEDE
