@@ -220,8 +220,8 @@ Mehr Details: [SECURITY.md](SECURITY.md)
 
 ## 🗺️ Roadmap
 
-- **v0.17.1** ← *Aktuell* — Web-Suche (DDG), LLM-Router-Stabilität (streaming 400 fix), Fallback-Chain, Sub-Agent Crash Recovery
-- **v0.18** — IPC-Reload (kein Neustart bei neuem Sub-Agent)
+- **v0.17.1** — Web-Suche (DDG), LLM-Router-Stabilität (streaming 400 fix), Fallback-Chain, Sub-Agent Crash Recovery
+- **v0.18** ← *Aktuell auf `multiuser-v2`* — **Multi-User**: Pakete, Routinen, Sub-Agents, Memory pro Nutzer. Telegram-Identity via `/start`, Admin-Approval, Per-User HomeAssistant-/AgentMail-Overrides. Migration vom Single-User-Stand inkl. Backup-Tarball + Rollback. Details: [`docs/multi-user.md`](piclaw-os/docs/multi-user.md)
 - **v0.19** — Marketplace: Query-Extraktion verbessern, Willhaben Kategorie-Filter
 - **v1.0** — Frische Installation < 10 Minuten, alle Tests grün
 
