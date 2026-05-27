@@ -164,6 +164,20 @@ class TelegramAdapter(MessagingAdapter):
             or msg.get("from", {}).get("username", "")
         )
 
+        # Log JEDE eingehende Nachricht mit Routing-Entscheidung damit Debugging
+        # nicht im Blindflug stattfindet. INFO-Level — bei Bedarf später auf DEBUG.
+        _u = registry.find_by_chat_id(from_id)
+        _route = (
+            "command" if text.startswith("/")
+            else "unknown_chat" if _u is None
+            else f"pending:{_u.name}" if _u.role == "pending"
+            else f"active:{_u.name}({_u.role})"
+        )
+        log.info(
+            "Telegram IN: chat_id=%s sender=%r text=%.60r → route=%s",
+            from_id, sender_name, text, _route,
+        )
+
         # ── Slash-Command? ────────────────────────────────────────
         if text.startswith("/"):
             user_before = registry.find_by_chat_id(from_id)
@@ -205,6 +219,10 @@ class TelegramAdapter(MessagingAdapter):
             return
 
         # ── Aktiver User: an Agent dispatchen ─────────────────────
+        log.info(
+            "Telegram IN → Agent.run: user=%s text=%.60r",
+            user.name, text,
+        )
         inc = IncomingMessage(
             platform="telegram",
             sender_id=from_id,
@@ -213,6 +231,10 @@ class TelegramAdapter(MessagingAdapter):
             user_id=user.id,
         )
         reply = await on_message(inc)
+        log.info(
+            "Telegram OUT: chat_id=%s reply_len=%s",
+            from_id, len(reply) if reply else 0,
+        )
         if reply:
             await self.send(reply, chat_id=from_id)
 
