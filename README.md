@@ -4,7 +4,7 @@
 
 **Dein autonomer KI-Assistent für den Raspberry Pi**
 
-[![Version](https://img.shields.io/badge/version-0.17.1-blue?style=flat-square)](https://github.com/RainbowLabsInc/PiClawOS/releases)
+[![Version](https://img.shields.io/badge/version-0.18.0-blue?style=flat-square)](https://github.com/RainbowLabsInc/PiClawOS/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%205-red?style=flat-square)](https://www.raspberrypi.com)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -221,7 +221,7 @@ Mehr Details: [SECURITY.md](SECURITY.md)
 ## 🗺️ Roadmap
 
 - **v0.17.1** — Web-Suche (DDG), LLM-Router-Stabilität (streaming 400 fix), Fallback-Chain, Sub-Agent Crash Recovery
-- **v0.18** ← *Aktuell auf `multiuser-v2`* — **Multi-User**: Pakete, Routinen, Sub-Agents, Memory pro Nutzer. Telegram-Identity via `/start`, Admin-Approval, Per-User HomeAssistant-/AgentMail-Overrides. Migration vom Single-User-Stand inkl. Backup-Tarball + Rollback. Details: [`docs/multi-user.md`](piclaw-os/docs/multi-user.md)
+- **v0.18.0** ← *Aktuell* — **Multi-User**: Pakete, Routinen, Sub-Agents, Memory pro Nutzer. Telegram-Identity via `/start`, Admin-Approval, Per-User HomeAssistant-/AgentMail-Overrides. Migration vom Single-User-Stand inkl. Backup-Tarball + Rollback. Details: [`docs/multi-user.md`](piclaw-os/docs/multi-user.md)
 - **v0.19** — Marketplace: Query-Extraktion verbessern, Willhaben Kategorie-Filter
 - **v1.0** — Frische Installation < 10 Minuten, alle Tests grün
 

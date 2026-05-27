@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "piclaw"
-version = "0.17.1"
+version = "0.18.0"
 description = "PiClaw – AI Operating System for Raspberry Pi 5"
 license = { text = "MIT" }
 authors = [{ name = "Patrick Völk" }]
