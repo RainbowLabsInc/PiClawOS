@@ -823,17 +823,21 @@ def step_llm_extra(state: WizardState, step: int, total: int) -> None:
         elif prov_choice == "7":
             # Cerebras
             _info("Kostenlos registrieren: cloud.cerebras.ai")
+            # llama-3.3-70b und qwen-3-32b wurden Feb 2026 deprecated;
+            # gpt-oss-120b ist aktuell das einzige stabile production-Modell.
             _save_openai_backend(
                 "https://api.cerebras.ai/v1",
-                "llama-3.3-70b", "cerebras-fallback", 6
+                "gpt-oss-120b", "cerebras-fallback", 6
             )
 
         elif prov_choice == "4":
             # Google Gemini
             _info("Kostenlos: aistudio.google.com/apikey  (AIza... Key)")
+            # gemini-2.0-flash ist veraltet; 3.5-flash ist seit Mai 2026
+            # die stable Empfehlung und bleibt im Free-Tier verfügbar.
             _save_openai_backend(
                 "https://generativelanguage.googleapis.com/v1beta/openai",
-                "gemini-2.0-flash", "gemini-fallback", 6
+                "gemini-3.5-flash", "gemini-fallback", 6
             )
 
         elif prov_choice == "5":

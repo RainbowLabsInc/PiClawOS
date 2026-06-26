@@ -88,65 +88,101 @@ _PROVIDER_SIGNUP_URLS = {
 
 # Nur Modelle die NACHWEISLICH KOSTENLOS sind (Free-Tier)
 # Wird von Auto-Discovery und Auto-Repair als Whitelist verwendet
-# Letzte Aktualisierung: Mai 2026
+# Letzte Aktualisierung: Juni 2026 — Provider-Docs gegengeprüft
 _FREE_TIER_MODELS = {
     "api.groq.com": [
-        # Groq Free Tier: 30 RPM / 14400 RPD
+        # Groq Free Tier: 30 RPM / 14 400 RPD
+        # Quelle: https://console.groq.com/docs/models (Juni 2026)
+        # ── Production ──
         "openai/gpt-oss-120b",
         "openai/gpt-oss-20b",
-        "meta-llama/llama-4-scout-17b-16e-instruct",
-        "meta-llama/llama-4-maverick-17b-128e-instruct",
-        "qwen/qwen3-32b",
-        "moonshotai/kimi-k2-instruct",
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "gemma2-9b-it",
+        # ── Preview (für Evaluation, aber API funktioniert) ──
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "qwen/qwen3-32b",
+        "qwen/qwen3.6-27b",
+        # ── Entfernt: nicht mehr in Groq-Catalog (Juni 2026) ──
+        # - meta-llama/llama-4-maverick-17b-128e-instruct (deprecated)
+        # - moonshotai/kimi-k2-instruct (deprecated)
+        # - gemma2-9b-it (deprecated)
     ],
     "integrate.api.nvidia.com": [
-        # NVIDIA NIM: 1000–5000 Credits/Tag
+        # NVIDIA NIM Free API: 40 RPM, 100+ Modelle
+        # Quelle: https://build.nvidia.com/models (Juni 2026)
+        # ── Llama 4 (Meta) ──
         "meta/llama-4-maverick-17b-128e-instruct",
         "meta/llama-4-scout-17b-16e-instruct",
+        # ── Llama 3.3 / 3.1 (Meta) ──
         "meta/llama-3.3-70b-instruct",
+        "meta/llama-3.1-405b-instruct",
+        "meta/llama-3.1-70b-instruct",
+        "meta/llama-3.1-8b-instruct",
+        # ── Nemotron (NVIDIA) ──
         "nvidia/llama-3.3-nemotron-super-49b-v1",
         "nvidia/llama-3_1-nemotron-ultra-253b-v1",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  # neu, multimodal reasoning
+        # ── DeepSeek ──
         "deepseek-ai/deepseek-r1",
         "deepseek-ai/deepseek-v3.1",
+        "deepseek-ai/deepseek-v4-flash",                  # neu: 284B MoE, 1M context
+        # ── Andere ──
         "qwen/qwen3-coder-480b-a35b-instruct",
-        "mistralai/mixtral-8x7b-instruct-v0.1",
+        # ── Entfernt: zu alt ──
+        # - mistralai/mixtral-8x7b-instruct-v0.1 (Mixtral 8x22b/Magistral neuer)
     ],
     "api.cerebras.ai": [
-        # Cerebras: 1M Tokens/Tag, 30 RPM, ~2600 t/s
-        "llama-3.3-70b",
-        "llama-3.1-8b",
-        "llama-4-scout-17b-16e",
-        "qwen-3-32b",
-        "qwen-3-235b-a22b-instruct-2507",
+        # Cerebras Inference: 1M Tokens/Tag, 30 RPM, ~2600-3000 t/s
+        # Quelle: https://inference-docs.cerebras.ai/models/overview (Juni 2026)
+        # ── Production (stable) ──
         "gpt-oss-120b",
+        "llama-3.1-8b",                # production-tier laut docs
+        "llama-4-scout-17b-16e-instruct",
+        # ── Preview ──
+        "zai-glm-4.7",                 # neu, 355B params, ~1000 t/s
+        # ── Entfernt: deprecated 2026-02-16 ──
+        # - llama-3.3-70b
+        # - qwen-3-32b
+        # - qwen-3-235b-a22b-instruct-2507 (nicht mehr im Catalog)
     ],
     "openrouter.ai": [
         # OpenRouter: 20 RPM / 200 RPD auf :free
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "qwen/qwen3-coder:free",
-        "nvidia/llama-3.3-nemotron-super-49b-v1:free",
-        "deepseek/deepseek-chat-v3.1:free",
-        "deepseek/deepseek-r1:free",
-        "z-ai/glm-4.5-air:free",
-        "google/gemma-3-27b-it:free",
-        "mistralai/mistral-small-3.2-24b-instruct:free",
+        # Quelle: https://openrouter.ai/api/v1/models gefiltert auf prompt=0
+        # KOMPLETT NEU — alle alten :free-Endpoints sind weggefallen (Juni 2026)
+        "nvidia/nemotron-3-ultra-550b-a55b:free",          # 1M context, ultra-tier
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",  # 256k, multimodal
+        "cohere/north-mini-code:free",                     # 256k, coding-spezialisiert
+        "poolside/laguna-m.1:free",                        # 262k, agentic coding
+        "poolside/laguna-xs.2:free",                       # 262k, schnell
+        # ── Entfernt: nicht mehr free (Juni 2026) ──
+        # - meta-llama/llama-3.3-70b-instruct:free
+        # - qwen/qwen3-coder:free
+        # - nvidia/llama-3.3-nemotron-super-49b-v1:free
+        # - deepseek/deepseek-chat-v3.1:free
+        # - deepseek/deepseek-r1:free
+        # - z-ai/glm-4.5-air:free
+        # - google/gemma-3-27b-it:free
+        # - mistralai/mistral-small-3.2-24b-instruct:free
     ],
     "generativelanguage.googleapis.com": [
-        # Google Gemini Free Tier: 15 RPM / 1500 RPD auf Flash, 30 RPM auf Flash-Lite
-        "gemini-2.5-flash",
+        # Google Gemini Free Tier (Stand Juni 2026):
+        # Pro-Modelle sind seit April 2026 paid-only. Free = Flash + Flash-Lite.
+        # Quelle: https://ai.google.dev/gemini-api/docs/models
+        "gemini-3.5-flash",            # neueste stable, ⭐ Empfehlung
+        "gemini-3.1-flash-lite",       # höhere RPM für leichte Tasks
+        "gemini-3-flash-preview",      # preview-tier, evaluation
+        "gemini-2.5-flash",            # bewährter Fallback
         "gemini-2.5-flash-lite",
-        "gemini-3-flash",
-        "gemini-3.1-flash-lite",
     ],
     "models.github.ai": [
         # GitHub Models: niedrige RPD aber breite Modell-Auswahl
-        "openai/gpt-4o-mini",
+        # Quelle: github.com/marketplace?type=models (Juni 2026)
         "openai/gpt-4.1-mini",
+        "openai/gpt-4o-mini",
+        "openai/gpt-5-mini",                   # falls verfügbar (neu)
         "meta/llama-3.3-70b-instruct",
         "microsoft/phi-4",
+        "microsoft/phi-4-mini",
         "mistral-ai/mistral-small-2503",
         "cohere/cohere-command-r-08-2024",
     ],
