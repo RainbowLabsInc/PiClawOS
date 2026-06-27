@@ -504,22 +504,23 @@ class SubAgentRunner:
             if self.notify is not None:
                 await self.notify(text)
 
-        # ── Heartbeat-Helper (Netzwerk-Monitor, max 1x/Stunde) ─────
+        # ── Heartbeat-Helper (Netzwerk-Monitor, max 1x / 2h) ───────
         async def _maybe_send_heartbeat() -> None:
             """Sendet gedrosselten Heartbeat für den Netzwerk-Monitor."""
             if not (agent.direct_tool == "check_new_devices" and agent.notify and self.notify):
                 return
             import time as _time
+            _hb_interval = 7200  # 2h — bewusst seltener als stündlich gegen Notify-Spam
             _hb_key = f"_hb_{agent.id}"
             _last_hb = getattr(self, _hb_key, 0.0)
             _now = _time.time()
-            if _now - _last_hb < 3600:
+            if _now - _last_hb < _hb_interval:
                 log.debug("Sub-agent '%s': alles ruhig, nächster Heartbeat in %dmin",
-                          agent.name, int((3600 - (_now - _last_hb)) / 60))
+                          agent.name, int((_hb_interval - (_now - _last_hb)) / 60))
                 return
             setattr(self, _hb_key, _now)
             hb_msg = (f"🤖 *{_escape_md_v1(_display_name(agent.name))}* [heartbeat]\n"
-                      "✅ Netzwerk sauber – keine neuen Geräte in der letzten Stunde.")
+                      "✅ Netzwerk sauber – keine neuen Geräte in den letzten 2 Stunden.")
             try:
                 await _send_notify(hb_msg)
                 log.info("Sub-agent '%s': Heartbeat gesendet", agent.name)
