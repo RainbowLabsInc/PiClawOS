@@ -473,7 +473,8 @@ async def stats(_: str = Depends(require_auth)):
 
     temp = None
     try:
-        temp = int(open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8").read().strip()) / 1000
+        with open("/sys/class/thermal/thermal_zone0/temp", encoding="utf-8") as _f:
+            temp = int(_f.read().strip()) / 1000
     except Exception:
         try:
             t = psutil.sensors_temperatures()
@@ -813,12 +814,18 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
             await _manager.send(websocket, {"type": "reply", "text": reply})
 
     except WebSocketDisconnect:
-        _manager.disconnect(websocket)
-        _sessions.pop(session_id, None)
         log.info("WebSocket disconnected: %s", session_id)
     except Exception as e:
         log.error("WebSocket error: %s", e, exc_info=True)
-        await _manager.send(websocket, {"type": "error", "text": str(e)})
+        try:
+            await _manager.send(websocket, {"type": "error", "text": str(e)})
+        except Exception:
+            log.debug("Could not send error to already-broken WebSocket %s", session_id)
+    finally:
+        # Läuft bei jedem Exit-Pfad (sauberer Disconnect, Exception, ...) –
+        # sonst bleiben _connections/_sessions bei hartem Verbindungsabbruch hängen.
+        _manager.disconnect(websocket)
+        _sessions.pop(session_id, None)
 
 
 # ── Entrypoint ────────────────────────────────────────────────────

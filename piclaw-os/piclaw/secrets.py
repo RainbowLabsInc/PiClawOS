@@ -76,6 +76,12 @@ SECRETS_BLOCKLIST = [
 
 # ── Key Derivation ───────────────────────────────────────────────────────────
 
+# Pi-Serial + Salt ändern sich zur Laufzeit nie – abgeleiteter Key wird
+# pro Prozess einmal berechnet (PBKDF2 mit 100k Iterationen ist teuer)
+# und danach wiederverwendet statt bei jedem get_secret()/set_secret().
+_derived_key_cache: bytes | None = None
+
+
 def _get_pi_serial() -> str:
     """Liest die CPU-Seriennummer des Raspberry Pi.
 
@@ -121,7 +127,11 @@ def _get_pi_serial() -> str:
 
 
 def _derive_key() -> bytes:
-    """Leitet den Fernet-Key aus Pi-Serial + Salt ab."""
+    """Leitet den Fernet-Key aus Pi-Serial + Salt ab (pro Prozess gecacht)."""
+    global _derived_key_cache
+    if _derived_key_cache is not None:
+        return _derived_key_cache
+
     serial = _get_pi_serial()
 
     config_dir = _config_dir()
@@ -146,7 +156,8 @@ def _derive_key() -> bytes:
         iterations=100_000,
         dklen=32,
     )
-    return base64.urlsafe_b64encode(key_material)
+    _derived_key_cache = base64.urlsafe_b64encode(key_material)
+    return _derived_key_cache
 
 
 # ── Core Functions ───────────────────────────────────────────────────────────

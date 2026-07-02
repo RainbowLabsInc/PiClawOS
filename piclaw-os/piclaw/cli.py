@@ -277,7 +277,11 @@ def cmd_doctor():
         try:
             from piclaw.config import CONFIG_FILE
             import tomllib as _tomllib
-            _raw = _tomllib.load(open(CONFIG_FILE, "rb")) if CONFIG_FILE.exists() else {}
+            if CONFIG_FILE.exists():
+                with open(CONFIG_FILE, "rb") as _f:
+                    _raw = _tomllib.load(_f)
+            else:
+                _raw = {}
             _ha = _raw.get("homeassistant", {})
             _ha_url = _ha.get("url", "")
             _ha_token = _ha.get("token", "")

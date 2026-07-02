@@ -942,7 +942,11 @@ async def _query_dhl(
 
 # ── Combined Tracking ────────────────────────────────────────────────────────
 
-async def track_single(tracking_number: str, carrier: str = "auto") -> dict:
+async def track_single(
+    tracking_number: str,
+    carrier: str = "auto",
+    session: aiohttp.ClientSession | None = None,
+) -> dict:
     """
     Trackt ein einzelnes Paket über alle verfügbaren Quellen.
 
@@ -952,6 +956,9 @@ async def track_single(tracking_number: str, carrier: str = "auto") -> dict:
       3. Hermes Public XHR (für Hermes-Pakete) – kein Auth, echte Events
       4. DPD/GLS via Scrapling (Anti-Bot-Bypass für blockierte Carrier)
       5. Parcello-Scraping – Zustellfenster + Fallback für unbekannte Carrier
+
+    `session` kann übergeben werden um sie über mehrere Pakete hinweg
+    wiederzuverwenden (z.B. beim Batch-Check in parcel_monitor_check).
     """
     tn = tracking_number.strip().replace(" ", "")
     if carrier == "auto":
@@ -971,15 +978,15 @@ async def track_single(tracking_number: str, carrier: str = "auto") -> dict:
 
     # Dict-basiertes Slot-Mapping — vermeidet die alte None-Index-Padding-Logik
     # und macht das Hinzufügen weiterer Carrier trivial.
-    async with aiohttp.ClientSession() as session:
+    async def _run(s: aiohttp.ClientSession) -> dict:
         slots: dict[str, asyncio.Future | None] = {
-            "parcello": _query_parcello(tn, session),
+            "parcello": _query_parcello(tn, s),
         }
         if carrier == "dhl":
-            slots["dhl_public"] = _query_dhl_public(tn, session=session)
-            slots["dhl_api"] = _query_dhl(tn, session=session)
+            slots["dhl_public"] = _query_dhl_public(tn, session=s)
+            slots["dhl_api"] = _query_dhl(tn, session=s)
         elif carrier == "hermes":
-            slots["hermes"] = _query_hermes(tn, session=session)
+            slots["hermes"] = _query_hermes(tn, session=s)
         elif carrier == "dpd":
             slots["dpd"] = _query_dpd(tn)
         elif carrier == "gls":
@@ -989,7 +996,13 @@ async def track_single(tracking_number: str, carrier: str = "auto") -> dict:
         gathered = await asyncio.gather(
             *(slots[k] for k in keys), return_exceptions=True
         )
-        results = dict(zip(keys, gathered))
+        return dict(zip(keys, gathered))
+
+    if session is not None:
+        results = await _run(session)
+    else:
+        async with aiohttp.ClientSession() as s:
+            results = await _run(s)
 
     def _ok(r):
         return r if r and not isinstance(r, Exception) else None
@@ -1423,68 +1436,69 @@ async def parcel_monitor_check() -> str:
 
     changes = []
 
-    for tn, p in list(data["parcels"].items()):
-        old_status = p.get("status", "unknown")
-        old_status_text = p.get("status_text", "")
-        old_events = p.get("events", [])
+    async with aiohttp.ClientSession() as session:
+        for tn, p in list(data["parcels"].items()):
+            old_status = p.get("status", "unknown")
+            old_status_text = p.get("status_text", "")
+            old_events = p.get("events", [])
 
-        try:
-            new = await track_single(tn, p.get("carrier", "auto"))
-        except Exception as e:
-            log.warning("Tracking-Fehler für %s: %s", tn, e)
-            continue
+            try:
+                new = await track_single(tn, p.get("carrier", "auto"), session=session)
+            except Exception as e:
+                log.warning("Tracking-Fehler für %s: %s", tn, e)
+                continue
 
-        new_status = new.get("status", "unknown")
-        new_events = new.get("events", [])[:5]
+            new_status = new.get("status", "unknown")
+            new_events = new.get("events", [])[:5]
 
-        # Status geändert? (Top-Level: pending/in_transit/out_for_delivery/delivered)
-        status_changed = new_status != old_status and new_status != "unknown"
+            # Status geändert? (Top-Level: pending/in_transit/out_for_delivery/delivered)
+            status_changed = new_status != old_status and new_status != "unknown"
 
-        # ETA-Fenster neu/geändert?
-        eta_changed = (
-            new.get("eta_window") and
-            new.get("eta_window") != p.get("eta_window")
-        )
+            # ETA-Fenster neu/geändert?
+            eta_changed = (
+                new.get("eta_window") and
+                new.get("eta_window") != p.get("eta_window")
+            )
 
-        # Neue Sendungs-Etappe? DHL bewegt Pakete durch viele Sub-Stationen
-        # innerhalb desselben raw_status (z.B. "Vorbereitung Weitertransport"
-        # bleibt in_transit). Vergleich per neuesten Event-Timestamp.
-        events_changed = (
-            _latest_event_ts(new_events) > _latest_event_ts(old_events)
-            or len(new_events) > len(old_events)
-        )
+            # Neue Sendungs-Etappe? DHL bewegt Pakete durch viele Sub-Stationen
+            # innerhalb desselben raw_status (z.B. "Vorbereitung Weitertransport"
+            # bleibt in_transit). Vergleich per neuesten Event-Timestamp.
+            events_changed = (
+                _latest_event_ts(new_events) > _latest_event_ts(old_events)
+                or len(new_events) > len(old_events)
+            )
 
-        # Diagnose-Log: eine Zeile pro Paket pro Check, damit der Pfad
-        # selbst-erklärend wird (vorher war stiller Pfad ohne Spur in Logs)
-        log.info(
-            "parcel_monitor %s: old=%s/%r → new=%s/%r events=%d→%d "
-            "status_changed=%s events_changed=%s eta_changed=%s",
-            tn, old_status, old_status_text,
-            new_status, new.get("status_text", ""),
-            len(old_events), len(new_events),
-            status_changed, events_changed, eta_changed,
-        )
+            # Diagnose-Log: eine Zeile pro Paket pro Check, damit der Pfad
+            # selbst-erklärend wird (vorher war stiller Pfad ohne Spur in Logs)
+            log.info(
+                "parcel_monitor %s: old=%s/%r → new=%s/%r events=%d→%d "
+                "status_changed=%s events_changed=%s eta_changed=%s",
+                tn, old_status, old_status_text,
+                new_status, new.get("status_text", ""),
+                len(old_events), len(new_events),
+                status_changed, events_changed, eta_changed,
+            )
 
-        if status_changed or eta_changed or events_changed:
-            # Persistenz: Events + status_text werden IMMER aktualisiert sobald
-            # sich was bewegt — auch wenn raw_status gleich bleibt. Sonst
-            # zeigt /paket beim User veralteten Stand.
-            if status_changed:
-                p["status"] = new_status
-            p["status_text"] = new.get("status_text", "")
-            p["eta_window"] = new.get("eta_window")
-            p["events"] = new_events
-            p["updated_at"] = time.time()
+            if status_changed or eta_changed or events_changed:
+                # Persistenz: Events + status_text werden IMMER aktualisiert sobald
+                # sich was bewegt — auch wenn raw_status gleich bleibt. Sonst
+                # zeigt /paket beim User veralteten Stand.
+                if status_changed:
+                    p["status"] = new_status
+                p["status_text"] = new.get("status_text", "")
+                p["eta_window"] = new.get("eta_window")
+                p["events"] = new_events
+                p["updated_at"] = time.time()
 
-            if new_status == "delivered" and old_status != "delivered":
-                p["delivered_at"] = time.time()
-                # Versand-Mail in AgentMail permanent löschen (Cleanup).
-                # Bei Migration-Lücke (kein thread_id) springt der Safety-Net-
-                # Sub-Agent Inbox_Cleanup_Pakete ein wenn die nächste Mail
-                # die Felder mitbringt — alte Pakete bleiben unangetastet.
-                await _delete_inbox_thread(p)
+                if new_status == "delivered" and old_status != "delivered":
+                    p["delivered_at"] = time.time()
+                    # Versand-Mail in AgentMail permanent löschen (Cleanup).
+                    # Bei Migration-Lücke (kein thread_id) springt der Safety-Net-
+                    # Sub-Agent Inbox_Cleanup_Pakete ein wenn die nächste Mail
+                    # die Felder mitbringt — alte Pakete bleiben unangetastet.
+                    await _delete_inbox_thread(p)
 
-            changes.append(_format_change_telegram(p, old_status, new_status, eta_changed))
+                changes.append(_format_change_telegram(p, old_status, new_status, eta_changed))
 
     _save_parcels(data)
 

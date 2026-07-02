@@ -103,19 +103,30 @@ TOOL_DEFS = [
 
 # ── Handler ───────────────────────────────────────────────────────
 
-async def _get(url: str) -> dict:
-    async with aiohttp.ClientSession() as s:
+async def _get(url: str, session: aiohttp.ClientSession | None = None) -> dict:
+    async def _do(s: aiohttp.ClientSession) -> dict:
         async with s.get(url, timeout=aiohttp.ClientTimeout(total=15)) as r:
             r.raise_for_status()
             return await r.json()
 
-
-async def _download_zip(slug: str) -> bytes:
-    url = f"{CLAWHUB_API}/download?slug={slug}"
+    if session is not None:
+        return await _do(session)
     async with aiohttp.ClientSession() as s:
+        return await _do(s)
+
+
+async def _download_zip(slug: str, session: aiohttp.ClientSession | None = None) -> bytes:
+    url = f"{CLAWHUB_API}/download?slug={slug}"
+
+    async def _do(s: aiohttp.ClientSession) -> bytes:
         async with s.get(url, timeout=aiohttp.ClientTimeout(total=30)) as r:
             r.raise_for_status()
             return await r.read()
+
+    if session is not None:
+        return await _do(session)
+    async with aiohttp.ClientSession() as s:
+        return await _do(s)
 
 
 async def clawhub_search(query: str) -> str:
@@ -126,12 +137,12 @@ async def clawhub_search(query: str) -> str:
         if skill:
             stats = skill.get("stats", {})
             return (
-                f"🔍 Gefunden: **{skill['displayName']}**\n"
-                f"   {skill['summary']}\n"
+                f"🔍 Gefunden: **{skill.get('displayName', '?')}**\n"
+                f"   {skill.get('summary', '?')}\n"
                 f"   ⭐ {stats.get('stars', 0)} · "
                 f"📦 {stats.get('downloads', 0):,} Downloads · "
-                f"Version {skill['tags'].get('latest', '?')}\n"
-                f"   Installieren: clawhub_install(slug='{skill['slug']}')"
+                f"Version {skill.get('tags', {}).get('latest', '?')}\n"
+                f"   Installieren: clawhub_install(slug='{skill.get('slug', '?')}')"
             )
     except Exception:
         pass
@@ -154,8 +165,8 @@ async def clawhub_info(slug: str) -> str:
         installed = " ✅ installiert" if installed_path.exists() else ""
 
         return (
-            f"📦 **{skill['displayName']}** v{skill['tags'].get('latest', '?')}{installed}\n"
-            f"   {skill['summary']}\n"
+            f"📦 **{skill.get('displayName', '?')}** v{skill.get('tags', {}).get('latest', '?')}{installed}\n"
+            f"   {skill.get('summary', '?')}\n"
             f"   ⭐ {stats.get('stars', 0)} · "
             f"{stats.get('downloads', 0):,} Downloads · "
             f"{stats.get('installsCurrent', 0)} aktive Installs\n"
@@ -168,18 +179,19 @@ async def clawhub_info(slug: str) -> str:
 
 async def clawhub_install(slug: str) -> str:
     try:
-        # Info abrufen
-        data = await _get(f"{CLAWHUB_API}/skills/{slug}")
-        skill = data.get("skill", {})
-        if not skill:
-            return f"❌ Skill '{slug}' nicht auf ClawHub gefunden."
+        async with aiohttp.ClientSession() as session:
+            # Info abrufen
+            data = await _get(f"{CLAWHUB_API}/skills/{slug}", session=session)
+            skill = data.get("skill", {})
+            if not skill:
+                return f"❌ Skill '{slug}' nicht auf ClawHub gefunden."
 
-        version = skill["tags"].get("latest", "?")
-        target = SKILLS_DIR / slug
-        target.mkdir(parents=True, exist_ok=True)
+            version = skill.get("tags", {}).get("latest", "?")
+            target = SKILLS_DIR / slug
+            target.mkdir(parents=True, exist_ok=True)
 
-        # ZIP herunterladen und entpacken
-        zip_bytes = await _download_zip(slug)
+            # ZIP herunterladen und entpacken
+            zip_bytes = await _download_zip(slug, session=session)
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             extracted = zf.namelist()
             zf.extractall(target)
@@ -187,9 +199,9 @@ async def clawhub_install(slug: str) -> str:
         # Metadaten speichern
         meta = {
             "slug": slug,
-            "displayName": skill["displayName"],
+            "displayName": skill.get("displayName", slug),
             "version": version,
-            "summary": skill["summary"],
+            "summary": skill.get("summary", ""),
             "source": "clawhub",
         }
         (target / "clawhub.json").write_text(json.dumps(meta, indent=2))
@@ -198,7 +210,7 @@ async def clawhub_install(slug: str) -> str:
         log.info("ClawHub: Skill '%s' v%s installiert → %s", slug, version, target)
 
         return (
-            f"✅ **{skill['displayName']}** v{version} installiert!\n"
+            f"✅ **{meta['displayName']}** v{version} installiert!\n"
             f"   Dateien: {', '.join(extracted)}\n"
             f"   Pfad: {target}\n"
             f"   {'SKILL.md vorhanden – Dameon kennt den Skill jetzt.' if skill_md.exists() else 'Hinweis: Keine SKILL.md gefunden.'}"
