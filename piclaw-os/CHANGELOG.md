@@ -1,5 +1,19 @@
 # PiClaw OS – Changelog
 
+## Unreleased 🧹
+
+### Scheduler entfernt (Breaking, aber ungenutzt)
+- **`tools/scheduler.py` gelöscht** samt `schedule_add`/`schedule_list`/
+  `schedule_remove`-Tools, `/api/schedules`-Endpoint und `SCHEDULE_DB`.
+  Gründe: Die Schedule-Loops liefen fälschlich in **beiden** Prozessen
+  (api + daemon) → Doppel-Ausführung; `schedule_add` war seit Python 3.11
+  kaputt (`asyncio.coroutine` entfernt → AttributeError); `schedules.json`
+  existierte auf keinem bekannten System. Cron-/Intervall-Aufgaben laufen
+  über Routinen (`routine_*`-Tools) und Sub-Agenten (`schedule="cron:…"`),
+  die dasselbe leisten.
+- Migration: Falls eine alte `schedules.json` existiert, Einträge manuell
+  als Routine oder Sub-Agent neu anlegen.
+
 ## Unreleased 📧
 
 ### AgentMail Attribute-Fix

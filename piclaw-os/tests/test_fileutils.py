@@ -15,7 +15,7 @@ def test_safe_write_json_success(tmp_path: Path):
     assert safe_write_json(test_file, data) is True
     assert test_file.exists()
 
-    with open(test_file, "r", encoding="utf-8") as f:
+    with open(test_file, encoding="utf-8") as f:
         loaded_data = json.load(f)
     assert loaded_data == data
 
@@ -65,7 +65,7 @@ def test_atomic_write_text_success(tmp_path: Path):
     atomic_write_text(test_file, content)
 
     assert test_file.exists()
-    with open(test_file, "r", encoding="utf-8") as f:
+    with open(test_file, encoding="utf-8") as f:
         assert f.read() == content
 
 def test_atomic_write_text_cleanup_on_error(tmp_path: Path):

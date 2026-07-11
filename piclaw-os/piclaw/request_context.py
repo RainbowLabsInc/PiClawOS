@@ -28,7 +28,7 @@ from __future__ import annotations
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Iterator
+from collections.abc import Iterator
 
 # Default leerer String macht Konsumenten-Checks bequem (`if rid:`).
 _request_id: ContextVar[str] = ContextVar("piclaw_request_id", default="")

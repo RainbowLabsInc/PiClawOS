@@ -80,18 +80,28 @@ class LLMRegistry:
 
     # ── Persistence ───────────────────────────────────────────────
 
-    def _load(self):
+    def _read_disk(self) -> dict[str, BackendConfig] | None:
+        """Liest registry.json. None = Datei fehlt oder ist fehlerhaft."""
         if not REGISTRY_FILE.exists():
-            self._backends = {}
-            return
+            return None
         try:
             data = json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
-            self._backends = {k: BackendConfig(**v) for k, v in data.items()}
-            self._file_mtime = REGISTRY_FILE.stat().st_mtime
-            log.info("LLM registry loaded: %s backends", len(self._backends))
+            return {k: BackendConfig(**v) for k, v in data.items()}
         except Exception as e:
             log.error("Registry load error: %s", e)
+            return None
+
+    def _load(self):
+        fresh = self._read_disk()
+        if fresh is None:
             self._backends = {}
+            return
+        self._backends = fresh
+        try:
+            self._file_mtime = REGISTRY_FILE.stat().st_mtime
+        except OSError:
+            pass
+        log.info("LLM registry loaded: %s backends", len(self._backends))
 
     def _reload_if_changed(self):
         """Lädt Registry neu wenn die Datei sich geändert hat (Hot-Reload)."""
@@ -105,66 +115,96 @@ class LLMRegistry:
         except Exception:
             pass
 
-    def _save(self):
-        REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    def _atomic_modify(self, mutate) -> bool:
+        """Read-Merge-Write unter File-Lock (Muster: ReminderStore).
+
+        Re-Read unter dem Lock, gezielte Mutation via `mutate(backends)`,
+        atomarer Write nur bei truthy-Rückgabe. Beide Prozesse (api↔daemon)
+        bootstrappen und mutieren die Registry – der alte Code schrieb den
+        In-Memory-Snapshot komplett zurück und konnte so parallele Änderungen
+        verlieren. `_file_mtime` wird nach dem Write aktualisiert, damit
+        `_reload_if_changed` den eigenen Write nicht sofort erneut lädt.
+        Bei fehlerhafter Datei bleibt der In-Memory-Stand erhalten.
+        """
         from piclaw.fileutils import safe_write_json, with_file_lock
 
-        # Cross-process Lock damit zwei parallele Writer (z.B. api↔daemon)
-        # nicht ihre lokalen In-Memory-Snapshots gegenseitig überschreiben.
-        # Read-Modify-Write läuft hier zwar im selben Prozess (kein Re-Read
-        # vor dem Write), aber unter Last kann der Hot-Reload-Loop in der
-        # anderen Instanz mitten in einem add()/update() landen.
+        REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
         try:
             with with_file_lock(REGISTRY_FILE):
-                data = {k: asdict(v) for k, v in self._backends.items()}
-                safe_write_json(REGISTRY_FILE, data, label="llm_registry")
+                fresh = self._read_disk()
+                if fresh is not None:
+                    self._backends = fresh
+                changed = bool(mutate(self._backends))
+                if changed:
+                    data = {k: asdict(v) for k, v in self._backends.items()}
+                    if safe_write_json(REGISTRY_FILE, data, label="llm_registry"):
+                        try:
+                            self._file_mtime = REGISTRY_FILE.stat().st_mtime
+                        except OSError:
+                            pass
+                return changed
         except TimeoutError as e:
             log.error("LLM registry: %s", e)
+            return False
 
     # ── CRUD ──────────────────────────────────────────────────────
 
     def clear(self):
         """Löscht alle Backends aus der Registry (z.B. nach Backend-Wechsel)."""
-        self._backends.clear()
-        self._save()
+        def _mut(d: dict) -> bool:
+            d.clear()
+            return True
+
+        self._atomic_modify(_mut)
         log.info("LLM Registry geleert")
 
     def add(self, cfg: BackendConfig) -> str:
-        self._backends[cfg.name] = cfg
-        self._save()
+        def _mut(d: dict) -> bool:
+            d[cfg.name] = cfg
+            return True
+
+        self._atomic_modify(_mut)
         log.info("Registry: added backend '%s' tags=%s", cfg.name, cfg.tags)
         return f"Backend '{cfg.name}' added."
 
     def update(self, name: str, **kwargs) -> str:
-        if name not in self._backends:
+        def _mut(d: dict) -> bool:
+            backend = d.get(name)
+            if backend is None:
+                return False
+            _INT_FIELDS = {"priority", "max_tokens", "timeout"}
+            _FLOAT_FIELDS = {"temperature"}
+            _BOOL_FIELDS = {"enabled"}
+            for k, v in kwargs.items():
+                if not hasattr(backend, k):
+                    continue
+                if k in _INT_FIELDS:
+                    v = int(v)
+                elif k in _FLOAT_FIELDS:
+                    v = float(v)
+                elif k in _BOOL_FIELDS:
+                    if isinstance(v, str):
+                        v = v.lower() not in ("false", "0", "no", "off")
+                    else:
+                        v = bool(v)
+                elif k == "tags" and isinstance(v, str):
+                    v = [t.strip() for t in v.split(",") if t.strip()]
+                setattr(backend, k, v)
+            return True
+
+        if not self._atomic_modify(_mut):
             return f"Backend '{name}' not found."
-        backend = self._backends[name]
-        _INT_FIELDS = {"priority", "max_tokens", "timeout"}
-        _FLOAT_FIELDS = {"temperature"}
-        _BOOL_FIELDS = {"enabled"}
-        for k, v in kwargs.items():
-            if not hasattr(backend, k):
-                continue
-            if k in _INT_FIELDS:
-                v = int(v)
-            elif k in _FLOAT_FIELDS:
-                v = float(v)
-            elif k in _BOOL_FIELDS:
-                if isinstance(v, str):
-                    v = v.lower() not in ("false", "0", "no", "off")
-                else:
-                    v = bool(v)
-            elif k == "tags" and isinstance(v, str):
-                v = [t.strip() for t in v.split(",") if t.strip()]
-            setattr(backend, k, v)
-        self._save()
         return f"Backend '{name}' updated."
 
     def remove(self, name: str) -> str:
-        if name not in self._backends:
+        def _mut(d: dict) -> bool:
+            if name not in d:
+                return False
+            del d[name]
+            return True
+
+        if not self._atomic_modify(_mut):
             return f"Backend '{name}' not found."
-        del self._backends[name]
-        self._save()
         return f"Backend '{name}' removed."
 
     def get(self, name: str) -> BackendConfig | None:

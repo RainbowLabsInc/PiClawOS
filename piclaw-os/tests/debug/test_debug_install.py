@@ -218,7 +218,7 @@ for pyproject in [
         continue
     text = pyproject.read_text()
     if "setuptools.build_meta" in text and "setuptools.backends.legacy" not in text:
-        ok(f"build-backend korrekt", str(pyproject.relative_to(INSTALL_DIR) if INSTALL_DIR in pyproject.parents else pyproject))
+        ok("build-backend korrekt", str(pyproject.relative_to(INSTALL_DIR) if INSTALL_DIR in pyproject.parents else pyproject))
     else:
         fail("build-backend falsch",
              str(pyproject),
@@ -267,7 +267,7 @@ try:
         ok("Modell-Datei vorhanden", f"{DEFAULT_MODEL_PATH.name} ({size_mb} MB)")
     else:
         warn("Lokales Modell nicht gefunden",
-             f"Für Cloud-LLM nicht nötig. Offline-Modus: piclaw model download")
+             "Für Cloud-LLM nicht nötig. Offline-Modus: piclaw model download")
 except Exception as e:
     warn(f"Modell-Check übersprungen: {e}")
 

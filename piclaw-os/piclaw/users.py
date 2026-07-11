@@ -23,12 +23,12 @@ Per-User-Daten: CONFIG_DIR / "users" / {user_id} / parcels.json, routines.json, 
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 import uuid
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
-from typing import Iterable
 
 from piclaw.config import CONFIG_DIR
 from piclaw.fileutils import atomic_write_json
@@ -74,7 +74,7 @@ class User:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "User":
+    def from_dict(cls, d: dict) -> User:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
@@ -88,28 +88,85 @@ class UserRegistry:
         self._path: Path = path
         self._users: dict[str, User] = {}
         self._load()
+        log.info("Users geladen: %d (%d admin, %d user, %d pending)",
+                 len(self._users),
+                 sum(1 for u in self._users.values() if u.role == "admin"),
+                 sum(1 for u in self._users.values() if u.role == "user"),
+                 sum(1 for u in self._users.values() if u.role == "pending"))
 
     # ---- Persistence ---------------------------------------------------------
 
-    def _load(self) -> None:
-        if not self._path.exists():
-            log.info("users.json nicht vorhanden – starte mit leerer Registry.")
-            return
+    def _read_disk(self) -> dict[str, User] | None:
+        """Liest users.json. None = Datei fehlerhaft (wurde quarantänisiert)."""
         import json
+        if not self._path.exists():
+            return {}
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
-            self._users = {d["id"]: User.from_dict(d) for d in data if "id" in d}
-            log.info("Users geladen: %d (%d admin, %d user, %d pending)",
-                     len(self._users),
-                     sum(1 for u in self._users.values() if u.role == "admin"),
-                     sum(1 for u in self._users.values() if u.role == "user"),
-                     sum(1 for u in self._users.values() if u.role == "pending"))
+            return {d["id"]: User.from_dict(d) for d in data if "id" in d}
         except Exception as e:
-            log.error("users.json fehlerhaft – Registry bleibt leer: %s", e)
-            self._users = {}
+            # Defekte Datei NIE liegen lassen: Der nächste Save würde sie
+            # sonst endgültig überschreiben. Wegschieben, Original erhalten.
+            quarantine = self._path.with_name(
+                self._path.name + datetime.now().strftime(".corrupt-%Y%m%d-%H%M%S")
+            )
+            try:
+                os.replace(self._path, quarantine)
+                log.error("users.json fehlerhaft (%s) – nach '%s' verschoben",
+                          e, quarantine.name)
+            except OSError as move_err:
+                log.error("users.json fehlerhaft (%s), Quarantäne fehlgeschlagen: %s",
+                          e, move_err)
+            return None
+
+    def _load(self) -> None:
+        self._users = self._read_disk() or {}
+
+    def _reload_merged(self) -> None:
+        """Frischen Disk-Stand laden, bestehende User-Objekte aber IN-PLACE
+        aktualisieren – außen gehaltene Referenzen (API-Handler, Tests)
+        bleiben so gültig. Bei fehlerhafter Datei bleibt der In-Memory-Stand
+        (letzter bekannter guter Zustand) erhalten."""
+        fresh = self._read_disk()
+        if fresh is None:
+            return
+        for uid, new_u in fresh.items():
+            cur = self._users.get(uid)
+            if cur is None:
+                self._users[uid] = new_u
+            else:
+                for f in User.__dataclass_fields__:
+                    setattr(cur, f, getattr(new_u, f))
+        for uid in list(self._users.keys()):
+            if uid not in fresh:
+                del self._users[uid]
 
     def _save(self) -> None:
         atomic_write_json(self._path, [u.to_dict() for u in self._users.values()])
+
+    def _atomic_modify(self, mutate):
+        """Read-Merge-Write unter File-Lock (Muster: ReminderStore).
+
+        Lädt users.json unter dem Lock frisch (in-place gemerged), führt
+        `mutate()` auf dem aktuellen Stand aus (arbeitet über self._users)
+        und persistiert, wenn mutate truthy zurückgibt. Nötig weil drei
+        Writer existieren: API-Endpoints, Telegram-Registrierung und
+        cli_users als separater Prozess – ohne Re-Read unter Lock verliert
+        der langsamste Writer die Änderungen der anderen.
+        """
+        from piclaw.fileutils import with_file_lock
+
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with with_file_lock(self._path):
+                self._reload_merged()
+                result = mutate()
+                if result:
+                    self._save()
+                return result
+        except TimeoutError as e:
+            log.error("User registry: Schreibzugriff nicht möglich – %s", e)
+            return None
 
     # ---- Queries -------------------------------------------------------------
 
@@ -169,70 +226,95 @@ class UserRegistry:
         Wenn die telegram_chat_id schon registriert ist, wird der bestehende
         User zurückgegeben (idempotent).
         """
-        existing = self.find_by_chat_id(telegram_chat_id)
-        if existing is not None:
-            return existing
+        result: dict = {}
 
-        role = "admin" if not self.has_admin() else "pending"
-        user = User(
-            id=str(uuid.uuid4()),
-            name=name.strip() or f"user-{telegram_chat_id}",
-            telegram_chat_id=str(telegram_chat_id),
-            role=role,
-            web_token=secrets.token_urlsafe(32),
-            created_at=_now_iso(),
-        )
-        self._users[user.id] = user
-        self._save()
-        log.info("User registriert: %s (id=%s, role=%s)", user.name, user.id, user.role)
-        return user
+        def _mut() -> bool:
+            existing = self.find_by_chat_id(telegram_chat_id)
+            if existing is not None:
+                result["user"] = existing
+                return False
+
+            role = "admin" if not self.has_admin() else "pending"
+            user = User(
+                id=str(uuid.uuid4()),
+                name=name.strip() or f"user-{telegram_chat_id}",
+                telegram_chat_id=str(telegram_chat_id),
+                role=role,
+                web_token=secrets.token_urlsafe(32),
+                created_at=_now_iso(),
+            )
+            self._users[user.id] = user
+            result["user"] = user
+            log.info("User registriert: %s (id=%s, role=%s)", user.name, user.id, user.role)
+            return True
+
+        self._atomic_modify(_mut)
+        return result.get("user")
 
     def approve(self, id_or_name: str) -> User | None:
-        u = self.find_by_id(id_or_name) or self.find_by_name(id_or_name)
-        if u is None:
-            return None
-        if u.role != "pending":
-            return u
-        u.role = "user"
-        self._save()
-        log.info("User approved: %s (id=%s)", u.name, u.id)
-        return u
+        result: dict = {}
+
+        def _mut() -> bool:
+            u = self.find_by_id(id_or_name) or self.find_by_name(id_or_name)
+            result["user"] = u
+            if u is None or u.role != "pending":
+                return False
+            u.role = "user"
+            log.info("User approved: %s (id=%s)", u.name, u.id)
+            return True
+
+        self._atomic_modify(_mut)
+        return result.get("user")
 
     def revoke(self, id_or_name: str) -> bool:
-        u = self.find_by_id(id_or_name) or self.find_by_name(id_or_name)
-        if u is None:
-            return False
-        if u.is_admin and len(self.admins()) == 1:
-            log.warning("Revoke abgelehnt: %s ist der letzte Admin.", u.name)
-            return False
-        del self._users[u.id]
-        self._save()
-        log.info("User entfernt: %s", u.name)
-        return True
+        def _mut() -> bool:
+            u = self.find_by_id(id_or_name) or self.find_by_name(id_or_name)
+            if u is None:
+                return False
+            if u.is_admin and len(self.admins()) == 1:
+                log.warning("Revoke abgelehnt: %s ist der letzte Admin.", u.name)
+                return False
+            del self._users[u.id]
+            log.info("User entfernt: %s", u.name)
+            return True
+
+        return bool(self._atomic_modify(_mut))
 
     def set_role(self, user_id: str, role: str) -> User | None:
         if role not in ("admin", "user", "pending"):
             raise ValueError(f"Unbekannte Rolle: {role}")
-        u = self._users.get(user_id)
-        if u is None:
-            return None
-        # Letzten Admin nicht degradieren
-        if u.is_admin and role != "admin" and len(self.admins()) == 1:
-            log.warning("Demote abgelehnt: %s ist der letzte Admin.", u.name)
-            return u
-        u.role = role
-        self._save()
-        return u
+        result: dict = {}
+
+        def _mut() -> bool:
+            u = self._users.get(user_id)
+            result["user"] = u
+            if u is None:
+                return False
+            # Letzten Admin nicht degradieren
+            if u.is_admin and role != "admin" and len(self.admins()) == 1:
+                log.warning("Demote abgelehnt: %s ist der letzte Admin.", u.name)
+                return False
+            u.role = role
+            return True
+
+        self._atomic_modify(_mut)
+        return result.get("user")
 
     def regenerate_token(self, id_or_name: str) -> User | None:
         """Erzeugt einen neuen web_token. Alter Token wird sofort ungültig."""
-        u = self.find_by_id(id_or_name) or self.find_by_name(id_or_name)
-        if u is None:
-            return None
-        u.web_token = secrets.token_urlsafe(32)
-        self._save()
-        log.info("Token regeneriert für %s (id=%s).", u.name, u.id)
-        return u
+        result: dict = {}
+
+        def _mut() -> bool:
+            u = self.find_by_id(id_or_name) or self.find_by_name(id_or_name)
+            result["user"] = u
+            if u is None:
+                return False
+            u.web_token = secrets.token_urlsafe(32)
+            log.info("Token regeneriert für %s (id=%s).", u.name, u.id)
+            return True
+
+        self._atomic_modify(_mut)
+        return result.get("user")
 
     def add_user(
         self,
@@ -248,56 +330,69 @@ class UserRegistry:
         """
         if role not in ("admin", "user", "pending"):
             raise ValueError(f"Unbekannte Rolle: {role}")
-        if self.find_by_chat_id(telegram_chat_id) is not None:
+        result: dict = {}
+
+        def _mut() -> bool:
+            if self.find_by_chat_id(telegram_chat_id) is not None:
+                result["dupe"] = True
+                return False
+            user = User(
+                id=str(uuid.uuid4()),
+                name=name.strip() or f"user-{telegram_chat_id}",
+                telegram_chat_id=str(telegram_chat_id),
+                role=role,
+                web_token=web_token or secrets.token_urlsafe(32),
+                created_at=_now_iso(),
+            )
+            self._users[user.id] = user
+            result["user"] = user
+            log.info("User manuell angelegt: %s (id=%s, role=%s)", user.name, user.id, user.role)
+            return True
+
+        self._atomic_modify(_mut)
+        if result.get("dupe"):
             raise ValueError(f"chat_id {telegram_chat_id} bereits registriert.")
-        user = User(
-            id=str(uuid.uuid4()),
-            name=name.strip() or f"user-{telegram_chat_id}",
-            telegram_chat_id=str(telegram_chat_id),
-            role=role,
-            web_token=web_token or secrets.token_urlsafe(32),
-            created_at=_now_iso(),
-        )
-        self._users[user.id] = user
-        self._save()
-        log.info("User manuell angelegt: %s (id=%s, role=%s)", user.name, user.id, user.role)
-        return user
+        return result.get("user")
 
     # ── Per-User-Overrides ────────────────────────────────────────
 
     def set_override(self, user_id: str, section: str, key: str, value) -> bool:
         """Setzt einen Override-Wert. None entfernt den Key."""
-        u = self._users.get(user_id)
-        if u is None:
-            return False
-        if value is None:
-            sect = u.overrides.get(section, {})
-            sect.pop(key, None)
-            if not sect:
-                u.overrides.pop(section, None)
+        def _mut() -> bool:
+            u = self._users.get(user_id)
+            if u is None:
+                return False
+            if value is None:
+                sect = u.overrides.get(section, {})
+                sect.pop(key, None)
+                if not sect:
+                    u.overrides.pop(section, None)
+                else:
+                    u.overrides[section] = sect
             else:
-                u.overrides[section] = sect
-        else:
-            u.overrides.setdefault(section, {})[key] = value
-        self._save()
-        return True
+                u.overrides.setdefault(section, {})[key] = value
+            return True
+
+        return bool(self._atomic_modify(_mut))
 
     def clear_override(self, user_id: str, section: str, key: str | None = None) -> bool:
         """Entfernt einen einzelnen Override-Key (key gesetzt) oder eine
         komplette Sektion (key=None)."""
-        u = self._users.get(user_id)
-        if u is None:
-            return False
-        if section not in u.overrides:
-            return False
-        if key is None:
-            u.overrides.pop(section, None)
-        else:
-            u.overrides[section].pop(key, None)
-            if not u.overrides[section]:
+        def _mut() -> bool:
+            u = self._users.get(user_id)
+            if u is None:
+                return False
+            if section not in u.overrides:
+                return False
+            if key is None:
                 u.overrides.pop(section, None)
-        self._save()
-        return True
+            else:
+                u.overrides[section].pop(key, None)
+                if not u.overrides[section]:
+                    u.overrides.pop(section, None)
+            return True
+
+        return bool(self._atomic_modify(_mut))
 
     def get_override(self, user_id: str, section: str, key: str):
         """Liest einen Override-Wert. None wenn nicht gesetzt."""
@@ -434,4 +529,4 @@ def get_setting_for_current(section: str, key: str, fallback=None):
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()

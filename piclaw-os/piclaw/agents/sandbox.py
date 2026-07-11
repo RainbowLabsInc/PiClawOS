@@ -59,7 +59,6 @@ BLOCKED_BY_DEFAULT: frozenset[str] = frozenset(
         "service_restart",  # restarting services
         "gpio_write",  # writing to GPIO pins (hardware risk)
         "network_set",  # changing network config
-        "scheduler_remove",  # removing scheduled tasks
     }
 )
 

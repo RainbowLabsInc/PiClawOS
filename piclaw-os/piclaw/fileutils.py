@@ -53,6 +53,35 @@ def atomic_write_json(path: Path, data: Any, indent: int = 2) -> None:
     atomic_write_text(path, json.dumps(data, indent=indent, ensure_ascii=False))
 
 
+def atomic_write_bytes(path: Path, content: bytes, mode: int | None = None) -> None:
+    """
+    Schreibt Bytes atomar: tmp → fsync → rename.
+    `mode` setzt die Dateirechte vor dem rename (mkstemp erzeugt bereits
+    0o600; explizit für sicherheitskritische Dateien wie secrets.enc).
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=".tmp_")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        if mode is not None:
+            try:
+                os.chmod(tmp_path, mode)
+            except OSError:
+                pass  # z.B. exotische Dateisysteme – Rechte sind Best-Effort
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def safe_write_text(path: Path, content: str, *, label: str = "") -> bool:
     """
     Wie atomic_write_text, aber loggt Fehler statt Exception zu werfen.

@@ -12,10 +12,48 @@ Konfiguration in config.toml unter [proactive].
 
 import asyncio
 import logging
+import time
 from datetime import datetime
 from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.proactive")
+
+
+# ── Fehler-Dedup fürs Monitoring ──────────────────────────────────
+# Die Threshold-/Direct-Checks laufen alle paar Minuten. Auf DEBUG (wie
+# früher) sterben sie im INFO-Betrieb des Daemons unsichtbar; pures
+# WARNING würde bei einem dauerhaft kaputten Check das Log fluten.
+# Kompromiss: erstes Auftreten WARNING, Wiederholung höchstens alle
+# 30 Minuten mit Zähler, dazwischen DEBUG.
+
+_REPEAT_LOG_INTERVAL = 30 * 60  # Sekunden
+_check_failures: dict[str, dict] = {}
+
+
+def _log_check_failure(key: str, exc: Exception, *, silent: bool = False) -> None:
+    """Loggt einen fehlgeschlagenen Monitor-Check dedupliziert.
+
+    silent=True für erwartbare Fälle (z.B. vcgencmd fehlt auf Nicht-Pi):
+    dauerhaft DEBUG statt WARNING.
+    """
+    now = time.monotonic()
+    entry = _check_failures.get(key)
+    if entry is None:
+        _check_failures[key] = {"count": 1, "last_logged": now}
+        (log.debug if silent else log.warning)(
+            "Monitor-Check '%s' fehlgeschlagen: %r", key, exc
+        )
+        return
+    entry["count"] += 1
+    if not silent and now - entry["last_logged"] >= _REPEAT_LOG_INTERVAL:
+        log.warning(
+            "Monitor-Check '%s' fehlgeschlagen (%d× seit letzter Meldung): %r",
+            key, entry["count"], exc,
+        )
+        entry["last_logged"] = now
+        entry["count"] = 0
+    else:
+        log.debug("Monitor-Check '%s' fehlgeschlagen: %r", key, exc)
 
 
 class ProactiveRunner:
@@ -217,7 +255,7 @@ class ProactiveRunner:
             try:
                 await self._check_thresholds(COOLDOWN_MINUTES)
             except Exception as e:
-                log.debug("Threshold-Check Fehler: %s", e)
+                _log_check_failure("threshold_loop", e)
 
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=300)  # alle 5 Min
@@ -263,10 +301,9 @@ class ProactiveRunner:
                 if temp >= temp_warn and _cooldown_ok("cpu_temp"):
                     warnings.append(f"⚠ Pi CPU: {temp}°C (Grenze: {temp_warn}°C)")
                     _mark("cpu_temp")
-        except (TimeoutError, asyncio.TimeoutError):
-            log.debug("cpu_temp check: Timeout")
         except Exception as _e:
-            log.debug("cpu_temp check: %s", _e)
+            # vcgencmd fehlt auf Nicht-Pi-Systemen – das ist kein Fehler
+            _log_check_failure("cpu_temp", _e, silent=isinstance(_e, FileNotFoundError))
 
         # Disk
         try:
@@ -276,7 +313,7 @@ class ProactiveRunner:
                 warnings.append(f"⚠ Disk {disk.percent:.0f}% voll ({free_gb} GB frei)")
                 _mark("disk")
         except Exception as _e:
-            log.debug("disk check: %s", _e)
+            _log_check_failure("disk", _e)
 
         # RAM
         try:
@@ -285,7 +322,7 @@ class ProactiveRunner:
                 warnings.append(f"⚠ RAM {mem.percent:.0f}% belegt")
                 _mark("ram")
         except Exception as _e:
-            log.debug("ram check: %s", _e)
+            _log_check_failure("ram", _e)
 
         # Warnungen senden
         if warnings and self.hub:
@@ -312,8 +349,6 @@ class ProactiveRunner:
 
         action = routine.action
         params = routine.params
-
-        result = ""
 
         # Mit User-Kontext der Routine — owner_id=None für System-Routinen
         # bedeutet "kein User-Filter" (volle Sicht).
@@ -419,7 +454,8 @@ async def _run_direct_check(params: dict, routine_name: str) -> str:
             if temp >= limit:
                 return f"⚠️ Pi CPU-Temperatur: {temp}°C (Grenze: {limit}°C)"
         except Exception as e:
-            log.debug("direct_check cpu_temp: %s", e)
+            _log_check_failure(f"direct_check cpu_temp@{routine_name}", e,
+                               silent=isinstance(e, FileNotFoundError))
         return ""  # Kein Problem → keine Nachricht
 
     # ── Disk ────────────────────────────────────────────────────────
@@ -432,7 +468,7 @@ async def _run_direct_check(params: dict, routine_name: str) -> str:
                 free_gb = round(disk.free / 1024**3, 1)
                 return f"⚠️ Disk {disk.percent:.0f}% voll ({free_gb} GB frei)"
         except Exception as e:
-            log.debug("direct_check disk: %s", e)
+            _log_check_failure(f"direct_check disk@{routine_name}", e)
         return ""
 
     # ── RAM ─────────────────────────────────────────────────────────
@@ -444,7 +480,7 @@ async def _run_direct_check(params: dict, routine_name: str) -> str:
             if mem.percent >= limit:
                 return f"⚠️ RAM {mem.percent:.0f}% belegt"
         except Exception as e:
-            log.debug("direct_check ram: %s", e)
+            _log_check_failure(f"direct_check ram@{routine_name}", e)
         return ""
 
     # ── Neue Netzwerkgeräte ─────────────────────────────────────────
@@ -458,7 +494,7 @@ async def _run_direct_check(params: dict, routine_name: str) -> str:
                     lines.append(f"  📍 {d.ip}  {d.mac}  {d.vendor}  {d.hostname}")
                 return "\n".join(lines)
         except Exception as e:
-            log.debug("direct_check new_devices: %s", e)
+            _log_check_failure(f"direct_check new_devices@{routine_name}", e)
         return ""
 
     # ── Home Assistant State ─────────────────────────────────────────
@@ -478,7 +514,7 @@ async def _run_direct_check(params: dict, routine_name: str) -> str:
                     msg = alert_msg or f"⚠️ {entity_id}: Status ist '{actual}' (erwartet: '{expected}')"
                     return msg
         except Exception as e:
-            log.debug("direct_check ha_state: %s", e)
+            _log_check_failure(f"direct_check ha_state@{routine_name}", e)
         return ""
 
     log.warning("direct_check: unbekannter check_type '%s' in Routine '%s'", check_type, routine_name)

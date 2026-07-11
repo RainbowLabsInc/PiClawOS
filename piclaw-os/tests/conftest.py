@@ -26,7 +26,7 @@ def patch_config_dir(tmp_path_factory):
         yield cfg_dir
 
 
-@pytest.fixture(scope="session", autouse=True)  
+@pytest.fixture(scope="session", autouse=True)
 def mock_gpio():
     """GPIO is only available on real Pi hardware – mock it everywhere."""
     gpio_mock = pytest.importorskip  # noqa

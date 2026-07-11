@@ -323,7 +323,7 @@ def build_handlers(registry: LLMRegistry, router) -> dict:
             ]
 
             if not candidates:
-                lines.append(f"   ✅ Alle freien Modelle bereits registriert")
+                lines.append("   ✅ Alle freien Modelle bereits registriert")
                 continue
 
             lines.append(f"   🔎 {len(candidates)} Kandidat(en) gefunden, teste…")

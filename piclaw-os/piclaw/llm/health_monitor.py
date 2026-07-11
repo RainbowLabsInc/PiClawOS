@@ -24,8 +24,8 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Callable, Awaitable
+from datetime import datetime, timedelta, UTC
+from collections.abc import Callable, Awaitable
 
 log = logging.getLogger(__name__)
 
@@ -301,8 +301,7 @@ class LLMHealthMonitor:
             # Bis Mitternacht UTC + 5min Puffer sperren.
             # datetime.utcnow() ist seit Python 3.12 deprecated →
             # datetime.now(timezone.utc) ist die korrekte, aware Alternative.
-            from datetime import timezone as _tz
-            now = datetime.now(_tz.utc).replace(tzinfo=None)  # naive UTC für Arithmetik
+            now = datetime.now(UTC).replace(tzinfo=None)  # naive UTC für Arithmetik
             midnight = (now + timedelta(days=1)).replace(
                 hour=0, minute=5, second=0, microsecond=0
             )
@@ -693,7 +692,7 @@ class LLMHealthMonitor:
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=interval)
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     def _current_interval(self) -> int:
@@ -974,7 +973,7 @@ class LLMHealthMonitor:
                         return None, ""
                     body = await r.text()
                     return r.status, body[:300]
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return 408, "Timeout"
         except Exception as e:
             return 500, str(e)

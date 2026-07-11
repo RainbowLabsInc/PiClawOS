@@ -130,7 +130,8 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
         # root in .git/objects/. Beim nächsten Lauf als piclaw schlägt git pull
         # mit "insufficient permission for adding an object" fehl.
         # Fix: find spürt root-eigene Dateien irgendwo im .git-Baum auf.
-        import os as _os, pwd as _pwd
+        import os as _os
+        import pwd as _pwd
         try:
             uname = _pwd.getpwuid(_os.getuid()).pw_name
             # -quit: beendet find nach erstem Treffer (schnell)

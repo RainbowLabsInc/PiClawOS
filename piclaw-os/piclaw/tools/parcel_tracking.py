@@ -15,10 +15,10 @@ Nutzung als Direct-Tool (Sub-Agent Monitor_Pakete):
 import asyncio
 import json
 import logging
+import os
 import re
 import time
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from urllib.parse import quote_plus
 
 import aiohttp
@@ -168,22 +168,58 @@ def extract_tracking_numbers(text: str) -> list[dict]:
 # ── Storage Management ───────────────────────────────────────────────────────
 
 def _load_parcels() -> dict:
-    """Lädt alle verfolgten Pakete aus parcels.json (volle Sicht, ungefiltert)."""
+    """Lädt alle verfolgten Pakete aus parcels.json (volle Sicht, ungefiltert).
+
+    Eine defekte Datei wird in Quarantäne verschoben statt sie liegen zu
+    lassen – sonst würde der nächste Save die (evtl. rettbaren) Daten
+    endgültig überschreiben.
+    """
     if PARCELS_FILE.exists():
         try:
             return json.loads(PARCELS_FILE.read_text(encoding="utf-8"))
         except Exception as e:
-            log.warning("parcels.json Lesefehler: %s", e)
+            quarantine = PARCELS_FILE.with_name(
+                PARCELS_FILE.name + time.strftime(".corrupt-%Y%m%d-%H%M%S")
+            )
+            try:
+                os.replace(PARCELS_FILE, quarantine)
+                log.error(
+                    "parcels.json fehlerhaft (%s) – nach '%s' verschoben",
+                    e, quarantine.name,
+                )
+            except OSError as move_err:
+                log.error(
+                    "parcels.json fehlerhaft (%s), Quarantäne fehlgeschlagen: %s",
+                    e, move_err,
+                )
     return {"parcels": {}, "archive": {}}
 
 
-def _save_parcels(data: dict) -> None:
-    """Speichert die Paketdaten."""
+def _modify_parcels(mutate):
+    """Read-Merge-Write unter File-Lock (Muster: ReminderStore).
+
+    `mutate(data)` arbeitet auf dem frisch von Platte gelesenen Stand und
+    gibt truthy zurück, wenn geschrieben werden soll; der Rückgabewert wird
+    durchgereicht. Zwei Prozesse schreiben parcels.json (Monitor-Sub-Agent
+    im Daemon ↔ parcel_*-Tools im API-Prozess) – der alte, ungelockte
+    write_text konnte Updates der Gegenseite verlieren.
+
+    Netzwerk-Calls gehören NICHT in die Mutation: erst Ergebnis berechnen,
+    dann hier nur das Delta anwenden.
+    """
+    from piclaw.fileutils import safe_write_json, with_file_lock
+
     PARCELS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PARCELS_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    try:
+        with with_file_lock(PARCELS_FILE):
+            data = _load_parcels()
+            result = mutate(data)
+            if result:
+                safe_write_json(PARCELS_FILE, data, label="parcels")
+            return result
+    except TimeoutError as e:
+        log.error("Parcel store: %s", e)
+        return False
 
 
 # ── Multi-User-Helper ────────────────────────────────────────────────────────
@@ -270,7 +306,11 @@ async def _delete_inbox_thread(parcel: dict) -> bool:
 
 
 def _archive_delivered(data: dict, days: int = 7) -> int:
-    """Verschiebt zugestellte Pakete nach X Tagen ins Archiv."""
+    """Verschiebt zugestellte Pakete nach X Tagen ins Archiv.
+
+    Reine Mutation ohne eigenen Save – der Aufrufer persistiert via
+    `_modify_parcels`.
+    """
     now = time.time()
     to_archive = []
     for tn, p in data["parcels"].items():
@@ -283,7 +323,6 @@ def _archive_delivered(data: dict, days: int = 7) -> int:
         data["archive"][tn] = data["parcels"].pop(tn)
 
     if to_archive:
-        _save_parcels(data)
         log.info("Archiviert: %d zugestellte Pakete", len(to_archive))
     return len(to_archive)
 
@@ -630,12 +669,13 @@ async def _scrapling_get_json(url: str, label: str) -> dict | None:
         Dict mit JSON-Daten, oder Dict mit Key "_html" wenn nur HTML kam,
         oder None bei vollständigem Fehlschlag.
     """
-    # Tier 1: Plain Fetcher mit stealth-Headers — schnell, kein Browser
+    # Tier 1: Plain Fetcher mit stealth-Headers — schnell, kein Browser.
+    # scrapling ≥0.4: get() ist classmethod; Instanziierung + Config-Kwargs
+    # am Konstruktor sind deprecated (Warnung feuerte stündlich im agent.log).
     try:
         from scrapling import Fetcher
-        fetcher = Fetcher()
         page = await asyncio.to_thread(
-            fetcher.get, url,
+            Fetcher.get, url,
             stealthy_headers=True, follow_redirects=True, timeout=20,
         )
         if page and getattr(page, "status", None) == 200:
@@ -1081,23 +1121,29 @@ async def parcel_add(
         # Wir lassen es bei strikter Trennung: kein doppeltes Tracking.
         return f"❌ Paket {tn} ist bereits einem anderen Nutzer zugeordnet."
 
-    # Ersten Status abrufen
+    # Ersten Status abrufen (Netzwerk – bewusst VOR dem Lock)
     status = await track_single(tn, carrier)
 
-    data["parcels"][tn] = {
-        "tracking_number": tn,
-        "carrier": carrier,
-        "carrier_name": CARRIER_NAMES.get(carrier, carrier),
-        "label": label or "",
-        "status": status.get("status", "unknown"),
-        "status_text": status.get("status_text", ""),
-        "eta_window": status.get("eta_window"),
-        "events": status.get("events", [])[:5],  # Nur die letzten 5 Events
-        "added_at": time.time(),
-        "updated_at": time.time(),
-        "owner_id": user_id,  # Multi-User: None = System/Legacy-Pakete
-    }
-    _save_parcels(data)
+    def _insert(d: dict) -> bool:
+        if tn in d["parcels"]:
+            return False  # parallel angelegt (z.B. Inbox-Scan im Daemon)
+        d["parcels"][tn] = {
+            "tracking_number": tn,
+            "carrier": carrier,
+            "carrier_name": CARRIER_NAMES.get(carrier, carrier),
+            "label": label or "",
+            "status": status.get("status", "unknown"),
+            "status_text": status.get("status_text", ""),
+            "eta_window": status.get("eta_window"),
+            "events": status.get("events", [])[:5],  # Nur die letzten 5 Events
+            "added_at": time.time(),
+            "updated_at": time.time(),
+            "owner_id": user_id,  # Multi-User: None = System/Legacy-Pakete
+        }
+        return True
+
+    if not _modify_parcels(_insert):
+        return f"ℹ️ Paket {tn} wird bereits verfolgt."
 
     carrier_name = CARRIER_NAMES.get(carrier, carrier)
     emoji = STATUS_EMOJI.get(status.get("status", "unknown"), "📦")
@@ -1153,18 +1199,21 @@ async def parcel_remove(tracking_number: str) -> str:
     """Entfernt ein Paket aus der Verfolgung."""
     tn = tracking_number.strip().replace(" ", "")
     user_id = _current_user_id()
-    data = _load_parcels()
-    p = data["parcels"].get(tn)
-    if p is None:
+    removed_holder: dict = {}
+
+    def _remove(d: dict) -> bool:
+        p = d["parcels"].get(tn)
+        if p is None or not _parcel_visible_to(p, user_id):
+            return False
+        removed_holder.update(d["parcels"].pop(tn))
+        d["archive"][tn] = removed_holder
+        return True
+
+    if not _modify_parcels(_remove):
+        # nicht verraten, ob es das Paket gibt aber einem anderen gehört
         return f"❌ Paket {tn} nicht gefunden."
-    if not _parcel_visible_to(p, user_id):
-        return f"❌ Paket {tn} nicht gefunden."  # nicht verraten dass es einem anderen gehört
 
-    removed = data["parcels"].pop(tn)
-    data["archive"][tn] = removed
-    _save_parcels(data)
-
-    label = f" ({removed.get('label', '')})" if removed.get("label") else ""
+    label = f" ({removed_holder.get('label', '')})" if removed_holder.get("label") else ""
     return f"🗑️ Paket {tn}{label} aus Verfolgung entfernt."
 
 
@@ -1313,27 +1362,33 @@ async def _scan_agentmail_inbox() -> list[str]:
                 )
                 # Origin-Mail-Referenz mitnehmen für späteres Auto-Delete
                 # nach Zustellung. parcel_add hat parcels.json schon gespeichert,
-                # also frisch laden und nachreichen. thread_id ist für
+                # also atomar nachreichen. thread_id ist für
                 # threads.delete() das eigentliche Schlüssel-Feld;
                 # inbox_message_id/inbox_id bleiben als Debug-Info.
                 if msg_id or thread_id:
-                    d_after = _load_parcels()
-                    if tn in d_after["parcels"]:
-                        if msg_id:
-                            d_after["parcels"][tn]["inbox_message_id"] = msg_id
-                            d_after["parcels"][tn]["inbox_id"] = inbox_id
-                        if thread_id:
-                            d_after["parcels"][tn]["inbox_thread_id"] = thread_id
-                        _save_parcels(d_after)
+                    def _patch_refs(d: dict, _tn=tn, _mid=msg_id, _tid=thread_id) -> bool:
+                        p = d["parcels"].get(_tn)
+                        if p is None:
+                            return False
+                        if _mid:
+                            p["inbox_message_id"] = _mid
+                            p["inbox_id"] = inbox_id
+                        if _tid:
+                            p["inbox_thread_id"] = _tid
+                        return True
+
+                    _modify_parcels(_patch_refs)
                 notifications.append(f"📧 {result}")
             except Exception as e:
                 log.warning("Auto-Add für %s fehlgeschlagen: %s", tn, e)
 
     # Letzten Scan-Zeitpunkt aktualisieren
     if new_last_scan > last_scan:
-        data = _load_parcels()  # Neu laden (parcel_add hat gespeichert)
-        data["_inbox_last_scan"] = new_last_scan
-        _save_parcels(data)
+        def _set_scan(d: dict) -> bool:
+            d["_inbox_last_scan"] = new_last_scan
+            return True
+
+        _modify_parcels(_set_scan)
 
     return notifications
 
@@ -1391,8 +1446,8 @@ async def parcel_inbox_cleanup() -> str:
     Tool-Name: parcel_inbox_cleanup
     Wird vom Sub-Agent Inbox_Cleanup_Pakete als direct_tool aufgerufen.
     """
-    data = _load_parcels()
-    deleted = 0
+    data = _load_parcels()  # Snapshot nur zum Kandidaten-Sammeln
+    deleted_tns: list[str] = []
     grace = 3 * 86400  # 3 Tage
     now = time.time()
 
@@ -1404,15 +1459,26 @@ async def parcel_inbox_cleanup() -> str:
         delivered_at = p.get("delivered_at", 0)
         if now - delivered_at < grace:
             continue
+        # Netzwerk-Call bewusst außerhalb des File-Locks
         if await _delete_inbox_thread(p):
-            deleted += 1
+            deleted_tns.append(tn)
 
-    if deleted:
-        _save_parcels(data)
+    if deleted_tns:
+        def _clear_refs(d: dict) -> bool:
+            changed = False
+            for tn in deleted_tns:
+                p = d["parcels"].get(tn)
+                if p is not None:
+                    p.pop("inbox_thread_id", None)
+                    p.pop("inbox_message_id", None)
+                    changed = True
+            return changed
 
-    if deleted == 0:
+        _modify_parcels(_clear_refs)
+
+    if not deleted_tns:
         return "__NO_NEW_RESULTS__"
-    return f"🧹 Inbox-Cleanup: {deleted} Versand-Mail(s) gelöscht."
+    return f"🧹 Inbox-Cleanup: {len(deleted_tns)} Versand-Mail(s) gelöscht."
 
 
 async def parcel_monitor_check() -> str:
@@ -1426,15 +1492,18 @@ async def parcel_monitor_check() -> str:
     den ganzen Sub-Agent. Stattdessen wird die Inbox via parcel_inbox_import
     on-demand gescannt (entweder durch User-Anfrage oder separates Schedule).
     """
-    # Alle aktiven Pakete auf Statusänderungen prüfen
+    # Zugestellte Pakete archivieren (eigene atomare Operation)
+    _modify_parcels(lambda d: _archive_delivered(d) > 0)
+
+    # Snapshot NACH dem Archivieren – nur zum Lesen; die Netzwerk-Calls
+    # unten laufen bewusst OHNE Lock, persistiert wird am Ende als Delta.
     data = _load_parcels()
     if not data["parcels"]:
         return "__NO_NEW_RESULTS__"
 
-    # Zugestellte Pakete archivieren
-    _archive_delivered(data)
-
     changes = []
+    updates: dict[str, dict] = {}  # tn → frische Tracking-Felder
+    drop_refs: set[str] = set()  # tn deren Inbox-Mail gelöscht wurde
 
     async with aiohttp.ClientSession() as session:
         for tn, p in list(data["parcels"].items()):
@@ -1483,24 +1552,45 @@ async def parcel_monitor_check() -> str:
                 # Persistenz: Events + status_text werden IMMER aktualisiert sobald
                 # sich was bewegt — auch wenn raw_status gleich bleibt. Sonst
                 # zeigt /paket beim User veralteten Stand.
+                upd: dict = {
+                    "status_text": new.get("status_text", ""),
+                    "eta_window": new.get("eta_window"),
+                    "events": new_events,
+                    "updated_at": time.time(),
+                }
                 if status_changed:
-                    p["status"] = new_status
-                p["status_text"] = new.get("status_text", "")
-                p["eta_window"] = new.get("eta_window")
-                p["events"] = new_events
-                p["updated_at"] = time.time()
+                    upd["status"] = new_status
 
                 if new_status == "delivered" and old_status != "delivered":
-                    p["delivered_at"] = time.time()
+                    upd["delivered_at"] = time.time()
                     # Versand-Mail in AgentMail permanent löschen (Cleanup).
                     # Bei Migration-Lücke (kein thread_id) springt der Safety-Net-
                     # Sub-Agent Inbox_Cleanup_Pakete ein wenn die nächste Mail
                     # die Felder mitbringt — alte Pakete bleiben unangetastet.
-                    await _delete_inbox_thread(p)
+                    if await _delete_inbox_thread(p):
+                        drop_refs.add(tn)
 
+                # Snapshot-p für die Formatierung aktualisieren; persistiert
+                # wird das Delta unten gegen den frischen Stand.
+                p.update(upd)
+                updates[tn] = upd
                 changes.append(_format_change_telegram(p, old_status, new_status, eta_changed))
 
-    _save_parcels(data)
+    if updates:
+        def _apply(d: dict) -> bool:
+            changed = False
+            for tn, upd in updates.items():
+                cur = d["parcels"].get(tn)
+                if cur is None:
+                    continue  # parallel entfernt – nicht wiederbeleben
+                cur.update(upd)
+                if tn in drop_refs:
+                    cur.pop("inbox_thread_id", None)
+                    cur.pop("inbox_message_id", None)
+                changed = True
+            return changed
+
+        _modify_parcels(_apply)
 
     if not changes:
         return "__NO_NEW_RESULTS__"

@@ -83,13 +83,16 @@ class TelegramAdapter(MessagingAdapter):
                     if resp.status == 200:
                         continue
                     body = await resp.text()
-                    log.error(
-                        "Telegram API Fehler %s: %s (text=%r)",
+                    # Nur WARNING: der Plain-Text-Fallback unten fängt
+                    # Markdown-Parse-Fehler (400, z.B. unescaped '_') ab.
+                    log.warning(
+                        "Telegram Markdown abgelehnt (%s): %s (text=%r) – "
+                        "Fallback ohne parse_mode",
                         resp.status, body, chunk[:100],
                     )
                     markdown_failed = True
             except Exception as e:
-                log.error("Telegram send error (Markdown): %s", e)
+                log.error("Telegram send error (Markdown): %r", e)
                 markdown_failed = True
 
             if not markdown_failed:
@@ -110,11 +113,13 @@ class TelegramAdapter(MessagingAdapter):
                             resp2.status, body2,
                         )
                     else:
-                        log.info("Telegram Fallback (kein Markdown) OK")
+                        log.debug("Telegram Fallback (kein Markdown) OK")
             except Exception as e:
-                log.error("Telegram send error (Fallback): %s", e)
+                log.error("Telegram send error (Fallback): %r", e)
 
     async def _poll_loop(self, on_message: MessageHandler):
+        consecutive_errors = 0
+        last_error_repr = ""
         while not self._stop.is_set():
             try:
                 async with self._session.get(
@@ -138,11 +143,26 @@ class TelegramAdapter(MessagingAdapter):
                             await self._handle_message(text, from_id, msg, on_message)
                         except Exception as e:
                             log.exception("Routing error for chat %s: %s", from_id, e)
+                consecutive_errors = 0
+                last_error_repr = ""
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                log.error("Telegram poll error: %s", e)
-                await asyncio.sleep(5)
+                consecutive_errors += 1
+                # %r statt %s: str(TimeoutError()) ist leer → "poll error: "
+                # ohne Inhalt war undebugbar. Identische Wiederholungsfehler
+                # (z.B. DNS weg) nur periodisch auf ERROR, sonst DEBUG.
+                err = repr(e)
+                if err != last_error_repr or consecutive_errors % 10 == 1:
+                    log.error(
+                        "Telegram poll error (Versuch %d): %s",
+                        consecutive_errors, err,
+                    )
+                    last_error_repr = err
+                else:
+                    log.debug("Telegram poll error (Versuch %d): %s",
+                              consecutive_errors, err)
+                await asyncio.sleep(_poll_backoff(consecutive_errors))
 
     async def _handle_message(
         self,
@@ -281,3 +301,14 @@ class TelegramAdapter(MessagingAdapter):
 
 def _split(text: str, size: int) -> list[str]:
     return [text[i : i + size] for i in range(0, len(text), size)] if text else [""]
+
+
+def _poll_backoff(consecutive_errors: int) -> float:
+    """Exponentielles Backoff für den Poll-Loop: 5s, 10s, 20s, … max 300s.
+
+    Bei Netzwerk-Ausfällen (DNS weg, WLAN-Blip) hämmerte der alte fixe
+    5s-Retry sinnlos weiter; nach Wiederkehr resettet der Loop auf 0.
+    """
+    if consecutive_errors <= 0:
+        return 0.0
+    return float(min(5 * 2 ** (consecutive_errors - 1), 300))

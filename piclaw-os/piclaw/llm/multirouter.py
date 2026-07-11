@@ -35,7 +35,6 @@ from piclaw.llm.registry import LLMRegistry, BackendConfig
 from piclaw.llm.classifier import TaskClassifier, ClassificationResult
 from piclaw.llm.api import AnthropicBackend, OpenAIBackend
 from piclaw.llm.local import LocalBackend, DEFAULT_MODEL_PATH
-from piclaw.taskutils import create_background_task
 
 log = logging.getLogger("piclaw.llm.multirouter")
 

@@ -86,7 +86,7 @@ class TestRunShell:
         mock_proc = MagicMock()
         mock_create_subprocess_shell.return_value = mock_proc
 
-        mock_wait_for.side_effect = asyncio.TimeoutError()
+        mock_wait_for.side_effect = TimeoutError()
 
         result = await run_shell("sleep 10", cfg)
 

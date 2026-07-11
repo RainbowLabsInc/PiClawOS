@@ -1149,7 +1149,7 @@ def step_parcel_tracking(state: WizardState, step: int, total: int) -> None:
     print("  Trackingnummern per Telegram, Chat oder E-Mail-Weiterleitung.\n")
 
     if cfg.agentmail.email_address:
-        print(f"  {FG_GREEN}{CHECK}{R} AgentMail aktiv: {cfg.agentmail.email_address}")
+        print(f"  {FG_GREEN}{OK_SYM}{R} AgentMail aktiv: {cfg.agentmail.email_address}")
         print(f"  {FG_GRAY}Versandbestaetigungen an diese Adresse weiterleiten{R}")
         print(f"  {FG_GRAY}→ Dameon erkennt Trackingnummern automatisch{R}\n")
     else:

@@ -15,25 +15,22 @@ and injected into the web UI HTML by the / route.
 import asyncio
 import json
 import logging
-import os
 import psutil
-import secrets
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager, suppress as contextlib_suppress
 
 from piclaw.config   import load as load_cfg, save as save_cfg, PiClawConfig
 from piclaw.agent    import Agent
 from piclaw.llm.base import Message
 from piclaw.messaging import build_hub, IncomingMessage
-from piclaw.auth     import require_auth, require_auth_ws, require_admin, set_token, get_token, generate_token
+from piclaw.auth     import require_auth, require_auth_ws, require_admin, set_token, generate_token
 from piclaw.taskutils import create_background_task
-from piclaw.request_context import new_request_id, request_scope, get_request_id
+from piclaw.request_context import new_request_id, request_scope
 from piclaw.logging_setup import configure_logging
 from piclaw.users    import User
 from piclaw import users as users_mod
@@ -73,7 +70,6 @@ async def lifespan(app: FastAPI):
     log.info("API token loaded (first 8 chars: %.8s…)", _cfg.api.secret_key)
 
     _agent = Agent(_cfg)
-    _agent.start_scheduler()
     create_background_task(_agent.boot(start_sub_agents=False), name="agent-boot")
     _hub = build_hub(_cfg)
     _agent._telegram_send = lambda text: create_background_task(_hub.send_all(text))
@@ -533,13 +529,6 @@ async def services(_: str = Depends(require_auth)):
     return result
 
 
-@app.get("/api/schedules")
-async def schedules(_: str = Depends(require_auth)):
-    if not _agent:
-        return []
-    return list(_agent.scheduler._schedules.values())
-
-
 @app.get("/api/config")
 async def get_config(_: str = Depends(require_auth)):
     """Safe subset of config – never returns secret_key or API keys."""
@@ -890,7 +879,6 @@ async def api_metric_chart(
     """Downgesampelte Daten für Chart-Darstellung."""
     try:
         from piclaw.metrics import get_db
-        import time
         db = get_db()
         result = db.query_range([metric_name], since_s=since, resolution=resolution)
         return {
@@ -1114,7 +1102,6 @@ async def wizard_save_config(body: dict, _: User = Depends(require_admin)):
     Felder die mit '●' anfangen werden ignoriert (unveränderte maskierte Werte).
     """
     from piclaw.config import load, save as cfg_save
-    import secrets
 
     cfg = load()
     changed: list[str] = []
@@ -1223,7 +1210,7 @@ async def wizard_test_llm(_: User = Depends(require_admin)):
             timeout=15,
         )
         return {"ok": True, "response": str(resp)[:100]}
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"ok": False, "error": "Timeout (>15s) – API erreichbar?"}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}

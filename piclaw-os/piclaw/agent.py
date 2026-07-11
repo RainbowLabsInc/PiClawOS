@@ -3,7 +3,6 @@ PiClaw OS – Core Agent
 """
 
 import asyncio
-import json
 import logging
 import traceback
 from dataclasses import dataclass, field
@@ -138,7 +137,7 @@ _RE_CRON_TIME = re.compile(r"(?i)(" + "|".join(re.escape(p) for p in _CRON_TIME_
 
 from collections.abc import Callable
 
-from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
+from piclaw.config import PiClawConfig, CRASH_DIR
 from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall
 from piclaw.taskutils import create_background_task
 
@@ -147,7 +146,6 @@ from piclaw.tools import network as network_mod
 from piclaw.tools import gpio as gpio_mod
 from piclaw.tools import services as services_mod
 from piclaw.tools import updater as updater_mod
-from piclaw.tools.scheduler import Scheduler
 from piclaw.tools.reminders import (
     ReminderStore,
     TOOL_DEFS as REMINDER_TOOL_DEFS,
@@ -262,8 +260,6 @@ class Agent:
     def __init__(self, cfg: PiClawConfig):
         self.cfg = cfg
         self.llm = create_backend(cfg)
-        self.scheduler = Scheduler()
-        self.scheduler.set_agent(self)
         self.reminders = ReminderStore()
         self.qmd = QMDBackend()
         self.memory = MemoryMiddleware(self.qmd, self.llm)
@@ -294,10 +290,6 @@ class Agent:
         _reg(gpio_mod.TOOL_DEFS, gpio_mod.HANDLERS)
         _reg(services_mod.TOOL_DEFS, services_mod.build_handlers(self.cfg.services))
         _reg(updater_mod.TOOL_DEFS, updater_mod.build_handlers(self.cfg.updater))
-        _reg(
-            self.scheduler.TOOL_DEFS if hasattr(self.scheduler, "TOOL_DEFS") else [],
-            self.scheduler.build_handlers(),
-        )
         _reg(REMINDER_TOOL_DEFS, build_reminder_handlers(self.reminders))
         _reg(MEMORY_TOOL_DEFS, build_memory_handlers(self.qmd))
         _reg(AGENT_TOOL_DEFS, build_agent_handlers(self._telegram_send))
@@ -777,7 +769,7 @@ class Agent:
             # Standard-Fallback: Systembericht via direct_tool (kein LLM nötig!)
             # Spart ~3-5 LLM-Calls/Tag und schont das Groq/NIM Token-Budget.
             tools = ["system_report", "thermal_status", "pi_info", "memory_log"]
-            mission = f"Direct tool mode: system_report"
+            mission = "Direct tool mode: system_report"
             # direct_tool wird weiter unten gesetzt
 
         # direct_tool für Systembericht-Tasks (kein LLM-Loop nötig)
@@ -2021,9 +2013,6 @@ class Agent:
 
 
 
-
-    def start_scheduler(self):
-        self.scheduler.start_all()
 
     def _save_crash(self, ctx: str, tb: str):
         CRASH_DIR.mkdir(parents=True, exist_ok=True)

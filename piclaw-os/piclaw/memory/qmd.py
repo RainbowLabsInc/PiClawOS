@@ -95,7 +95,7 @@ class QMDBackend:
             )
             try:
                 out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            except (TimeoutError, asyncio.TimeoutError):
+            except TimeoutError:
                 log.debug("qmd timeout – killing process, args: %s", " ".join(args))
                 try:
                     proc.kill()

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -161,42 +162,80 @@ class RoutineRegistry:
         self._path = path
         self._routines: dict[str, Routine] = {}
         self._load()
+        log.info("Routinen geladen: %d", len(self._routines))
 
     def _load(self) -> None:
-        if self._path.exists():
+        """Liest die Datei in den In-Memory-Cache (ohne Lock – nur Read).
+
+        Schreibt NIE: Eine defekte Datei wird in Quarantäne verschoben
+        (nie überschrieben), Defaults leben dann zunächst nur im Speicher
+        und werden mit der nächsten Mutation persistiert.
+        """
+        if not self._path.exists():
+            self._routines = {
+                r.id: r for r in (Routine.from_dict(d) for d in DEFAULT_ROUTINES)
+            }
+            return
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+            self._routines = {
+                d["id"]: Routine.from_dict(d) for d in data if "id" in d
+            }
+        except Exception as e:
+            quarantine = self._path.with_name(
+                self._path.name + datetime.now().strftime(".corrupt-%Y%m%d-%H%M%S")
+            )
             try:
-                data = json.loads(self._path.read_text(encoding="utf-8"))
-                self._routines = {
-                    d["id"]: Routine.from_dict(d) for d in data if "id" in d
-                }
-                log.info("Routinen geladen: %d", len(self._routines))
-                return
-            except Exception as e:
-                log.warning("Routinen-Datei fehlerhaft: %s", e)
+                os.replace(self._path, quarantine)
+                log.error(
+                    "Routinen-Datei fehlerhaft (%s) – Original nach '%s' "
+                    "verschoben, Standard-Routinen aktiv", e, quarantine.name,
+                )
+            except OSError as move_err:
+                log.error(
+                    "Routinen-Datei fehlerhaft (%s), Quarantäne fehlgeschlagen "
+                    "(%s) – Standard-Routinen nur im Speicher, Datei bleibt "
+                    "unangetastet", e, move_err,
+                )
+            self._routines = {
+                r.id: r for r in (Routine.from_dict(d) for d in DEFAULT_ROUTINES)
+            }
 
-        # Erste Einrichtung: Default-Routinen anlegen
-        for d in DEFAULT_ROUTINES:
-            r = Routine.from_dict(d)
-            self._routines[r.id] = r
-        self._save()
-        log.info("Standard-Routinen angelegt: %d", len(self._routines))
+    def _atomic_modify(self, mutate) -> bool:
+        """Read-Merge-Write unter File-Lock (Muster: ReminderStore).
 
-    def _save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        `mutate(routines_dict)` arbeitet auf dem frisch von Platte gelesenen
+        Stand und gibt True zurück, wenn geschrieben werden soll. So können
+        parallele Writer (API-Routine-Tools ↔ Daemon mark_ran) einander
+        keine Einträge mehr verlieren – der alte Code schrieb den ggf.
+        veralteten In-Memory-Stand komplett zurück.
+        """
         from piclaw.fileutils import safe_write_json, with_file_lock
 
-        # Cross-process Lock gegen parallele Writer (api↔daemon teilen sich
-        # routines.json). Ohne Lock konnte ein paralleler Save eine frisch
-        # hinzugefügte Routine wieder verschwinden lassen.
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with with_file_lock(self._path):
-                safe_write_json(
-                    self._path,
-                    [r.to_dict() for r in self._routines.values()],
-                    label="routines",
-                )
+                self._load()
+                changed = bool(mutate(self._routines))
+                if changed:
+                    safe_write_json(
+                        self._path,
+                        [r.to_dict() for r in self._routines.values()],
+                        label="routines",
+                    )
+                return changed
         except TimeoutError as e:
             log.error("Routines registry: %s", e)
+            return False
+
+    @staticmethod
+    def _resolve(routines: dict[str, Routine], id_or_name: str) -> Routine | None:
+        r = routines.get(id_or_name)
+        if r is None:
+            for cand in routines.values():
+                if cand.name.lower() == id_or_name.lower():
+                    return cand
+        return r
 
     def all(self, user_id: str | None = None) -> list[Routine]:
         """Alle Routinen. Mit user_id: nur eigene + System-Routinen."""
@@ -222,43 +261,53 @@ class RoutineRegistry:
         return r
 
     def add(self, routine: Routine) -> None:
-        self._routines[routine.id] = routine
-        self._save()
+        def _mut(d: dict[str, Routine]) -> bool:
+            d[routine.id] = routine
+            return True
+
+        self._atomic_modify(_mut)
 
     def update(self, routine: Routine) -> None:
-        self._routines[routine.id] = routine
-        self._save()
+        self.add(routine)
 
     def remove(self, id_or_name: str) -> bool:
-        r = self.get(id_or_name)
-        if r and r.id not in {d["id"] for d in DEFAULT_ROUTINES}:
-            del self._routines[r.id]
-            self._save()
-            return True
-        return False
+        default_ids = {d["id"] for d in DEFAULT_ROUTINES}
+
+        def _mut(d: dict[str, Routine]) -> bool:
+            r = self._resolve(d, id_or_name)
+            if r and r.id not in default_ids:
+                del d[r.id]
+                return True
+            return False
+
+        return self._atomic_modify(_mut)
+
+    def _set_enabled(self, id_or_name: str, enabled: bool) -> bool:
+        def _mut(d: dict[str, Routine]) -> bool:
+            r = self._resolve(d, id_or_name)
+            if r:
+                r.enabled = enabled
+                return True
+            return False
+
+        return self._atomic_modify(_mut)
 
     def enable(self, id_or_name: str) -> bool:
-        r = self.get(id_or_name)
-        if r:
-            r.enabled = True
-            self._save()
-            return True
-        return False
+        return self._set_enabled(id_or_name, True)
 
     def disable(self, id_or_name: str) -> bool:
-        r = self.get(id_or_name)
-        if r:
-            r.enabled = False
-            self._save()
-            return True
-        return False
+        return self._set_enabled(id_or_name, False)
 
     def mark_ran(self, routine_id: str) -> None:
-        r = self._routines.get(routine_id)
-        if r:
+        def _mut(d: dict[str, Routine]) -> bool:
+            r = d.get(routine_id)
+            if r is None:
+                return False  # parallel gelöscht – nicht wiederbeleben
             r.last_run = datetime.now().isoformat()
             r.run_count += 1
-            self._save()
+            return True
+
+        self._atomic_modify(_mut)
 
     def create_custom(
         self,

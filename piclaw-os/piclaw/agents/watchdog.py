@@ -25,16 +25,14 @@ Alert thresholds:
 
 import asyncio
 import hashlib
-import json
 import logging
 import os
-import platform
 import signal
 import socket
 import sqlite3
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import psutil
@@ -282,7 +280,7 @@ class Watchdog:
                     ))
                 else:
                     self._service_fail_counts[svc] = 0
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 log.warning("Service check '%s' timeout – systemctl hängt", svc)
                 try:
                     proc.kill()
@@ -553,7 +551,7 @@ class Watchdog:
                 await asyncio.wait_for(
                     self._stop_event.wait(), timeout=check_interval
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         log.info("Watchdog stopped.")
