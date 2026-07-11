@@ -27,7 +27,6 @@ CONFIG_FILE = CONFIG_DIR / "config.toml"
 SKILLS_DIR = CONFIG_DIR / "skills"
 LOG_DIR = CONFIG_DIR / "logs"
 CRASH_DIR = CONFIG_DIR / "crashes"
-SCHEDULE_DB = CONFIG_DIR / "schedules.json"
 REMINDERS_DB = CONFIG_DIR / "reminders.json"
 
 

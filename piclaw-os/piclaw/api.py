@@ -73,7 +73,6 @@ async def lifespan(app: FastAPI):
     log.info("API token loaded (first 8 chars: %.8s…)", _cfg.api.secret_key)
 
     _agent = Agent(_cfg)
-    _agent.start_scheduler()
     create_background_task(_agent.boot(start_sub_agents=False), name="agent-boot")
     _hub = build_hub(_cfg)
     _agent._telegram_send = lambda text: create_background_task(_hub.send_all(text))
@@ -531,13 +530,6 @@ async def services(_: str = Depends(require_auth)):
             state = "inactive"
         result.append({"name": name, "state": state, "active": state == "active"})
     return result
-
-
-@app.get("/api/schedules")
-async def schedules(_: str = Depends(require_auth)):
-    if not _agent:
-        return []
-    return list(_agent.scheduler._schedules.values())
 
 
 @app.get("/api/config")

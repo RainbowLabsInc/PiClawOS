@@ -64,7 +64,6 @@ async def _daemon_main():
     from piclaw.taskutils import create_background_task
 
     agent = Agent(cfg)
-    agent.start_scheduler()
     # Messaging Hub in Agent einhängen – damit Sub-Agenten (auch per Bash/CLI
     # erstellt) Ergebnisse via Telegram/Discord senden können.
     # Gleiche Late-Binding-Logik wie in api.py.
