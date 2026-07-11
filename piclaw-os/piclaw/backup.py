@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import os
+import platform
 import shutil
 import tarfile
 import tempfile
@@ -146,7 +147,7 @@ async def create_backup(
         "version": "0.10.0",
         "ts": ts,
         "datetime": dt,
-        "hostname": os.uname().nodename,
+        "hostname": platform.node(),
         "note": note,
         "files": [arc for _, arc in files_to_backup],
         "include_metrics": include_metrics,
