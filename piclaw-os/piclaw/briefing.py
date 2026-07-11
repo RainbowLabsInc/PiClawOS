@@ -398,21 +398,26 @@ async def generate_briefing(
 
     if llm:
         try:
+            from piclaw.llm.base import Message
+
             messages = [
-                {
-                    "role": "user",
-                    "content": (
+                Message(
+                    role="user",
+                    content=(
                         "Hier sind die aktuellen Systemdaten:\n\n"
                         f"{context_text}\n\n"
                         f"{system_prompt}"
                     ),
-                }
+                )
             ]
+            # chat() ist die LLMBackend-Interface-Methode; das früher hier
+            # aufgerufene llm.complete() existierte auf keinem Backend →
+            # AttributeError → Briefings fielen IMMER aufs Template zurück.
             response = await asyncio.wait_for(
-                llm.complete(messages),
+                llm.chat(messages),
                 timeout=30,
             )
-            text = str(response).strip()
+            text = (response.content or "").strip()
             if text:
                 return text
         except TimeoutError:
