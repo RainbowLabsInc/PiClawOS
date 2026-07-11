@@ -181,7 +181,10 @@ def _load_raw() -> dict:
 
 
 def _save_raw(data: dict) -> None:
-    """Verschlüsselt und speichert secrets.enc."""
+    """Verschlüsselt und speichert secrets.enc (atomar – ein Crash mitten
+    im Write darf niemals ALLE Secrets korrumpieren)."""
+    from piclaw.fileutils import atomic_write_bytes
+
     Fernet = _ensure_fernet()
     key = _derive_key()
     f = Fernet(key)
@@ -189,12 +192,26 @@ def _save_raw(data: dict) -> None:
     plaintext = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
     encrypted = f.encrypt(plaintext)
 
+    atomic_write_bytes(SECRETS_FILE, encrypted, mode=0o600)
+
+
+def _modify_secrets(mutate) -> None:
+    """Read-Modify-Write unter File-Lock (Muster: ReminderStore).
+
+    secrets.enc wird von API-Prozess, Daemon UND CLI/Wizard geschrieben –
+    ohne Lock kann ein paralleler set_secret den Write der Gegenseite
+    verlieren. `mutate(data)` gibt True zurück wenn gespeichert werden soll.
+    """
+    from piclaw.fileutils import with_file_lock
+
     SECRETS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SECRETS_FILE.write_bytes(encrypted)
     try:
-        SECRETS_FILE.chmod(0o600)
-    except OSError:
-        pass
+        with with_file_lock(SECRETS_FILE):
+            data = _load_raw()
+            if mutate(data):
+                _save_raw(data)
+    except TimeoutError as e:
+        log.error("Secret store: %s", e)
 
 
 def get_secret(key: str, default: str = "") -> str:
@@ -205,12 +222,16 @@ def get_secret(key: str, default: str = "") -> str:
 
 def set_secret(key: str, value: str) -> None:
     """Setzt einen Secret-Wert."""
-    data = _load_raw()
-    if value:
-        data[key] = value
-    elif key in data:
-        del data[key]
-    _save_raw(data)
+    def _mut(data: dict) -> bool:
+        if value:
+            data[key] = value
+        elif key in data:
+            del data[key]
+        else:
+            return False  # Löschen eines nicht vorhandenen Keys – nichts zu tun
+        return True
+
+    _modify_secrets(_mut)
     log.info("Secret '%s' aktualisiert", key)
 
 
@@ -252,32 +273,35 @@ def migrate_from_config(config_path: Path | None = None) -> int:
         log.error("config.toml laden fehlgeschlagen: %s", e)
         return 0
 
-    data = _load_raw()
+    ha_token = cfg.get("homeassistant", {}).get("token", "")
+    dhl_key = cfg.get("parcel_tracking", {}).get("dhl_api_key", "")
     migrated = 0
 
-    for section, field in SECRET_KEYS:
-        value = cfg.get(section, {}).get(field, "")
-        if value and value != "" and not value.startswith("@enc:"):
-            secret_key = f"{section}.{field}"
-            data[secret_key] = value
+    def _mut(data: dict) -> bool:
+        nonlocal migrated
+        for section, field in SECRET_KEYS:
+            value = cfg.get(section, {}).get(field, "")
+            if value and value != "" and not value.startswith("@enc:"):
+                secret_key = f"{section}.{field}"
+                data[secret_key] = value
+                migrated += 1
+                log.info("Migriert: %s.%s", section, field)
+
+        # homeassistant.token separat
+        if ha_token and ha_token != "":
+            data["homeassistant.token"] = ha_token
             migrated += 1
-            log.info("Migriert: %s.%s", section, field)
 
-    # homeassistant.token separat
-    ha_token = cfg.get("homeassistant", {}).get("token", "")
-    if ha_token and ha_token != "":
-        data["homeassistant.token"] = ha_token
-        migrated += 1
+        # DHL API Key
+        if dhl_key and dhl_key != "":
+            data["parcel_tracking.dhl_api_key"] = dhl_key
+            migrated += 1
 
-    # DHL API Key
-    dhl_key = cfg.get("parcel_tracking", {}).get("dhl_api_key", "")
-    if dhl_key and dhl_key != "":
-        data["parcel_tracking.dhl_api_key"] = dhl_key
-        migrated += 1
+        return migrated > 0
+
+    _modify_secrets(_mut)
 
     if migrated > 0:
-        _save_raw(data)
-
         # config.toml: Secrets durch Platzhalter ersetzen
         import re
         for section, field in SECRET_KEYS:

@@ -3,11 +3,14 @@ PiClaw OS – Configuration
 All state lives in ~/.piclaw/ (or /etc/piclaw/ when running as system service)
 """
 
+import logging
 import os
 import tomllib
 import tomli_w
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+
+log = logging.getLogger("piclaw.config")
 
 
 # Config-Pfad: /etc/piclaw hat Vorrang wenn vorhanden (system install)
@@ -307,18 +310,31 @@ def save(cfg: PiClawConfig):
         "agentmail": asdict(cfg.agentmail),
         "location":  asdict(cfg.location),
     })
-    # Sektionen die NICHT in der Dataclass sind aber erhalten bleiben muessen
-    # (z.B. homeassistant, mqtt - werden vom Wizard direkt geschrieben)
-    _preserve_keys = ["homeassistant", "mqtt", "parcel_tracking"]
-    if CONFIG_FILE.exists():
-        try:
-            import tomllib as _tl
-            with open(CONFIG_FILE, "rb") as _f:
-                _existing = _tl.load(_f)
-            for _k in _preserve_keys:
-                if _k in _existing and _k not in data:
-                    data[_k] = _existing[_k]
-        except Exception:
-            pass
-    with open(CONFIG_FILE, "wb") as f:
-        tomli_w.dump(data, f)
+    # Read-Preserve-Write unter File-Lock: config.toml wird von API
+    # (Token-Persistenz), Wizard und CLI geschrieben; atomar, damit ein
+    # Crash mitten im Write die Haupt-Config nicht zerreißt.
+    from piclaw.fileutils import atomic_write_text, with_file_lock
+
+    def _write() -> None:
+        # Sektionen die NICHT in der Dataclass sind aber erhalten bleiben muessen
+        # (z.B. homeassistant, mqtt - werden vom Wizard direkt geschrieben)
+        _preserve_keys = ["homeassistant", "mqtt", "parcel_tracking"]
+        if CONFIG_FILE.exists():
+            try:
+                import tomllib as _tl
+                with open(CONFIG_FILE, "rb") as _f:
+                    _existing = _tl.load(_f)
+                for _k in _preserve_keys:
+                    if _k in _existing and _k not in data:
+                        data[_k] = _existing[_k]
+            except Exception:
+                pass
+        atomic_write_text(CONFIG_FILE, tomli_w.dumps(data))
+
+    try:
+        with with_file_lock(CONFIG_FILE):
+            _write()
+    except TimeoutError as e:
+        log.error("config.toml speichern: Lock nicht bekommen (%s) – "
+                  "schreibe ohne Lock", e)
+        _write()
