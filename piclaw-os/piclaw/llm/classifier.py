@@ -248,7 +248,7 @@ class TaskClassifier:
                 )
                 if llm_result.confidence > result.confidence:
                     return llm_result
-            except (TimeoutError, asyncio.TimeoutError):
+            except TimeoutError:
                 log.debug("LLM classification timed out, using pattern result.")
                 self._stage2_record_timeout()
             except Exception as e:

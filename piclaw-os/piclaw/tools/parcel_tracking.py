@@ -18,8 +18,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from urllib.parse import quote_plus
 
 import aiohttp

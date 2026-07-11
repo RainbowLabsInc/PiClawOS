@@ -350,8 +350,6 @@ class ProactiveRunner:
         action = routine.action
         params = routine.params
 
-        result = ""
-
         # Mit User-Kontext der Routine — owner_id=None für System-Routinen
         # bedeutet "kein User-Filter" (volle Sicht).
         with user_scope(getattr(routine, "owner_id", None)):

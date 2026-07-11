@@ -162,7 +162,7 @@ async def _run_command(*args: str) -> str:
         if proc.returncode != 0:
             return f"[ERROR] Command failed: {stderr.decode().strip()}"
         return stdout.decode().strip()
-    except asyncio.TimeoutError:
+    except TimeoutError:
         if 'proc' in locals() and proc.returncode is None:
             try:
                 proc.kill()

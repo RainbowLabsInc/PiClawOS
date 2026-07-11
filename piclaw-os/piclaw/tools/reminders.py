@@ -24,7 +24,7 @@ import asyncio
 import json
 import logging
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -225,7 +225,7 @@ class ReminderStore:
 class ReminderRunner:
     """Polls the store every `interval_sec` seconds and fires due reminders."""
 
-    def __init__(self, store: ReminderStore, hub: "MessagingHub", interval_sec: int = 30):
+    def __init__(self, store: ReminderStore, hub: MessagingHub, interval_sec: int = 30):
         self.store = store
         self.hub = hub
         self.interval = interval_sec
@@ -249,7 +249,7 @@ class ReminderRunner:
                     return  # stop wurde gesetzt
                 else:
                     await asyncio.sleep(self.interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # normaler Tick
 
     async def _fire(self, r: Reminder) -> None:

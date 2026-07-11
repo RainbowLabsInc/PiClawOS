@@ -3,7 +3,6 @@ PiClaw OS – Core Agent
 """
 
 import asyncio
-import json
 import logging
 import traceback
 from dataclasses import dataclass, field
@@ -138,7 +137,7 @@ _RE_CRON_TIME = re.compile(r"(?i)(" + "|".join(re.escape(p) for p in _CRON_TIME_
 
 from collections.abc import Callable
 
-from piclaw.config import PiClawConfig, CRASH_DIR, CONFIG_DIR
+from piclaw.config import PiClawConfig, CRASH_DIR
 from piclaw.llm import create_backend, Message, ToolDefinition, ToolCall
 from piclaw.taskutils import create_background_task
 
@@ -770,7 +769,7 @@ class Agent:
             # Standard-Fallback: Systembericht via direct_tool (kein LLM nötig!)
             # Spart ~3-5 LLM-Calls/Tag und schont das Groq/NIM Token-Budget.
             tools = ["system_report", "thermal_status", "pi_info", "memory_log"]
-            mission = f"Direct tool mode: system_report"
+            mission = "Direct tool mode: system_report"
             # direct_tool wird weiter unten gesetzt
 
         # direct_tool für Systembericht-Tasks (kein LLM-Loop nötig)

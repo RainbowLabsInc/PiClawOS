@@ -14,7 +14,6 @@ This daemon handles:
 import asyncio
 import logging
 import signal
-import sys
 
 from piclaw.config import load as load_cfg
 from piclaw.agent import Agent

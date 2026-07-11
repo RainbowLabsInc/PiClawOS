@@ -880,10 +880,10 @@ _listener: HAEventListener | None = None
 # Multi-User-Cache: user_id → (token, url, client). Wird abgeglichen mit
 # aktuellen Override-Werten, damit eine Änderung in User.overrides
 # spätestens beim nächsten Tool-Call gesehen wird.
-_user_clients: dict[str, tuple[str, str, "HomeAssistantClient"]] = {}
+_user_clients: dict[str, tuple[str, str, HomeAssistantClient]] = {}
 
 
-def get_client() -> "HomeAssistantClient | None":
+def get_client() -> HomeAssistantClient | None:
     """
     Liefert den HA-Client. Berücksichtigt Per-User-Overrides:
     - Kein User im ContextVar oder kein Override → globaler `_client` (Legacy).

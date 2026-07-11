@@ -499,7 +499,7 @@ class MetricsCollector:
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self.interval_s)
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     def stop(self) -> None:

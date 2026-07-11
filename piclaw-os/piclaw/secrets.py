@@ -310,7 +310,7 @@ def migrate_from_config(config_path: Path | None = None) -> int:
                 # Ersetze den Wert in der TOML-Datei
                 # Pattern: field = "value" oder field = 'value'
                 pattern = rf'({field}\s*=\s*)["\']([^"\']+)["\']'
-                replacement = rf'\1""  # @encrypted → secrets.enc'
+                replacement = r'\1""  # @encrypted → secrets.enc'
                 raw_toml = re.sub(pattern, replacement, raw_toml)
 
         # homeassistant.token

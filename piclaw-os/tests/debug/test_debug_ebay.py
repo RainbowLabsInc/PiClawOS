@@ -151,7 +151,7 @@ async def _test_tandem():
                 return ""
 
             # Navigate-Test
-            info(f"Navigiere zu eBay via Tandem...")
+            info("Navigiere zu eBay via Tandem...")
             async with s.post(
                 "http://127.0.0.1:8765/navigate",
                 json={"url": TEST_URL},
@@ -318,5 +318,5 @@ print("  a) Scrapling blockiert → aiohttp/Tandem als Fallback nötig")
 print("  b) HTML-Struktur geändert → Regex veraltet (prüfe Schritt 4)")
 print("  c) Cookie-Consent-Wall → erst Consent, dann Artikel-HTML")
 print("  d) Tandem nicht gestartet → Browser-Extension aktivieren")
-print(f"  ✉  Output bei Problemen an Entwickler senden")
+print("  ✉  Output bei Problemen an Entwickler senden")
 print(f"{'='*60}\n")

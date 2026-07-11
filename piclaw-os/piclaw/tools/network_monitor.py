@@ -155,7 +155,7 @@ async def _get_local_range() -> str:
             # Simple assumption: /24 network
             base = ".".join(gateway.split(".")[:3])
             return f"{base}.0/24"
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("ip-route lookup timeout – using fallback /24 range")
         if proc and proc.returncode is None:
             try:
@@ -258,7 +258,7 @@ async def ping_host(host: str) -> bool:
         # Obergrenze und killt den Prozess sonst.
         await asyncio.wait_for(proc.wait(), timeout=5)
         return proc.returncode == 0
-    except asyncio.TimeoutError:
+    except TimeoutError:
         if proc and proc.returncode is None:
             try:
                 proc.kill()

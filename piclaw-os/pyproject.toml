@@ -70,9 +70,17 @@ extend-exclude = ["boot", "piclaw.egg-info"]
 select = ["E", "F", "W", "B", "UP"]
 ignore = [
     "E501",  # Zeilenlänge – historisch gewachsen, line-length nur als Richtwert
+    "E402",  # Late-Imports sind hier bewusstes Muster (Lazy-Load schwerer Deps)
+    "E701", "E702", "E731", "E741",  # Stil – kein Churn im Bestand
+    "B007",  # ungenutzte Loop-Variablen – Stil
+    "B008",  # Funktionsaufruf im Default – FastAPI-Depends()-Idiom
+    "B904",  # raise ohne from – nachrüsten lohnt separat, nicht hier
+    "B905",  # zip ohne strict – Verhalten im Bestand beibehalten
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests dürfen breite Excepts und ungenutzte Importe (Fixtures) haben
-"tests/**" = ["B", "F401", "F811"]
-"piclaw/tests/**" = ["B", "F401", "F811"]
+# Tests dürfen breite Excepts, ungenutzte Importe/Variablen (Fixtures) haben
+"tests/**" = ["B", "F401", "F811", "F841"]
+"piclaw/tests/**" = ["B", "F401", "F811", "F841"]
+# __init__.py: Re-Exports sind Absicht
+"**/__init__.py" = ["F401"]

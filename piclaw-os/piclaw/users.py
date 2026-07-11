@@ -27,9 +27,8 @@ import os
 import secrets
 import uuid
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
-from typing import Iterable
 
 from piclaw.config import CONFIG_DIR
 from piclaw.fileutils import atomic_write_json
@@ -75,7 +74,7 @@ class User:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "User":
+    def from_dict(cls, d: dict) -> User:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
@@ -530,4 +529,4 @@ def get_setting_for_current(section: str, key: str, fallback=None):
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()

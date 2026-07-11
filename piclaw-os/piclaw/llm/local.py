@@ -9,13 +9,12 @@ import logging
 import threading
 import os
 from pathlib import Path
-from collections.abc import AsyncIterator
 
 os.environ.setdefault("LLAMA_CPP_LOG_LEVEL", "0")
 os.environ.setdefault("GGML_LOG_LEVEL", "0")
 os.environ.setdefault("LLAMA_LOG_LEVEL", "0")
 
-from piclaw.llm.base import LLMBackend, Message, ToolDefinition, ToolCall, LLMResponse
+from piclaw.llm.base import LLMBackend, ToolCall, LLMResponse
 
 log = logging.getLogger("piclaw.llm.local")
 

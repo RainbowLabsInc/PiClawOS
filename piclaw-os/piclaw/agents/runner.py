@@ -461,7 +461,7 @@ class SubAgentRunner:
                 """
                 try:
                     await asyncio.wait_for(self.memory_log(entry), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     log.warning(
                         "memory_log timeout for sub-agent '%s' (entry dropped)",
                         agent_name,

@@ -32,8 +32,8 @@ KNOWN_I2C_DEVICES: dict[int, dict] = {
         "cat": "environment",
     },
     0x44: {
-        "name": "SHT40/SHT31",
-        "desc": "High-accuracy temp & humidity",
+        "name": "SHT40/SHT31/INA219",
+        "desc": "Temp & humidity sensor or current monitor",
         "cat": "environment",
     },
     0x45: {
@@ -68,21 +68,20 @@ KNOWN_I2C_DEVICES: dict[int, dict] = {
     },
     # ── Light / Color ──
     0x29: {
-        "name": "VL53L0X/TCS34725",
+        "name": "VL53L0X/VL53L1X/TCS34725",
         "desc": "ToF distance or color sensor",
         "cat": "optical",
     },
     0x23: {"name": "BH1750", "desc": "Ambient light sensor (lux)", "cat": "optical"},
     0x5B: {"name": "BH1750", "desc": "Ambient light (H-mode addr)", "cat": "optical"},
     # ── Current / Power ──
-    0x41: {"name": "INA219", "desc": "Current/power monitor (addr 1)", "cat": "power"},
-    0x44: {"name": "INA219", "desc": "Current/power monitor (addr 4)", "cat": "power"},
+    # 0x41/0x44 kollidieren mit PCA9685 bzw. SHT-Sensoren → gemergte Einträge
+    0x41: {"name": "INA219/PCA9685", "desc": "Current monitor or PWM driver", "cat": "power"},
     # Note: 0x40-0x4F are all valid INA219 addresses
     0x4C: {"name": "INA219", "desc": "Current/power monitor", "cat": "power"},
     0x4D: {"name": "INA219", "desc": "Current/power monitor", "cat": "power"},
     # ── Motor / Servo / PWM ──
     0x60: {"name": "PCA9685", "desc": "16-channel PWM/servo driver", "cat": "actuator"},
-    0x41: {"name": "PCA9685", "desc": "16-ch PWM (alt addr)", "cat": "actuator"},
     # ── Display / OLED ──
     0x3C: {
         "name": "SSD1306/SH1106",
@@ -136,11 +135,7 @@ KNOWN_I2C_DEVICES: dict[int, dict] = {
         "desc": "ToF distance & ambient light",
         "cat": "distance",
     },
-    0x29: {
-        "name": "VL53L1X",
-        "desc": "Long-range ToF distance sensor",
-        "cat": "distance",
-    },
+    # (0x29 = VL53L1X ist oben bei Light/Color mit VL53L0X/TCS34725 gemergt)
     # ── Misc / RP2040-based ──
     0x0D: {"name": "Pimoroni Pico", "desc": "RP2040 I2C bridge", "cat": "bridge"},
     0x55: {"name": "MAX17043", "desc": "LiPo battery fuel gauge", "cat": "power"},
@@ -192,7 +187,7 @@ def _scan_sync(bus: int) -> I2CScanResult:
     """Synchronous I2C scan. Returns I2CScanResult."""
     # Try smbus2
     try:
-        import smbus2
+        import smbus2  # noqa: F401 – Verfügbarkeits-Probe vor _scan_smbus2
 
         return _scan_smbus2(bus)
     except ImportError:
