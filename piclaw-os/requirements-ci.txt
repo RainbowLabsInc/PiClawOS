@@ -1,0 +1,24 @@
+# Schlanke Dependency-Liste für CI (.github/workflows/ci.yml).
+#
+# Warum nicht `pip install -e .[dev]`? Die volle Installation zieht
+# llama-cpp-python (kompiliert aus Source, minutenlang/fragil in CI) und
+# Hardware-/Messaging-Deps, die die Tests gar nicht importieren – die
+# Suiten mocken GPIO (tests/conftest.py) und laden schwere Tools lazy.
+# Bei ImportError in CI: fehlendes Paket hier ergänzen.
+
+aiohttp>=3.9
+fastapi>=0.111
+uvicorn>=0.29
+websockets>=12
+tomli-w>=1.0
+psutil>=5.9
+croniter>=1.4
+timezonefinder>=6.2
+cryptography>=42.0
+agentmail>=0.4.0
+
+# Test-Toolchain
+httpx
+pytest
+pytest-asyncio
+ruff

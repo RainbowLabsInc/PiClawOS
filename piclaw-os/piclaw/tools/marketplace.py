@@ -445,10 +445,11 @@ async def _fetch_html(url: str, label: str = "web") -> str | None:
     # 1. Scrapling (stealth HTTP) – timeout=20 direkt übergeben, kein asyncio.wait_for nötig
     log.debug("_fetch_html '%s': Schritt 1 scrapling", label)
     try:
+        # scrapling ≥0.4: get() ist classmethod; Instanziierung ist deprecated
+        # (Warnung feuerte stündlich im agent.log, fliegt mit v0.3-API raus).
         from scrapling import Fetcher
-        fetcher = Fetcher()
         page = await asyncio.to_thread(
-            fetcher.get, url, stealthy_headers=True, follow_redirects=True, timeout=20
+            Fetcher.get, url, stealthy_headers=True, follow_redirects=True, timeout=20
         )
         log.debug("_fetch_html '%s': scrapling zurück, page=%s", label, bool(page))
         if page and len(str(page.html_content)) > 500:
@@ -1253,9 +1254,8 @@ async def _fetch_willhaben_area_id(location: str) -> str | None:
     try:
         from scrapling import Fetcher
         search_url = f"https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword=test&areaId=0&location={location}"
-        fetcher = Fetcher()
         page = await asyncio.to_thread(
-            fetcher.get, search_url, stealthy_headers=True, follow_redirects=True, timeout=20
+            Fetcher.get, search_url, stealthy_headers=True, follow_redirects=True, timeout=20
         )
         if page:
             import re

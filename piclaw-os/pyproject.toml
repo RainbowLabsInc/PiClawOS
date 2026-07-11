@@ -11,7 +11,9 @@ authors = [{ name = "Patrick Völk" }]
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.9",
-    "scrapling>=0.2",
+    # 0.4-API (classmethod Fetcher.get) wird vorausgesetzt; <0.5 weil die
+    # Lib API-Brüche in Minor-Releases hat (0.2→0.3→0.4 jeweils breaking)
+    "scrapling>=0.4,<0.5",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
     "websockets>=12",
@@ -54,3 +56,23 @@ include = ["piclaw*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+# boot/ ist der generierte SD-Karten-Mirror (make sync) – nie linten
+extend-exclude = ["boot", "piclaw.egg-info"]
+
+[tool.ruff.lint]
+# Bewusst schlanker Einstiegs-Regelsatz für eine bestehende Codebase:
+# E/W (pycodestyle), F (pyflakes – hätte den asyncio.coroutine-Crash
+# gefangen), B (bugbear), UP (pyupgrade).
+select = ["E", "F", "W", "B", "UP"]
+ignore = [
+    "E501",  # Zeilenlänge – historisch gewachsen, line-length nur als Richtwert
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests dürfen breite Excepts und ungenutzte Importe (Fixtures) haben
+"tests/**" = ["B", "F401", "F811"]
+"piclaw/tests/**" = ["B", "F401", "F811"]
