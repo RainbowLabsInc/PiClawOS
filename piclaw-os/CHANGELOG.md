@@ -43,6 +43,27 @@
 - Test-Suite entgiftet: `test_daemon`-Suite-Vergiftung behoben, stale
   Tests repariert.
 
+### Updater: Auth-Robustheit + Locale-Fixes (2026-07-12)
+- **`GIT_TERMINAL_PROMPT=0` + `LC_ALL=C`** für alle git-Aufrufe des Updaters:
+  git hängt nicht mehr ohne TTY bei 401 (abgelaufener Token / nicht sichtbares
+  Repo), und die Substring-Checks funktionieren jetzt auch auf
+  deutschsprachigen Systemen. Vorher matchten `"Already up to date"` und
+  `"Saved"` bei deutscher git-Locale NIE – Folge: unnötige Service-Restarts
+  bei „bereits aktuell" und **nie zurückgeholte Stashes** (lokale Änderungen
+  verschwanden still in `git stash list`).
+- **Auth-Fehler mit Handlungsanweisung**: `piclaw update`/`check` erkennen
+  GitHub-Auth-Fehler und erklären, wie ein Fine-grained PAT in
+  `[updater] github_token` hinterlegt wird (bzw. dass bei öffentlichem Repo
+  ein leerer Token reicht).
+- **`update check` verschluckt Fetch-Fehler nicht mehr**: Vorher maskierte
+  `… || echo '(up to date)'` jeden fehlgeschlagenen `git fetch` als
+  „✅ PiClaw ist aktuell".
+- **Credential-Cleanup**: Ist kein `github_token` konfiguriert, entfernt der
+  Updater verwaiste Einträge für den Repo-Host aus `~/.git-credentials` –
+  ein toter gespeicherter Token brach sonst sogar anonyme Pulls öffentlicher
+  Repos (401 statt anonym).
+- Regressionstests: `tests/test_updater_auth.py` (8 Tests).
+
 ### Observability & Stabilität
 - **Stille Monitor-Fehler sichtbar gemacht**, Telegram-Logs brauchbar –
   inkl. Backoff statt Nachrichten-Spam bei wiederholten Fehlern.
