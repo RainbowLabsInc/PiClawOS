@@ -1,7 +1,7 @@
 # 🐾 PiClaw OS
 
 **KI-Betriebssystem für den Raspberry Pi 5**  
-*v0.17.1 · April 2026*
+*v0.18.0 · Juli 2026*
 
 PiClaw OS verwandelt einen Raspberry Pi 5 in einen autonomen KI-Agenten namens **Dameon**. Er läuft 24/7, überwacht Marktplätze, verfolgt Pakete, steuert Smart-Home-Geräte, reagiert auf Nachrichten und plant Aufgaben – alles natürlichsprachlich steuerbar per Terminal, Telegram oder Web-Dashboard.
 
@@ -12,6 +12,7 @@ PiClaw OS verwandelt einen Raspberry Pi 5 in einen autonomen KI-Agenten namens *
 | Feature | Beschreibung |
 |---|---|
 | 🤖 **KI-Agent „Dameon"** | Autonomer Agent mit persistenter Persönlichkeit (SOUL.md), Memory und natürlichsprachlicher Steuerung |
+| 👥 **Multi-User** | Mehrere Nutzer pro Pi – eigene Pakete, Routinen, Sub-Agents und Memory; Registrierung via Telegram `/start` + Admin-Freigabe |
 | 🧠 **Multi-LLM-Router** | Groq, NVIDIA NIM, Anthropic, OpenAI, Gemini, Mistral, Fireworks, Cerebras, lokales Gemma 4 E2B – mit automatischem Fallback |
 | 🔍 **LLM-Autonomie** | Findet selbständig neue kostenlose LLM-Backends (Groq, NVIDIA NIM, Cerebras, OpenRouter) |
 | 🌡️ **Thermisches Routing** | Wechselt bei Überhitzung automatisch auf sparsamere Cloud-Backends |
@@ -72,7 +73,7 @@ Die direkteste Schnittstelle. Nach `piclaw` erscheint eine interaktive Chat-Sitz
 ```
 piclaw@PiClaw:~ $ piclaw
 
-  Dameon v0.17.1 · bereit
+  Dameon v0.18.0 · bereit
   Tippe deine Nachricht oder 'exit' zum Beenden.
 
 > Wie warm ist der Pi gerade?
@@ -103,6 +104,8 @@ Dameon sendet **von sich aus** Nachrichten, wenn:
 - Ein Paket-Status sich ändert
 - Ein neues Gerät im Netzwerk auftaucht
 - Ein HA-Event ausgelöst wird (Bewegung, Tür, Rauch …)
+
+**Neue Nutzer** registrieren sich mit `/start <Name>` – ein Admin schaltet sie mit `/approve <Name>` frei. Details: [Multi-User](docs/multi-user.md).
 
 ### 3. Web-Dashboard
 
@@ -309,6 +312,35 @@ Oder per Chat:
 > Stopp den Monitor_Netzwerk
 ```
 
+Seit v0.18 hat jeder Sub-Agent einen **Besitzer** – Benachrichtigungen gehen an dessen Telegram-Chat. System-Agenten (z.B. `Monitor_Netzwerk`) melden weiterhin per Broadcast.
+
+---
+
+## 👥 Multi-User
+
+Mehrere Personen teilen sich einen Pi – jede mit eigenen Paketen, Routinen, Sub-Agents und eigenem Memory. Watchdog, Hardware und LLM-Registry bleiben geteilt.
+
+```
+Neuer Nutzer → /start Anna       (im Telegram-Chat des Bots)
+Admin        → /approve Anna     (bekommt automatisch eine DM)
+Anna         → /web_token        (eigener Token fürs Web-Dashboard)
+```
+
+```bash
+piclaw user pending              # wartende Nutzer
+piclaw user add Anna --telegram <chat_id> --role user
+piclaw user approve Anna         # freischalten
+piclaw user token Anna           # Web-Token ausgeben
+piclaw user set Anna homeassistant.token <TOKEN>   # Per-User-Override
+piclaw user setup                # interaktives Menü
+```
+
+- Rollen: `pending` → `user` → `admin`; der erste Nutzer wird automatisch Admin, der letzte Admin ist geschützt
+- Per-User-Overrides für Home Assistant, AgentMail, Discord, Threema, WhatsApp
+- Migration bestehender Single-User-Installationen per Skript inkl. Backup + Rollback
+
+Vollständige Doku: [docs/multi-user.md](docs/multi-user.md)
+
 ---
 
 ## 🏠 Home Assistant
@@ -403,6 +435,13 @@ piclaw skill list            # Installierte Skills
 piclaw skill search <query>  # Skills suchen
 piclaw skill remove <slug>   # Skill entfernen
 
+# Benutzer (Multi-User, v0.18)
+piclaw user pending          # Wartende Nutzer anzeigen
+piclaw user approve <name>   # Nutzer freischalten
+piclaw user token <name>     # Web-Token ausgeben
+piclaw user settings <name>  # Per-User-Overrides anzeigen
+piclaw user setup            # Interaktives Menü
+
 # Sonstiges
 piclaw briefing              # Aktuelles Briefing anzeigen
 piclaw briefing send         # Via Telegram senden
@@ -478,11 +517,14 @@ piclaw-os/
 /etc/piclaw/
 ├── config.toml           # Hauptkonfiguration
 ├── SOUL.md               # Persönlichkeit von Dameon
+├── users.json            # Nutzer-Registry (Multi-User, v0.18)
+├── users/<id>/memory/    # Per-User-Memory
 ├── subagents.json        # Sub-Agenten Registry
 ├── llm_registry.json     # LLM-Backend-Registry
 ├── skills/               # Installierte ClawHub-Skills
 ├── models/               # Lokale GGUF-Modelle
 ├── memory/               # QMD Vektordatenbank
+├── backups/              # Backup-Tarballs (u.a. Multi-User-Migration)
 └── crashes/              # Crash-Dumps für Debugging
 ```
 
@@ -510,10 +552,14 @@ piclaw-os/
 
 **Sicherheitsmaßnahmen im System:**
 - CORS auf LAN-Adressen beschränkt (kein Zugriff aus dem Internet)
-- Bearer-Token-Auth mit Rate-Limiting (10 Fehlversuche → 15 Min. Lockout)
+- Per-User Bearer-Token mit Rollen (`pending`/`user`/`admin`) und Rate-Limiting (10 Fehlversuche → 15 Min. Lockout)
+- Kein API-Token mehr im HTML – Web-Login via einmaliger Token-Eingabe (v0.18)
 - Command-Injection-Schutz in Shell- und Netzwerk-Tools
 - Path-Traversal-Schutz in Dateizugriff und Kamera-Endpoints
 - GitHub-Token via Credential Store (nie in Prozessliste sichtbar)
+- Atomare Store-Writes unter File-Lock, korrupte State-Dateien werden quarantänisiert (07/2026)
+
+Details und Meldeweg: [SECURITY.md](../SECURITY.md)
 
 ---
 
@@ -546,12 +592,13 @@ cat /etc/piclaw/crashes/*.log              # Crash-Dumps anzeigen
 | Version | Feature | Status |
 |---|---|---|
 | v0.15 | Basis-System, Marketplace, Telegram, Web-Dashboard | ✅ |
-| v0.16 | Security-Audit (6 CVEs), Troostwijk, Stabilität | ✅ |
+| v0.16 | Security-Audit (SEC-1…6), Troostwijk, Stabilität | ✅ |
 | v0.17 | LLM-Autonomie, Zoll-Auktion, VDB, Web-Suche, Router-Fixes | ✅ |
-| v0.18 | Queue System (parallele CLI + Telegram Anfragen) | 🔲 |
-| v0.19 | Willhaben Kategorie-Filter | 🔲 |
+| v0.18 | **Multi-User**: Pakete, Routinen, Sub-Agents, Memory pro Nutzer | ✅ |
+| 07/2026 | Stabilitäts-Hardening: atomare Store-Writes, Quarantäne, CI (ruff + pytest) | ✅ |
+| v0.19 | Marketplace: Query-Extraktion, Willhaben Kategorie-Filter | 🔲 |
 | v0.20 | Kamera-Tools vollständig integriert | 🔲 |
-| **v1.0** | **Public Release** | 🔲 |
+| **v1.0** | **Public Release** – frische Installation < 10 Min, alle Tests grün | 🔲 |
 | v1.1 | Mehrsprachigkeit (DE / EN / ES) | 🔲 |
 
 ---
@@ -564,7 +611,7 @@ MIT – Rainbow Labs Inc.
 
 ## 🙏 Gebaut mit
 
-[llama-cpp-python](https://github.com/abetlen/llama-cpp-python) · [FastAPI](https://fastapi.tiangolo.com) · [QMD](https://github.com/tobilu/qmd) · [python-telegram-bot](https://python-telegram-bot.org) · [Scrapling](https://github.com/D4Vinci/Scrapling) · [croniter](https://github.com/pallets/croniter) · [ClawHub](https://clawhub.ai) · [Parcello](https://parcello.org)
+[llama-cpp-python](https://github.com/abetlen/llama-cpp-python) · [FastAPI](https://fastapi.tiangolo.com) · [QMD](https://github.com/tobilu/qmd) · [python-telegram-bot](https://python-telegram-bot.org) · [Scrapling](https://github.com/D4Vinci/Scrapling) · [croniter](https://github.com/kiorky/croniter) · [ClawHub](https://clawhub.ai) · [Parcello](https://parcello.org)
 
 ---
 
@@ -574,4 +621,4 @@ MIT – Rainbow Labs Inc.
   </a>
 </div>
 
-[Dokumentation](piclaw-os/README.md) · [Sicherheit](SECURITY.md) · [Changelog](piclaw-os/CHANGELOG.md) · [☕ Spenden](https://ko-fi.com/rainbowlabsinc)
+[Projekt-README](../README.md) · [Sicherheit](../SECURITY.md) · [Changelog](CHANGELOG.md) · [Multi-User](docs/multi-user.md) · [☕ Spenden](https://ko-fi.com/rainbowlabsinc)

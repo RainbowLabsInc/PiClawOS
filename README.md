@@ -30,6 +30,7 @@ PiClaw OS verwandelt einen Raspberry Pi in einen intelligenten Assistenten, der 
 | 🏛️ | **Auktions-Monitor** | Troostwijk + Zoll-Auktion: Events nach Land, Stadt oder **PLZ + Umkreis** überwachen |
 | 🤖 | **Natürliche Sprache** | *„Überwache eGun auf Sauer 505"* → erstellt automatisch einen stündlichen Monitor |
 | 💬 | **Messaging Hub** | Telegram, WhatsApp, Threema, MQTT |
+| 👥 | **Multi-User** | Mehrere Nutzer teilen sich einen Pi – eigene Pakete, Routinen, Sub-Agents und Memory pro Person (v0.18) |
 | 🏠 | **Home Assistant** | REST + WebSocket, 11 Tools, Echtzeit-Push bei Bewegung/Alarm |
 | 🌐 | **Web-Dashboard** | Agents · Memory · Soul · Hardware · Metriken · Kamera · Chat |
 | 🔒 | **Tokenlos** | Marktplatz-Monitore laufen **ohne LLM-Aufrufe** – null API-Kosten im Betrieb |
@@ -118,7 +119,7 @@ http://piclaw.local:7842
 
 ## 🤖 Sub-Agenten
 
-Alle Marktplatz-Monitore laufen als **tokenlose Sub-Agenten** – kein LLM, keine API-Kosten:
+Alle Marktplatz-Monitore laufen als **tokenlose Sub-Agenten** – kein LLM, keine API-Kosten. Beispiel-Setup:
 
 | Agent | Plattform | Intervall | Token-Kosten |
 |---|---|---|---|
@@ -141,6 +142,20 @@ Alle Marktplatz-Monitore laufen als **tokenlose Sub-Agenten** – kein LLM, kein
 ```
 
 Push-Benachrichtigungen bei Bewegung, geöffneten Türen, Rauchmeldern und mehr.
+
+---
+
+## 👥 Multi-User (v0.18)
+
+Mehrere Personen teilen sich einen Pi – jede mit eigenen Paketen, Routinen, Sub-Agents und eigenem Memory. System-Ressourcen (Watchdog, Hardware, LLM-Registry) bleiben geteilt.
+
+- **Registrierung:** Neuer Nutzer schreibt dem Bot `/start <Name>` → Admin bekommt eine DM und schaltet mit `/approve <Name>` frei
+- **Rollen:** `pending` → `user` → `admin` (der erste registrierte Nutzer wird automatisch Admin)
+- **Web-Zugang:** Jeder Nutzer holt sich seinen eigenen Token per `/web_token`
+- **Per-User-Overrides:** Eigener Home-Assistant-Token, eigene AgentMail-Inbox u.a. pro Nutzer
+- **Migration:** Bestehende Single-User-Installationen werden per Skript inkl. Backup + Rollback migriert
+
+Details: [`docs/multi-user.md`](piclaw-os/docs/multi-user.md)
 
 ---
 
@@ -199,20 +214,20 @@ piclaw backup       # Backup erstellen
 
 ## 🛡️ Sicherheit
 
-PiClaw OS wurde vor dem Release einem Security-Audit, nach bestem Wissen und gewissen unterzogen. Es wurden folgende kritischen Schwachstellen behoben:
+PiClaw OS wurde vor dem Release einem Security-Audit nach bestem Wissen und Gewissen unterzogen und wird laufend nachgehärtet. Die wichtigsten Maßnahmen:
 
 - ✅ WhatsApp Webhook Auth-Bypass geschlossen
 - ✅ Firewall auf LAN-IPs eingeschränkt (nicht internet-weit)
 - ✅ GitHub-Token aus Prozessliste entfernt
-- ✅ CORS auf lokales Netzwerk beschränkt
+- ✅ CORS auf lokales Netzwerk beschränkt, Security-Header gesetzt
 - ✅ Shell Command-Injection geblockt
-- ✅ Security-Header (X-Frame-Options, CSRF-Schutz)
-- ✅ Path-Traversal in `write_workspace_file` gefixt (v0.17)
-- ✅ IP-Validierung in Network-Security-Tools (v0.17)
-- ✅ Command-Injection in Updater via `shlex.quote` (v0.17)
-- ✅ Network-Tool komplett auf `subprocess_exec` umgestellt (v0.17)
+- ✅ Path-Traversal-, IP-Validierungs- und Injection-Fixes in Datei-, Netzwerk- und Update-Tools (v0.17)
+- ✅ Per-User-Authentifizierung mit Rollen und Admin-Freigabe; API-Token wird nicht mehr ins HTML injiziert (v0.18)
+- ✅ Rate-Limiting auf der API: wiederholte Fehlversuche führen zum temporären Lockout
+- ✅ Alle geteilten State-Dateien mit atomaren Schreibvorgängen unter File-Lock, korrupte Dateien werden quarantänisiert statt überschrieben (07/2026)
+- ✅ CI mit Linting + Tests auf jedem Pull Request (07/2026)
 
-Es wird darauf hingewiesen das es sich um ein Amateur-Projekt handelt und es nach wie vor schwerwiegende unentdeckte Lücken geben kann.
+Es wird darauf hingewiesen, dass es sich um ein Amateur-Projekt handelt und es nach wie vor schwerwiegende unentdeckte Lücken geben kann. PiClaw OS gehört ins lokale Heimnetz und sollte nie ungeschützt aus dem Internet erreichbar sein.
 
 Mehr Details: [SECURITY.md](SECURITY.md)
 
@@ -222,6 +237,7 @@ Mehr Details: [SECURITY.md](SECURITY.md)
 
 - **v0.17.1** — Web-Suche (DDG), LLM-Router-Stabilität (streaming 400 fix), Fallback-Chain, Sub-Agent Crash Recovery
 - **v0.18.0** ← *Aktuell* — **Multi-User**: Pakete, Routinen, Sub-Agents, Memory pro Nutzer. Telegram-Identity via `/start`, Admin-Approval, Per-User HomeAssistant-/AgentMail-Overrides. Migration vom Single-User-Stand inkl. Backup-Tarball + Rollback. Details: [`docs/multi-user.md`](piclaw-os/docs/multi-user.md)
+- **Stabilitäts-Hardening (07/2026, auf main)** — Atomare Store-Writes unter File-Lock, Quarantäne korrupter State-Dateien, GitHub-Actions-CI (ruff + pytest), Altlast-Scheduler entfernt, Telegram-Backoff, Observability-Fixes
 - **v0.19** — Marketplace: Query-Extraktion verbessern, Willhaben Kategorie-Filter
 - **v1.0** — Frische Installation < 10 Minuten, alle Tests grün
 
@@ -266,6 +282,6 @@ MIT License – frei nutzbar, modifizierbar und verteilbar.
 
 **Made with ❤️ for the Raspberry Pi community**
 
-[Dokumentation](piclaw-os/README.md) · [Sicherheit](SECURITY.md) · [Changelog](piclaw-os/CHANGELOG.md) · [Roadmap](piclaw-os/ROADMAP.md) · [☕ Spenden](https://ko-fi.com/rainbowlabsinc)
+[Dokumentation](piclaw-os/README.md) · [Sicherheit](SECURITY.md) · [Changelog](piclaw-os/CHANGELOG.md) · [Multi-User](piclaw-os/docs/multi-user.md) · [☕ Spenden](https://ko-fi.com/rainbowlabsinc)
 
 </div>

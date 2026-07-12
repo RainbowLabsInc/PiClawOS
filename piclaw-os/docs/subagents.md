@@ -74,7 +74,7 @@ piclaw-agent (Daemon)    → Sub-Agenten-Scheduler, Hintergrund-Tasks
 
 Wichtig:
 - Sub-Agenten laufen NUR im Daemon-Prozess (`start_sub_agents=False` in api.py)
-- Neuer Sub-Agent via API → Daemon-Neustart nötig (IPC-Reload geplant für v0.18)
+- Neuer Sub-Agent via API → Daemon-Neustart nötig (IPC-Reload weiterhin geplant, Stand v0.18 noch nicht umgesetzt)
 - IPC: API schreibt `run_now_<id>.trigger` → Daemon führt aus
 
 ## Aktuelle Sub-Agenten

@@ -143,7 +143,7 @@ function coverPage() {
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: "v0.17.1", font: "Arial", size: 32, color: C.accent2 })],
+      children: [new TextRun({ text: "v0.18.0", font: "Arial", size: 32, color: C.accent2 })],
       spacing: { before: 0, after: 240 },
     }),
     new Paragraph({
@@ -167,7 +167,7 @@ function coverPage() {
     spacer(), spacer(), spacer(), spacer(), spacer(),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: "April 2026", font: "Arial", size: 22, color: C.gray })],
+      children: [new TextRun({ text: "Juli 2026", font: "Arial", size: 22, color: C.gray })],
     }),
     pageBreak(),
   ];
@@ -205,7 +205,7 @@ const doc = new Document({
       default: new Header({ children: [
         new Paragraph({
           children: [
-            new TextRun({ text: "PiClaw OS v0.17.1 — Handbuch", font: "Arial", size: 18, color: C.gray }),
+            new TextRun({ text: "PiClaw OS v0.18.0 — Handbuch", font: "Arial", size: 18, color: C.gray }),
           ],
           border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C.accent, space: 4 } },
           spacing: { after: 0 }
@@ -237,9 +237,10 @@ const doc = new Document({
       spacer(),
       p("Dameon kennt deine Hardware, merkt sich Entscheidungen und Präferenzen, führt eigenständig Aufgaben aus und ist per Telegram, Discord oder Web-Dashboard erreichbar — auch wenn kein Internet verfügbar ist."),
       spacer(),
-      infoBox("Kernfunktionen v0.17.1", [
+      infoBox("Kernfunktionen v0.18.0", [
         "🤖  Dauerhafter KI-Agent mit persistentem Gedächtnis (QMD + MEMORY.md)",
         "📡  Erreichbar via Telegram, Discord, WhatsApp, Web-Dashboard",
+        "👥  Multi-User: mehrere Nutzer pro Pi — eigene Pakete, Routinen, Sub-Agents und Memory pro Person",
         "🛒  Marktplatz-Monitor: Kleinanzeigen, eBay, eGun, VDB, willhaben, Troostwijk, Zoll-Auktion — tokenlos, stündlich",
         "🌐  Web-Suche: DuckDuckGo-Integration mit echten Shop-URLs — Quellen- und Preis-Modus",
         "🔍  LLM Autonomie: Dameon findet & registriert selbständig neue kostenlose LLM-Backends",
@@ -284,7 +285,7 @@ const doc = new Document({
       spacer(),
       code("# Im piclaw-os/ Verzeichnis auf dem PC:"),
       code("make sync     # befüllt piclaw-src/ mit aktuellem Code"),
-      code("make sdcard   # erstellt piclaw-sdcard-v0.15.0.zip"),
+      code("make sdcard   # erstellt piclaw-sdcard-v<version>.zip"),
       spacer(),
       p("ZIP entpacken, Ordner boot/piclaw/ auf die Boot-Partition der SD-Karte kopieren."),
       code("sudo bash /boot/piclaw/install.sh"),
@@ -325,6 +326,7 @@ const doc = new Document({
       bullet("Text-Nachrichten → Dameon antwortet"),
       bullet("Marktplatz-Alerts landen automatisch im Chat"),
       bullet("Home-Assistant-Events (Bewegung, Alarm) werden gemeldet"),
+      bullet("Neue Nutzer registrieren sich mit /start <Name> — ein Admin schaltet sie frei (Kapitel 15)"),
       spacer(),
       h2("3.4 Natürliche Sprache – Beispiele"),
       twoColTable([
@@ -396,7 +398,7 @@ const doc = new Document({
       spacer(),
       p("Gemma 4 E2B benötigt ~3 GB RAM und antwortet in 15–40 Sekunden auf dem Pi 5."),
       spacer(),
-      h2("4.5 LLM Autonomie (NEU v0.17)"),
+      h2("4.5 LLM Autonomie (seit v0.17)"),
       p("Dameon findet und registriert selbständig neue kostenlose LLM-Backends:"),
       spacer(),
       code("\"Finde neue LLM Backends\""),
@@ -473,6 +475,8 @@ const doc = new Document({
       code("\"Erstelle einen Agenten der täglich um 7 Uhr die CPU-Temperatur prüft\""),
       code("\"Überwache Kleinanzeigen für Raspberry Pi alle 30 Minuten\""),
       code("\"Starte einen Agenten der täglich mein GitHub Repository pullt\""),
+      spacer(),
+      p("Seit v0.18 hat jeder Sub-Agent einen Besitzer: seine Telegram-Benachrichtigungen gehen an den Chat des Besitzers, nicht an alle. System-Agenten (z.B. Netzwerk-Monitor) melden weiterhin an den Admin-Broadcast."),
       spacer(),
       h2("7.2 Eingebaute Sub-Agenten"),
       twoColTable([
@@ -574,7 +578,7 @@ const doc = new Document({
         ["Chat", "Direkter KI-Chat im Browser"],
       ]),
       spacer(),
-      p("Der API-Token wird automatisch generiert und ist in der HTML-Seite eingebettet. Zum Anzeigen: piclaw config token"),
+      p("Beim ersten Besuch fragt das Dashboard einmalig nach deinem persönlichen API-Token und speichert ihn im Browser. Den eigenen Token bekommst du per /web_token im Telegram-Chat oder per CLI: piclaw user token <Name>"),
       pageBreak(),
 
       // ── Kap 11: Updates ──
@@ -644,9 +648,9 @@ const doc = new Document({
       spacer(),
       code("[llm]"),
       code("backend  = \"openai\""),
-      code("model    = \"moonshotai/kimi-k2-instruct-0905\""),
-      code("api_key  = \"nvapi-...\""),
-      code("base_url = \"https://integrate.api.nvidia.com/v1\""),
+      code("model    = \"llama-3.3-70b-versatile\""),
+      code("api_key  = \"gsk_...\""),
+      code("base_url = \"https://api.groq.com/openai/v1\""),
       spacer(),
       code("[telegram]"),
       code("token   = \"123456:ABC-...\""),
@@ -657,14 +661,61 @@ const doc = new Document({
       code("piclaw config set agent_name Jarvis"),
       pageBreak(),
 
-      // ── Kap 15: Roadmap ──
-      h1("15. Roadmap"),
+      // ── Kap 15: Multi-User ──
+      h1("15. Multi-User"),
+      p("Seit v0.18 können sich mehrere Personen einen Pi teilen. Jeder Nutzer hat eigene Pakete, Routinen, Sub-Agents und ein eigenes Memory — System-Ressourcen wie Watchdog, Hardware-Monitoring und LLM-Registry bleiben geteilt."),
+      spacer(),
+      h2("15.1 Rollen"),
+      twoColTable([
+        ["pending", "Hat /start gemacht, wartet auf Admin-Freigabe"],
+        ["user", "Vollwertig: eigene Daten, kann den Bot benutzen"],
+        ["admin", "user + verwaltet Nutzer, Backups, System-Config"],
+      ]),
+      spacer(),
+      p("Der erste registrierte Nutzer wird automatisch Admin. Der letzte Admin kann nicht entfernt werden."),
+      spacer(),
+      h2("15.2 Nutzer hinzufügen (Telegram)"),
+      code("1. Neuer Nutzer schreibt dem Bot:  /start Anna"),
+      code("2. Admin bekommt automatisch eine DM mit der Anfrage"),
+      code("3. Admin antwortet:  /approve Anna"),
+      code("4. Anna bekommt eine Willkommens-DM"),
+      code("5. Für das Web-Dashboard:  Anna schickt /web_token und erhält ihren Token"),
+      spacer(),
+      h2("15.3 Nutzer verwalten (CLI)"),
+      code("piclaw user pending                          # wartende Nutzer anzeigen"),
+      code("piclaw user add Anna --telegram <chat_id>    # direkt anlegen"),
+      code("piclaw user approve Anna                     # freischalten"),
+      code("piclaw user token Anna                       # Web-Token ausgeben"),
+      code("piclaw user setup                            # interaktives Menü"),
+      spacer(),
+      h2("15.4 Telegram-Befehle"),
+      twoColTable([
+        ["/start [Name]", "Registrierung (alle)"],
+        ["/whoami", "Eigene Nutzer-Info (alle)"],
+        ["/web_token", "Eigener Token für das Web-Dashboard (aktive Nutzer)"],
+        ["/users · /pending", "Nutzer auflisten (Admin)"],
+        ["/approve · /revoke <Name>", "Freischalten / entfernen (Admin)"],
+      ], 3400, 5960),
+      spacer(),
+      h2("15.5 Per-User-Einstellungen"),
+      p("Jeder Nutzer kann eigene Home-Assistant-, AgentMail-, Discord-, Threema- oder WhatsApp-Einstellungen haben. Ohne Override gilt der globale Wert aus config.toml:"),
+      code("piclaw user set Anna homeassistant.token <TOKEN>"),
+      code("piclaw user settings Anna       # anzeigen (Tokens maskiert)"),
+      code("piclaw user clear Anna homeassistant.token"),
+      spacer(),
+      h2("15.6 Migration bestehender Installationen"),
+      p("Bestehende Single-User-Installationen werden per Skript migriert — mit automatischem Backup-Tarball und Rollback-Möglichkeit. Der alte API-Token wird zum Token des Admin-Accounts, bestehende Bookmarks und Scripts funktionieren weiter. Details: docs/multi-user.md im Repository."),
+      pageBreak(),
+
+      // ── Kap 16: Roadmap ──
+      h1("16. Roadmap"),
       twoColTable([
         ["v0.15 ✅", "Multi-LLM-Router, Marketplace-Fix, sauberer Installer, git-Update"],
         ["v0.16 ✅", "AgentMail: E-Mail-Postfach für Dameon via agentmail.to"],
         ["v0.17 ✅", "LLM Autonomie (llm_discover), Troostwijk PLZ + Umkreis, Zoll-Auktion.de, vdb-waffen.de, 4 Security-PRs, Sub-Agent Crash Recovery"],
-        ["v0.17.1 ← aktuell", "Web-Suche (DuckDuckGo), LLM-Router-Stabilität (streaming 400 fix), Fallback-Chain, Watchdog Log-Spam-Fix"],
-        ["v0.18", "IPC-Reload: kein Neustart bei neuem Sub-Agent"],
+        ["v0.17.1 ✅", "Web-Suche (DuckDuckGo), LLM-Router-Stabilität (streaming 400 fix), Fallback-Chain, Watchdog Log-Spam-Fix"],
+        ["v0.18.0 ← aktuell", "Multi-User: Pakete, Routinen, Sub-Agents und Memory pro Nutzer; Telegram-Registrierung mit Admin-Freigabe; Web-Login ohne Token im HTML"],
+        ["Hardening 07/2026 ✅", "Atomare Store-Writes unter File-Lock, Quarantäne korrupter Dateien, GitHub-Actions-CI (ruff + pytest), Altlast-Scheduler entfernt"],
         ["v0.19", "Marketplace: Query-Extraktion verbessern, Willhaben Kategorie-Filter"],
         ["v1.0", "Frische Installation < 10 Minuten, alle Tests grün"],
       ]),
@@ -678,13 +729,13 @@ const doc = new Document({
       spacer(), spacer(),
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [new TextRun({ text: "PiClaw OS v0.17.1 — April 2026", font: "Arial", size: 18, color: C.gray, italics: true })],
+        children: [new TextRun({ text: "PiClaw OS v0.18.0 — Juli 2026", font: "Arial", size: 18, color: C.gray, italics: true })],
       }),
     ]
   }]
 });
 
 Packer.toBuffer(doc).then(buffer => {
-  fs.writeFileSync('./PiClaw-OS-Handbuch-v0.17.1.docx', buffer);
-  console.log('✅ Handbuch-DE v0.17.1 erstellt');
+  fs.writeFileSync('./PiClaw-OS-Handbuch-v0.18.0.docx', buffer);
+  console.log('✅ Handbuch-DE v0.18.0 erstellt');
 });

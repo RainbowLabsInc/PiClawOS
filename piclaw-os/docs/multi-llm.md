@@ -12,10 +12,10 @@ Eingehende Nachricht
   → confidence < 65%? Stage 2: Schnellstes LLM klassifiziert (8s Timeout)
   → LLMRegistry.find_by_tags() → sortiert nach (Überschneidung DESC, Priorität DESC)
   → degradierte Backends gefiltert (>3 Fehler → Cooldown)
-  → bestes Backend → bei Fehler: nächstes → finaler Fallback: lokal Gemma-2B
+  → bestes Backend → bei Fehler: nächstes → finaler Fallback: lokales Gemma 4 E2B
 ```
 
-## Aktuelle Backends (v0.15.4)
+## Statische Backends (Beispiel-Konfiguration)
 
 | Priority | Name | Modell | Provider | Tags |
 |---|---|---|---|---|
@@ -23,7 +23,13 @@ Eingehende Nachricht
 | 9 | groq-fallback | kimi-k2-instruct | Groq | general, reasoning, analysis, coding |
 | 8 | nemotron-nvidia | llama-4-maverick-17b | NVIDIA NIM | general, reasoning, fast |
 | 7 | openai-default | llama-3.3-70b-instruct | NVIDIA NIM | general (Fallback) |
-| – | lokal | gemma-2b-q4 | llama.cpp | letzter Fallback |
+| – | lokal | gemma-4-e2b-q4 | llama.cpp | letzter Fallback |
+
+Zusätzlich registrieren `llm_discover` und der Health Monitor dynamisch
+`auto-*`-Backends (Notfall-Discovery bei Totalausfall + tägliche proaktive
+Suche). Die Registry ist die Quelle der Wahrheit: `piclaw llm list` bzw.
+`/etc/piclaw/llm_registry.json`. Das „ready"-Log beim Boot zeigt nur die
+**aktivierten** Backends – deaktivierte fehlen dort grundsätzlich.
 
 ## Backends verwalten
 
@@ -50,7 +56,7 @@ general, german, english, french, spanish,
 action, home_automation, query
 ```
 
-**Neu in v0.15.4:**
+**Seit v0.15.4:**
 - `action` – direkte Gerätebefehle (Licht, Steckdose, Rolladen)
 - `home_automation` – Home Assistant Anfragen
 - `query` – Statusabfragen ohne Aktion

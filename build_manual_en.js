@@ -50,18 +50,18 @@ function coverPage() {
   return [
     spacer(), spacer(), spacer(),
     new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "PiClaw OS", font: "Arial", size: 72, bold: true, color: C.accent })], spacing: { before: 0, after: 120 } }),
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "v0.15.0", font: "Arial", size: 32, color: C.accent2 })], spacing: { before: 0, after: 240 } }),
+    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "v0.18.0", font: "Arial", size: 32, color: C.accent2 })], spacing: { before: 0, after: 240 } }),
     new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "AI Operating System for Raspberry Pi 5", font: "Arial", size: 28, color: C.gray })], spacing: { before: 0, after: 600 } }),
     new Table({ width: { size: 6000, type: WidthType.DXA }, columnWidths: [6000], rows: [new TableRow({ children: [new TableCell({
       borders: { top: { style: BorderStyle.SINGLE, size: 8, color: C.accent }, bottom: noBorder, left: noBorder, right: noBorder },
       shading: { fill: C.light, type: ShadingType.CLEAR }, margins: { top: 240, bottom: 240, left: 360, right: 360 },
       children: [
         new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "Dameon — Your Personal AI Agent", font: "Arial", size: 24, bold: true, color: C.dark })], spacing: { before: 0, after: 80 } }),
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "Raspberry Pi 5 · Kimi K2 · Gemma 2B · NVIDIA NIM", font: "Arial", size: 20, color: C.gray })], spacing: { before: 0, after: 0 } }),
+        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "Raspberry Pi 5 · Groq · Cerebras · NVIDIA NIM · Gemma 4 E2B", font: "Arial", size: 20, color: C.gray })], spacing: { before: 0, after: 0 } }),
       ]
     })]})]}),
     spacer(), spacer(), spacer(), spacer(), spacer(),
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "March 2026", font: "Arial", size: 22, color: C.gray })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "July 2026", font: "Arial", size: 22, color: C.gray })] }),
     pageBreak(),
   ];
 }
@@ -81,7 +81,7 @@ const doc = new Document({
   },
   sections: [{
     properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 } } },
-    headers: { default: new Header({ children: [new Paragraph({ children: [new TextRun({ text: "PiClaw OS v0.15 — Manual", font: "Arial", size: 18, color: C.gray })], border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C.accent, space: 4 } }, spacing: { after: 0 } })] }) },
+    headers: { default: new Header({ children: [new Paragraph({ children: [new TextRun({ text: "PiClaw OS v0.18.0 — Manual", font: "Arial", size: 18, color: C.gray })], border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C.accent, space: 4 } }, spacing: { after: 0 } })] }) },
     footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "Page ", font: "Arial", size: 18, color: C.gray }), new TextRun({ children: [PageNumber.CURRENT], font: "Arial", size: 18, color: C.gray }), new TextRun({ text: " of ", font: "Arial", size: 18, color: C.gray }), new TextRun({ children: [PageNumber.TOTAL_PAGES], font: "Arial", size: 18, color: C.gray })], border: { top: { style: BorderStyle.SINGLE, size: 4, color: C.accent, space: 4 } }, spacing: { before: 80 } })] }) },
     children: [
       ...coverPage(),
@@ -92,13 +92,17 @@ const doc = new Document({
       spacer(),
       p("Dameon knows your hardware, remembers decisions and preferences, autonomously executes tasks, and is reachable via Telegram, Discord, or the web dashboard — even without internet."),
       spacer(),
-      infoBox("Core Features", [
+      infoBox("Core Features v0.18.0", [
         "🤖  Persistent AI agent with long-term memory (QMD + MEMORY.md)",
         "📡  Reachable via Telegram, Discord, WhatsApp, Web Dashboard",
-        "🔍  Marketplace search: Kleinanzeigen, eBay, eGun, willhaben, Troostwijk, Zoll-Auktion — new listing alerts",
+        "👥  Multi-user: several people share one Pi — own parcels, routines, sub-agents and memory per person",
+        "🛒  Marketplace search: Kleinanzeigen, eBay, eGun, VDB, willhaben, Troostwijk, Zoll-Auktion — token-free hourly monitors",
+        "🌐  Web search: DuckDuckGo integration with real shop URLs — sources and price mode",
+        "🔍  LLM autonomy: Dameon discovers & registers new free LLM backends on its own",
+        "🧠  Multi-LLM router: Groq, Cerebras, NVIDIA NIM, OpenRouter, local Gemma 4 E2B — with fallback chain",
         "🌡  Thermal LLM routing: cloud on overheating, local in normal operation",
         "🤖  Sub-agents: specialized AI helpers for search, install, monitoring",
-        "🔌  Home Assistant integration: lights, thermostats, scenes by voice",
+        "🔌  Home Assistant integration: 11 tools, real-time push on motion/alarm",
         "🛡  Watchdog: independent security daemon with append-only logs",
         "📊  Metrics dashboard with live charts in the browser",
         "🔄  Self-update: piclaw update — git pull + restart, no root prompt",
@@ -132,7 +136,7 @@ const doc = new Document({
       h2("2.3 Offline Installation (SD card)"),
       code("# In the piclaw-os/ directory on your PC:"),
       code("make sync     # populates piclaw-src/ with current code"),
-      code("make sdcard   # creates piclaw-sdcard-v0.15.0.zip"),
+      code("make sdcard   # creates piclaw-sdcard-v<version>.zip"),
       spacer(),
       p("Unzip, copy the boot/piclaw/ folder to the SD card boot partition."),
       code("sudo bash /boot/piclaw/install.sh"),
@@ -175,8 +179,9 @@ const doc = new Document({
         ["piclaw setup", "Interactive configuration wizard"],
         ["piclaw update", "Update PiClaw to latest version"],
         ["piclaw update check", "Show pending updates"],
-        ["piclaw model download", "Download Gemma 2B locally (~1.6 GB)"],
+        ["piclaw model download", "Download Gemma 4 E2B locally (~2.5 GB)"],
         ["piclaw agent list", "List all sub-agents"],
+        ["piclaw user pending", "Show users waiting for approval (multi-user)"],
         ["piclaw soul show", "Display current personality file"],
         ["piclaw llm list", "Show registered LLM backends"],
         ["piclaw backup", "Backup configuration"],
@@ -186,26 +191,37 @@ const doc = new Document({
       // Ch 4: LLM Backends
       h1("4. AI Backends"),
       h2("4.1 Multi-LLM Router"),
-      p("PiClaw can manage multiple AI backends simultaneously, automatically selecting the best one for each request based on tags, priority, and Pi temperature."),
-      spacer(),
-      h2("4.2 NVIDIA NIM (Default)"),
-      p("Kimi K2 and Nemotron 70B run in the cloud on NVIDIA hardware. No GPU required."),
+      p("PiClaw can manage multiple AI backends simultaneously, automatically selecting the best one for each request based on tags, priority, and Pi temperature. If a backend fails, the next one in the fallback chain takes over."),
       spacer(),
       twoCol([
-        ["API Key", "nvapi-... from https://build.nvidia.com"],
-        ["Kimi K2 Model ID", "moonshotai/kimi-k2-instruct-0905"],
-        ["Nemotron Model ID", "nvidia/llama-3.1-nemotron-70b-instruct"],
-        ["Base URL", "https://integrate.api.nvidia.com/v1"],
-        ["Temperature", "0.6 for Kimi K2 (recommended by NVIDIA)"],
+        ["Groq ⭐", "Main backend — fastest answers, free (rate-limited)"],
+        ["Cerebras ⭐", "Ultra fast (>2000 tok/s), Llama 3.3 70B, 8,000 req/day free"],
+        ["NVIDIA NIM", "1,000 calls/month free, fallback"],
+        ["OpenRouter", "Aggregator — many free models"],
+        ["Gemma 4 E2B (local)", "No API key needed, offline fallback on the Pi"],
       ]),
       spacer(),
-      h2("4.3 Local Model (Gemma 2B)"),
-      code("piclaw model download    # downloads Gemma 2B Q4 (~1.6 GB)"),
-      code("# Model path: /etc/piclaw/models/gemma-2b-q4.gguf"),
+      h2("4.2 Groq (Main Backend)"),
+      twoCol([
+        ["API Key", "gsk_... from https://console.groq.com"],
+        ["Model (recommended)", "llama-3.3-70b-versatile"],
+        ["Fast model", "llama-3.1-8b-instant"],
+        ["Base URL", "https://api.groq.com/openai/v1"],
+      ]),
       spacer(),
-      p("Gemma 2B requires ~2.2 GB RAM and responds in 10–30 seconds on Pi 5."),
+      h2("4.3 Local Model (Gemma 4 E2B)"),
+      code("piclaw model download    # downloads Gemma 4 E2B Q4 (~2.5 GB)"),
+      code("# Model path: /etc/piclaw/models/"),
       spacer(),
-      h2("4.4 Thermal Routing"),
+      p("Gemma 4 E2B requires ~3 GB RAM and responds in 15–40 seconds on the Pi 5."),
+      spacer(),
+      h2("4.4 LLM Autonomy (since v0.17)"),
+      p("Dameon discovers and registers new free LLM backends on its own: llm_discover scans all known free-tier providers (Groq, NVIDIA, Cerebras, OpenRouter), tests unused models and registers working ones — also daily in the background via the health monitor."),
+      spacer(),
+      code("\"Find new LLM backends\""),
+      code("piclaw llm list    # show currently registered backends"),
+      spacer(),
+      h2("4.5 Thermal Routing"),
       twoCol([
         ["< 55°C (cool)", "Local model allowed, cloud optional"],
         ["55–70°C (warm)", "Monitoring active, local model still OK"],
@@ -271,11 +287,13 @@ const doc = new Document({
       spacer(),
       h2("7.2 Built-in Sub-Agents"),
       twoCol([
-        ["SearchAssistant", "Marketplace search (Kleinanzeigen, eBay, eGun, willhaben, Troostwijk, Zoll-Auktion)"],
+        ["Monitor_*", "Token-free marketplace monitors (Kleinanzeigen, eBay, eGun, VDB, willhaben, Troostwijk, Zoll-Auktion)"],
         ["InstallerAgent", "Install software with confirmation workflow"],
         ["WebCrawler", "Crawl websites, one-time or recurring"],
         ["Watchdog", "System monitoring, own Linux user, tamper-proof"],
       ]),
+      spacer(),
+      p("Since v0.18 every sub-agent has an owner: its Telegram notifications go to the owner's chat, not to everyone. System agents (e.g. the network monitor) keep broadcasting to the admin."),
       spacer(),
       h2("7.3 CLI Management"),
       code("piclaw agent list              # all sub-agents"),
@@ -290,7 +308,7 @@ const doc = new Document({
 
       // Ch 8: Marketplace
       h1("8. Marketplace Search"),
-      p("PiClaw searches Kleinanzeigen.de, eBay.de, eGun.de, willhaben.at, Troostwijk and Zoll-Auktion.de for listings. New listings are sent as alerts via Telegram. Troostwijk and Zoll-Auktion support postcode + radius search."),
+      p("PiClaw searches Kleinanzeigen.de, eBay.de, eGun.de, vdb-waffen.de, willhaben.at, Troostwijk and Zoll-Auktion.de for listings, plus a DuckDuckGo web search with real shop URLs as fallback. New listings are sent as alerts via Telegram. Troostwijk and Zoll-Auktion support postcode + radius search. Monitors run token-free — zero API cost."),
       spacer(),
       code("\"Search Raspberry Pi 5 on Kleinanzeigen near 22081, 30km radius\""),
       code("\"Find a used monitor under €100 on eBay in Hamburg\""),
@@ -345,7 +363,7 @@ const doc = new Document({
         ["Chat", "Direct AI chat in browser"],
       ]),
       spacer(),
-      p("The API token is auto-generated and embedded in the HTML page. To view: piclaw config token"),
+      p("On first visit the dashboard asks once for your personal API token and stores it in the browser. Get your token via /web_token in the Telegram chat or via CLI: piclaw user token <name>"),
       pageBreak(),
 
       // Ch 11: Updates
@@ -409,9 +427,9 @@ const doc = new Document({
       spacer(),
       code("[llm]"),
       code("backend  = \"openai\""),
-      code("model    = \"moonshotai/kimi-k2-instruct-0905\""),
-      code("api_key  = \"nvapi-...\""),
-      code("base_url = \"https://integrate.api.nvidia.com/v1\""),
+      code("model    = \"llama-3.3-70b-versatile\""),
+      code("api_key  = \"gsk_...\""),
+      code("base_url = \"https://api.groq.com/openai/v1\""),
       spacer(),
       code("[telegram]"),
       code("token   = \"123456:ABC-...\""),
@@ -422,16 +440,54 @@ const doc = new Document({
       code("piclaw config set agent_name Jarvis"),
       pageBreak(),
 
-      // Ch 15: Roadmap
-      h1("15. Roadmap"),
+      // Ch 15: Multi-User
+      h1("15. Multi-User"),
+      p("Since v0.18 several people can share one Pi. Each user has their own parcels, routines, sub-agents and memory — system resources like watchdog, hardware monitoring and the LLM registry stay shared."),
+      spacer(),
+      h2("15.1 Roles"),
       twoCol([
-        ["v0.15.0 (now)", "Multi-LLM router, marketplace fix, clean installer, git-update"],
-        ["v0.16 — AgentMail", "Email inbox for Dameon via agentmail.to"],
-        ["v0.17 — LLM Autonomy", "Dameon autonomously discovers free LLM backends. Troostwijk radius search (postcode + km). Zoll-Auktion.de platform. 4 security PRs merged."],
-        ["v0.17 — Emergency", "Emergency shutdown via smart plug (modem cut)"],
-        ["v0.18 — Security", "fail2ban integration, IP blocking, security reports"],
-        ["v0.19 — Browser", "Tandem Browser: autonomous browsing and form filling"],
-        ["v0.22 — Efficiency", "Single Gemma instance (saves ~2 GB RAM)"],
+        ["pending", "Sent /start, waiting for admin approval"],
+        ["user", "Full member: own data, can use the bot"],
+        ["admin", "user + manages users, backups, system config"],
+      ]),
+      spacer(),
+      p("The first registered user automatically becomes admin. The last admin cannot be removed."),
+      spacer(),
+      h2("15.2 Adding Users (Telegram)"),
+      code("1. New user writes to the bot:  /start Anna"),
+      code("2. Admin automatically receives a DM with the request"),
+      code("3. Admin replies:  /approve Anna"),
+      code("4. Anna receives a welcome DM"),
+      code("5. For the web dashboard:  Anna sends /web_token and receives her token"),
+      spacer(),
+      h2("15.3 Managing Users (CLI)"),
+      code("piclaw user pending                          # show waiting users"),
+      code("piclaw user add Anna --telegram <chat_id>    # create directly"),
+      code("piclaw user approve Anna                     # approve"),
+      code("piclaw user token Anna                       # print web token"),
+      code("piclaw user setup                            # interactive menu"),
+      spacer(),
+      h2("15.4 Per-User Settings"),
+      p("Each user can have their own Home Assistant, AgentMail, Discord, Threema or WhatsApp settings. Without an override, the global value from config.toml applies:"),
+      code("piclaw user set Anna homeassistant.token <TOKEN>"),
+      code("piclaw user settings Anna       # show (tokens masked)"),
+      code("piclaw user clear Anna homeassistant.token"),
+      spacer(),
+      h2("15.5 Migrating Existing Installations"),
+      p("Existing single-user installations are migrated by script — with automatic backup tarball and rollback. The old API token becomes the admin account's token, so existing bookmarks and scripts keep working. Details: docs/multi-user.md in the repository."),
+      pageBreak(),
+
+      // Ch 16: Roadmap
+      h1("16. Roadmap"),
+      twoCol([
+        ["v0.15 ✅", "Multi-LLM router, marketplace fix, clean installer, git-update"],
+        ["v0.16 ✅", "AgentMail email inbox, security audit (SEC-1…6), Troostwijk"],
+        ["v0.17 ✅", "LLM autonomy (llm_discover), Troostwijk radius search, Zoll-Auktion.de, VDB, 4 security PRs, sub-agent crash recovery"],
+        ["v0.17.1 ✅", "Web search (DuckDuckGo), LLM router stability, fallback chain"],
+        ["v0.18.0 (now)", "Multi-user: parcels, routines, sub-agents and memory per user; Telegram registration with admin approval; web login without token in HTML"],
+        ["Hardening 07/2026 ✅", "Atomic store writes under file lock, quarantine of corrupt state files, GitHub Actions CI (ruff + pytest), legacy scheduler removed"],
+        ["v0.19", "Marketplace: better query extraction, willhaben category filter"],
+        ["v1.0", "Fresh install < 10 minutes, all tests green"],
       ]),
       spacer(),
       infoBox("Project Repository", [
@@ -440,12 +496,12 @@ const doc = new Document({
       ], C.mid),
 
       spacer(), spacer(),
-      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "PiClaw OS v0.15.0 — March 2026", font: "Arial", size: 18, color: C.gray, italics: true })] }),
+      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "PiClaw OS v0.18.0 — July 2026", font: "Arial", size: 18, color: C.gray, italics: true })] }),
     ]
   }]
 });
 
 Packer.toBuffer(doc).then(buffer => {
-  fs.writeFileSync('/home/claude/PiClaw-OS-Manual-v0.15-EN.docx', buffer);
-  console.log('✅ Manual-EN created');
+  fs.writeFileSync('./PiClaw-OS-Manual-v0.18.0-EN.docx', buffer);
+  console.log('✅ Manual-EN v0.18.0 created');
 });

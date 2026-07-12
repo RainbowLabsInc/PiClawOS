@@ -8,7 +8,7 @@ Kein Image-Bau, kein Docker, kein Entwicklungswerkzeug noetig.
 - Raspberry Pi 4 oder 5
 - SD-Karte (mind. 16 GB, empfohlen 64+ GB)
 - [Raspberry Pi Imager](https://www.raspberrypi.com/software/) auf deinem PC
-- Diese Datei: `piclaw-os-v0.11.0.zip`
+- Das aktuelle SD-Karten-ZIP `piclaw-sdcard-v<version>.zip` (aus dem Release oder per `make sdcard` erstellt)
 
 ---
 
@@ -39,7 +39,7 @@ Nach dem Flashen die SD-Karte im PC lassen (oder kurz raus und wieder rein).
 
 Ein Laufwerk namens **`bootfs`** erscheint im Explorer/Finder.
 
-1. Die Datei `piclaw-os-v0.11.0.zip` entpacken
+1. Die Datei `piclaw-sdcard-v<version>.zip` entpacken
 2. Den Ordner `boot/piclaw/` **komplett** auf das Laufwerk `bootfs` kopieren
 
    **Ergebnis auf der SD-Karte:**

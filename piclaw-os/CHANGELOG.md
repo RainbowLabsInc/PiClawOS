@@ -1,6 +1,25 @@
 # PiClaw OS – Changelog
 
-## Unreleased 🧹
+## Unreleased – Stabilitäts-Hardening – 2026-07-11 🔩 (PR #210, #211)
+
+### Highlights
+- **Alle Shared-State-Stores atomar** – Read-Merge-Write unter File-Lock, keine verlorenen Schreibvorgänge zwischen api- und agent-Prozess mehr
+- **Quarantäne statt Datenverlust** – korrupte Store-Dateien werden als `.corrupt-<timestamp>` beiseitegelegt, nicht überschrieben
+- **GitHub-Actions-CI** – ruff + pytest auf jedem PR, `make test` / `make lint`
+- **Altlast-Scheduler entfernt** – Doppel-Ausführung + Py3.11-Crash beseitigt
+
+### Store-Hardening
+- **Read-Merge-Write unter File-Lock für alle Shared-State-Stores**
+  (routines, parcels, secrets, users, llm_registry, config.toml) – nach dem
+  Vorbild des ReminderStores (`_atomic_modify()`); Background-Runner laden
+  pro Tick neu. Grund: api- und agent-Prozess teilen sich Dateien in
+  `/etc/piclaw/`; wer nur beim Boot lädt und im Speicher hält, verliert die
+  Writes der anderen Seite.
+- **Quarantäne korrupter Stores** – defekte JSON/TOML-Dateien werden als
+  `.corrupt-<ts>` verschoben und geloggt statt still neu initialisiert.
+- **Regressionstests** für Store-Concurrency, Quarantäne und
+  Telegram-Backoff (u.a. `tests/test_routines_concurrency.py`). Für jeden
+  neuen Store gilt: gleiches Muster + Regressionstest.
 
 ### Scheduler entfernt (Breaking, aber ungenutzt)
 - **`tools/scheduler.py` gelöscht** samt `schedule_add`/`schedule_list`/
@@ -14,60 +33,90 @@
 - Migration: Falls eine alte `schedules.json` existiert, Einträge manuell
   als Routine oder Sub-Agent neu anlegen.
 
-## Unreleased 📧
+### CI & Tooling
+- **GitHub-Actions-CI**: ruff + pytest auf jedem Push/PR; lokal `make test`
+  und `make lint`.
+- `tests/debug/` macht Live-Netzwerk-Calls und ist von normalen Läufen
+  ausgenommen (`--ignore=tests/debug`).
+- Ruff-Findings behoben – darunter 2 echte Bugs; finale Ruff-Config.
+- Scrapling auf 0.4-API migriert, Makefile-Fixes.
+- Test-Suite entgiftet: `test_daemon`-Suite-Vergiftung behoben, stale
+  Tests repariert.
 
-### AgentMail Attribute-Fix
-- **`tools/agentmail.py` + `wizard.py`** – AgentMail SDK liefert die
-  Inbox-Adresse im Feld `inbox.email`, der Code las `inbox.email_address`
-  und erzeugte so `AttributeError: 'Inbox' object has no attribute
-  'email_address'` sobald eine reale Inbox abgefragt wurde. Defensiv
-  beide Felder: `getattr(ib, "email", None) or getattr(ib, "email_address", "")`.
-- **`cli.py` Doctor** – nutzt jetzt `cfg.agentmail.inbox_id` als primäre
-  Quelle für die Anzeige der Inbox-Adresse, mit `email_address` als
-  Fallback. Sonst zeigte Doctor dauerhaft "(keine Inbox)" obwohl die
-  Inbox existierte und per `inbox_id` korrekt konfiguriert war.
+### Observability & Stabilität
+- **Stille Monitor-Fehler sichtbar gemacht**, Telegram-Logs brauchbar –
+  inkl. Backoff statt Nachrichten-Spam bei wiederholten Fehlern.
+- **Resource-Leaks + Session-Overhead** in api/cli/secrets/clawhub/
+  parcel_tracking behoben (2026-07-02).
+- `fix(briefing)`: `llm.chat()` statt nie existentem `llm.complete()`
+  (PR #211) – Briefing-Generierung crashte sonst beim LLM-Aufruf.
+- Monitor_Netzwerk-Heartbeat von 1 h auf 2 h gedrosselt (2026-06-27).
+- Free-Tier-Modell-Whitelist aktualisiert (Juni 2026).
 
-## Unreleased 🐛🔇
+## v0.18.0 – 2026-05-27 👥 (PR #209)
 
-### Daemon Silent-Crash Fix
-- **`agent.py` Monitor_Pakete Auto-Boot** – `SubAgentDef(name=..., mission=...)`
-  rief den Konstruktor ohne das Pflichtfeld `description` auf, was
-  `TypeError: SubAgentDef.__init__() missing 1 required positional argument:
-  'description'` in `agent.boot()` auslöste.
-- **`daemon.py` Visibility-Hardening** – `agent.boot()` in Try/Except mit
-  Crash-Log gewrappt. Grund: llama-cpp-python's `suppress_stdout_stderr()`
-  macht `dup2(/dev/null, 1/2)` beim Model-Load. Jede Python-Logzeile nach
-  dem Load landet im Nirvana, sobald der Logger-Handler auf `sys.stdout`
-  oder `sys.stderr` schreibt. Die `TypeError` oben war komplett unsichtbar:
-  `journalctl` leer nach `Local model loaded ✅`, systemd zeigte aber
-  `active (running)` weil der Prozess im `_cancel_all_tasks()`-Cleanup
-  hing. Sub-Agent-Scheduler, IPC-Polling, Thermal-Monitor, Proactive-Agent –
-  alle nie gestartet. Wrapper schreibt Tracebacks direkt in
-  `/etc/piclaw/crashes/daemon-boot-crash.log`.
-- **Test** – `test_monitor_pakete_auto_boot_kwargs_complete` in
-  `tests/test_registry.py` lockt die Auto-Boot-Kwargs, damit die Regression
-  nicht zurückkehrt.
+### Highlights
+- **Multi-User** – mehrere Personen teilen sich einen Pi: eigene Pakete,
+  Routinen, Sub-Agents und eigenes Memory pro Nutzer
+- **Telegram-Registrierung** – `/start <Name>` + Admin-Approval
+- **Web-Login ohne Token im HTML** – schließt SEC-5 vollständig
 
+### Multi-User
+- **Nutzer-Registry** `/etc/piclaw/users.json` – `User`-Dataclass +
+  `UserRegistry` (Persistenz, Token-Lookup, Bootstrap, Override-CRUD);
+  Rollen `pending` → `user` → `admin`; erster Nutzer wird Admin, letzter
+  Admin ist geschützt.
+- **Zwei Türen, ein Record**: Telegram (`telegram_chat_id`) und Web/REST
+  (`web_token` als Bearer). Unbekannte Telegram-Absender bekommen nur den
+  `/start`-Hinweis, pending Nutzer einen Warte-Hinweis.
+- **Telegram-Commands**: `/start`, `/whoami`, `/web_token`, `/help`,
+  `/users`, `/pending`, `/approve <Name>`, `/revoke <Name>`.
+- **Daten-Scoping** per `owner_id` auf Parcels, Routinen, Sub-Agents und
+  Crawler-Jobs; Memory pro Nutzer unter `users/<id>/memory/`;
+  `visible_to(user_id)`-Semantik, System-Daten (`owner_id=None`) für alle.
+- **Per-User-Overrides** für `homeassistant`, `agentmail` (außer
+  `api_key`), `discord`, `threema`, `whatsapp` – Fallback auf globale
+  `config.toml`-Werte; CLI: `piclaw user set/settings/clear`.
+- **Sub-Agent-Notifications an den Owner** – Telegram-Meldungen eines
+  Sub-Agents gehen an die `chat_id` des Besitzers; System-Agenten bleiben
+  Broadcast.
+- **Web-UI-Login**: `index.html` injiziert keinen Token mehr; Bootstrap-
+  Script liest `localStorage.piclaw_token`, fragt einmalig nach.
+- **Auth-Layer**: `require_auth`/`require_admin` als FastAPI-Dependencies;
+  Legacy-Token-Fallback (`config.toml[api].secret_key`), solange keine
+  aktiven Nutzer existieren; Rate-Limiting (10 Fails → 15 Min) unverändert.
+- **Migration** `scripts/migrate_to_multiuser.py` – idempotent, legt vor
+  jedem Lauf einen Backup-Tarball unter `/etc/piclaw/backups/` an
+  (Rollback per `tar xzf`); der alte `api.secret_key` wird `web_token` des
+  Bootstrap-Admins, bestehende Bookmarks/Scripts funktionieren weiter.
+- **CLI** `piclaw user pending/add/approve/token/setup` + Wizard-Block
+  „Benutzer".
+- **Tests**: 222 Tests für Registry, Auth, Routing, Scoping, Overrides,
+  Migration und Owner-Notify.
+- Doku: [`docs/multi-user.md`](docs/multi-user.md).
 
-
-### Sub-Agent Crash Recovery
-- **Typ-Coercion in `SubAgentDef`** – `timeout` und `max_steps` werden
-  defensiv in `int` umgewandelt, sowohl beim Laden aus `subagents.json` als
-  auch nach `PATCH /api/subagents/{id}`. Fallback auf Dataclass-Default bei
-  unbrauchbaren Werten.
-  Bug: Ein String-Wert in `timeout` ließ `asyncio.wait_for(..., timeout="300")`
-  mit `TypeError: '<=' not supported between instances of 'str' and 'int'`
-  crashen und erzeugte so einen Error-Loop der pro Interval eine Traceback-
-  Nachricht an den Messaging-Hub verschickte (Sauer 505 Fall, 2026-04-17).
-- **Auto-Restart für `_PROTECTED_AGENTS`** – `SubAgentRunner._on_done()`
-  erkennt unerwartet beendete geschützte Agenten und re-armed mit
-  Exponential-Backoff (2/4/8/16/32s, max 5 Versuche pro Stunde).
-  Bug: Monitor_Netzwerk konnte still aus dem Scheduler verschwinden wenn
-  `_run_loop` durch eine nicht abgefangene Exception endete. Die dokumentierte
-  3-Layer-Schutzarchitektur griff erst beim nächsten Daemon-Boot.
-- **Regressionstests** in `tests/test_registry.py`: 4 neue Tests decken
-  String-Coercion beim Konstruktor, Garbage-Fallback, Legacy-JSON-Heilung und
-  PATCH-Coercion ab.
+### Weitere Änderungen seit v0.17.0 (v0.17.1-Reihe)
+- **Web-Suche (DuckDuckGo)** – `tools/suche.py` mit echten Shop-URLs;
+  `sources`- und `price`-Modus.
+- **LLM-Router-Stabilität** – Streaming-400-Fix, robustere Fallback-Chain;
+  Wave-4-Härtung: Hard-Timeout-Cap + RAM-Guard fürs lokale Modell.
+- **AgentMail Attribute-Fix** – SDK liefert die Inbox-Adresse im Feld
+  `inbox.email`, der Code las `inbox.email_address` → `AttributeError`
+  bei realer Inbox. Defensiv beide Felder lesen; `cli.py` Doctor nutzt
+  `cfg.agentmail.inbox_id` als primäre Quelle (zeigte sonst dauerhaft
+  „(keine Inbox)").
+- **Daemon Silent-Crash Fix** – `SubAgentDef(...)` ohne Pflichtfeld
+  `description` crashte `agent.boot()`; unsichtbar, weil llama-cpp-pythons
+  `suppress_stdout_stderr()` beim Model-Load stdout/stderr nach
+  `/dev/null` dupliziert. `agent.boot()` jetzt in Try/Except mit Crash-Log
+  nach `/etc/piclaw/crashes/daemon-boot-crash.log`; Regressionstest
+  `test_monitor_pakete_auto_boot_kwargs_complete`.
+- **Sub-Agent Crash Recovery** – Typ-Coercion für `timeout`/`max_steps`
+  (String-Werte crashten `asyncio.wait_for` und erzeugten einen
+  Telegram-Error-Loop; Sauer-505-Fall 2026-04-17); Auto-Restart für
+  `_PROTECTED_AGENTS` mit Exponential-Backoff (2/4/8/16/32 s, max. 5
+  Versuche pro Stunde); 4 Regressionstests in `tests/test_registry.py`.
+- **Watchdog Log-Spam-Fix**.
 
 ## v0.17.0 – 2026-04-11 🧠🛒⚖️🔐
 
@@ -120,6 +169,57 @@
   - Fix: `_strip_none()` entfernt `None` rekursiv vor TOML-Serialisierung
 - **LLM-Discover-Routing:** Anfragen an lokales Modell geroutet statt Tool direkt aufzurufen
   - Fix: Regex-Shortcut im Dispatch-Chain (wie HA-Shortcuts, 0 Tokens)
+
+## v0.16.0 – 2026-04-05 🔐🛒🌍
+
+### Highlights
+- **Security-Audit abgeschlossen** – 6 Schwachstellen behoben (SEC-1 bis SEC-6)
+- **Troostwijk Auktions-Monitor** – neue Auktions-Events nach Land/Stadt überwachen
+- **Automatische Zeitzonenerkennung** – LocationConfig für TZ-Setup aus Koordinaten
+- **Stabilitäts-Debugrunde** – 16 Bugs behoben (Event-Loop, WebSocket, LLM-Router)
+
+### Security
+- **SEC-1 KRITISCH:** WhatsApp Webhook Auth-Bypass geschlossen (`verify_signature` → `return False` wenn kein `app_secret`)
+- **SEC-2 KRITISCH:** UFW-Regel auf RFC-1918 LAN beschränkt (war internet-weit offen)
+- **SEC-3 KRITISCH:** GitHub-Token aus Prozessliste entfernt → `git credential store`
+- **SEC-4:** CORS `allow_origins=["*"]` → `LocalNetworkCORSMiddleware` (nur LAN)
+- **SEC-5:** Security-Header (X-Frame-Options, CSP, no-store) + Token nur für lokale IPs
+- **SEC-6:** Shell Command-Chaining via Metacharakter geblockt
+- **SECURITY.md** mit vollständiger Audit-Dokumentation erstellt
+
+### Neue Features
+- **Troostwijk Auktions-Monitor:** `_search_troostwijk_auctions()` – API `/de/auctions.json?countries=de`
+  - Länderfilter: 20+ Länder (DE, NL, BE, FR, AT, IT, ES, SE, ...)
+  - Stadtfilter: Substring-Matching im Auktionsnamen
+  - `marketplace_search()` um `country`-Parameter erweitert
+  - `_detect_tw_auction_monitor_intent()` in Agent-Intent-Erkennung
+- **LocationConfig:** `latitude`, `longitude`, `timezone`, `city` in config.py
+  - Vorbereitung für automatische TZ-Erkennung aus Koordinaten
+  - `timezonefinder>=6.2` als neue Dependency
+- **Cron-Scheduler:** `_start_cron()` + `_cron_loop()` im Scheduler-Tool
+- **Sub-Agent API:** PATCH-Endpoint für Live-Updates ohne Delete+Recreate
+
+### Stabilität & Performance
+- **`sa_registry.mark_run()`:** `os.fsync()` nur noch bei terminalen Stati (ok/error/timeout) – verhindert 100–500ms Event-Loop-Blockierung bei SD-Karte
+- **`api.py`:** `cpu_percent(interval=None)` statt `interval=0.2` (war 200ms Blocking-Sleep)
+- **WebSocket:** Session-Leak bei Exception geschlossen, `create_background_task` für Keepalive
+- **`multirouter.py`:** Infinite Recursion in `_get_instance()` behoben; `_call_with_fallback()` iterativ statt rekursiv
+- **`runner.py`:** Doppelte Heartbeat-Logik konsolidiert; `_SILENT_TOKENS` vor erstem Gebrauch definiert; Tasks aus `_tasks` aufgeräumt
+- **`marketplace.py`:** asyncio.Lock für BuildId-Cache (Race Condition bei parallelen Monitoren); robusteres `listData`-Parsing
+- **`daemon.py`:** `create_background_task` früh importiert (UnboundLocalError-Zeitbombe)
+- **`datetime.utcnow()`:** Ersetzt durch `datetime.now(timezone.utc)` (Python 3.12+ deprecated)
+
+### PRs gemergt
+- #117 🛡️ Fix command injection in `wifi_disconnect` (nmcli als Argument-Liste)
+- #114 🛡️ Kill zombie processes on camera/shell timeout
+- #110 🛡️ Path traversal in camera snapshot (resolve + is_relative_to)
+- #105 ⚙️ Cron-Support im Scheduler (Cron-Loop)
+- #119 Fix async execution in system_report
+- #106/#108 briefing.py/CLI nutzen `current_temp()` helper
+
+### Git-Maintenance
+- `piclaw update` repariert root-eigene `.git`-Dateien automatisch (`find .git -not -user`)
+- GitHub-Token via credential store statt URL-Einbettung
 
 ## v0.15.4 – 2026-03-28 🏠🔧🧠
 
@@ -342,12 +442,9 @@
 
 | Version | Feature |
 |---|---|
-| v0.16 | Emergency Shutdown via schaltbare Steckdose |
-| v0.17 | fail2ban Integration |
-| v0.18 | Queue System (parallele CLI + Telegram) |
-| v0.19 | Willhaben Kategorie-Filter |
+| v0.19 | Marketplace: Query-Extraktion verbessern, Willhaben Kategorie-Filter |
 | v0.20 | Camera-Tools vollständig integriert |
-| **v1.0** | **Release** |
+| **v1.0** | **Release** – frische Installation < 10 Minuten, alle Tests grün |
 | v1.1 | Mehrsprachigkeit (DE/EN/ES) – Wizard, CLI, Agent reagiert frei in Nutzersprache |
 
 ### v1.1 Mehrsprachigkeit – Konzept
@@ -357,56 +454,4 @@
   Explizite SOUL.md-Direktive: "Antworte immer in der Sprache des Nutzers"
 - **Sprachen:** Deutsch (primär), English, Español
 - **Aufwand:** ~2 Sessions nach Release
-
-
-## v0.16.0 – 2026-04-05 🔐🛒🌍
-
-### Highlights
-- **Security-Audit abgeschlossen** – 6 Schwachstellen behoben (SEC-1 bis SEC-6)
-- **Troostwijk Auktions-Monitor** – neue Auktions-Events nach Land/Stadt überwachen
-- **Automatische Zeitzonenerkennung** – LocationConfig für TZ-Setup aus Koordinaten
-- **Stabilitäts-Debugrunde** – 16 Bugs behoben (Event-Loop, WebSocket, LLM-Router)
-
-### Security
-- **SEC-1 KRITISCH:** WhatsApp Webhook Auth-Bypass geschlossen (`verify_signature` → `return False` wenn kein `app_secret`)
-- **SEC-2 KRITISCH:** UFW-Regel auf RFC-1918 LAN beschränkt (war internet-weit offen)
-- **SEC-3 KRITISCH:** GitHub-Token aus Prozessliste entfernt → `git credential store`
-- **SEC-4:** CORS `allow_origins=["*"]` → `LocalNetworkCORSMiddleware` (nur LAN)
-- **SEC-5:** Security-Header (X-Frame-Options, CSP, no-store) + Token nur für lokale IPs
-- **SEC-6:** Shell Command-Chaining via Metacharakter geblockt (`&&`, `||`, `;`, `|`, `$(` etc.)
-- **SECURITY.md** mit vollständiger Audit-Dokumentation erstellt
-
-### Neue Features
-- **Troostwijk Auktions-Monitor:** `_search_troostwijk_auctions()` – API `/de/auctions.json?countries=de`
-  - Länderfilter: 20+ Länder (DE, NL, BE, FR, AT, IT, ES, SE, ...)
-  - Stadtfilter: Substring-Matching im Auktionsnamen
-  - `marketplace_search()` um `country`-Parameter erweitert
-  - `_detect_tw_auction_monitor_intent()` in Agent-Intent-Erkennung
-- **LocationConfig:** `latitude`, `longitude`, `timezone`, `city` in config.py
-  - Vorbereitung für automatische TZ-Erkennung aus Koordinaten
-  - `timezonefinder>=6.2` als neue Dependency
-- **Cron-Scheduler:** `_start_cron()` + `_cron_loop()` im Scheduler-Tool
-- **Sub-Agent API:** PATCH-Endpoint für Live-Updates ohne Delete+Recreate
-
-### Stabilität & Performance
-- **`sa_registry.mark_run()`:** `os.fsync()` nur noch bei terminalen Stati (ok/error/timeout) – verhindert 100–500ms Event-Loop-Blockierung bei SD-Karte
-- **`api.py`:** `cpu_percent(interval=None)` statt `interval=0.2` (war 200ms Blocking-Sleep)
-- **WebSocket:** Session-Leak bei Exception geschlossen, `create_background_task` für Keepalive
-- **`multirouter.py`:** Infinite Recursion in `_get_instance()` behoben; `_call_with_fallback()` iterativ statt rekursiv
-- **`runner.py`:** Doppelte Heartbeat-Logik konsolidiert; `_SILENT_TOKENS` vor erstem Gebrauch definiert; Tasks aus `_tasks` aufgeräumt
-- **`marketplace.py`:** asyncio.Lock für BuildId-Cache (Race Condition bei parallelen Monitoren); robusteres `listData`-Parsing
-- **`daemon.py`:** `create_background_task` früh importiert (UnboundLocalError-Zeitbombe)
-- **`datetime.utcnow()`:** Ersetzt durch `datetime.now(timezone.utc)` (Python 3.12+ deprecated)
-
-### PRs gemergt
-- #117 🛡️ Fix command injection in `wifi_disconnect` (nmcli als Argument-Liste)
-- #114 🛡️ Kill zombie processes on camera/shell timeout
-- #110 🛡️ Path traversal in camera snapshot (resolve + is_relative_to)
-- #105 ⚙️ Cron-Support im Scheduler (Cron-Loop)
-- #119 Fix async execution in system_report
-- #106/#108 briefing.py/CLI nutzen `current_temp()` helper
-
-### Git-Maintenance
-- `piclaw update` repariert root-eigene `.git`-Dateien automatisch (`find .git -not -user`)
-- GitHub-Token via credential store statt URL-Einbettung
 
