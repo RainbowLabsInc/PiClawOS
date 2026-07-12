@@ -19,6 +19,40 @@ log = logging.getLogger("piclaw.updater")
 INSTALL_DIR = Path("/opt/piclaw")
 VENV_PIP = INSTALL_DIR / ".venv" / "bin" / "pip"
 
+# Prefix für alle git-Aufrufe, deren Output geparst wird oder die das Netz
+# berühren: LC_ALL=C erzwingt englische Meldungen (die Substring-Checks
+# "Already up to date" / "Saved" matchen sonst auf deutschsprachigen Systemen
+# NIE – Folge: unnötige Restarts und nie zurückgeholte Stashes), und
+# GIT_TERMINAL_PROMPT=0 verhindert, dass git bei 401 (abgelaufener Token,
+# privates/unsichtbares Repo) auf eine Username-Eingabe wartet und der
+# Updater ohne TTY hängt.
+_GIT_ENV = "LC_ALL=C GIT_TERMINAL_PROMPT=0"
+
+# Signaturen von GitHub-Auth-Fehlern in git-Output (mit LC_ALL=C stabil)
+_AUTH_ERROR_MARKERS = (
+    "could not read Username",
+    "Invalid username or token",
+    "Authentication failed",
+    "Password authentication is not supported",
+    "terminal prompts disabled",
+    "HTTP 401",
+    "HTTP 403",
+)
+
+
+def _auth_hint(out: str) -> str:
+    """Ergänzt git-Fehleroutput um einen handlungsfähigen Hinweis bei Auth-Fehlern."""
+    if not any(marker in out for marker in _AUTH_ERROR_MARKERS):
+        return ""
+    return (
+        "\n\n💡 GitHub-Authentifizierung fehlgeschlagen. Mögliche Ursachen:\n"
+        "  • Hinterlegter Token abgelaufen/widerrufen → neuen Fine-grained PAT\n"
+        "    (nur dieses Repo, Contents: Read-only) in /etc/piclaw/config.toml\n"
+        "    unter [updater] github_token eintragen\n"
+        "  • Repo privat oder nicht öffentlich sichtbar → ebenfalls PAT nötig\n"
+        "  • Repo öffentlich sichtbar? Dann reicht github_token = \"\" (anonymer Pull)"
+    )
+
 
 def _git_remote_url(cfg: "UpdaterConfig") -> str:
     """Gibt die Git-Remote-URL OHNE eingebetteten Token zurück.
@@ -37,15 +71,31 @@ async def _configure_git_credentials(cfg: "UpdaterConfig") -> None:
     Der Token wird in ~/.git-credentials des piclaw-Users gespeichert und
     via git config credential.helper store aktiviert. Er erscheint NICHT
     in Prozesslisten oder Shell-Argumenten.
+
+    Ist KEIN Token konfiguriert, werden verwaiste Einträge für den Repo-Host
+    entfernt: credential.helper=store würde sonst einen alten (toten) Token
+    mitschicken und damit sogar anonyme Pulls öffentlicher Repos brechen
+    (GitHub antwortet bei ungültigen Credentials mit 401 statt anonym zu
+    bedienen).
     """
-    if not cfg.github_token:
-        return
     try:
         from urllib.parse import urlparse
         parsed = urlparse(cfg.repo_url)
         host = parsed.netloc or "github.com"
-        cred_line = f"https://x-access-token:{cfg.github_token}@{host}\n"
         cred_file = Path.home() / ".git-credentials"
+
+        if not cfg.github_token:
+            if cred_file.exists():
+                lines = [
+                    l for l in cred_file.read_text().splitlines()
+                    if l.strip() and host not in l
+                ]
+                cred_file.write_text("\n".join(lines) + ("\n" if lines else ""))
+                cred_file.chmod(0o600)
+                log.debug("Verwaiste Git credentials für %s entfernt", host)
+            return
+
+        cred_line = f"https://x-access-token:{cfg.github_token}@{host}\n"
         # Bestehende Zeile für diesen Host ersetzen oder neu anlegen
         existing = cred_file.read_text() if cred_file.exists() else ""
         lines = [l for l in existing.splitlines() if host not in l]
@@ -99,9 +149,9 @@ async def _run(cmd: str, timeout: int = 120) -> tuple[int, str]:
 
 
 async def system_update(target: str, cfg: UpdaterConfig) -> str:
-    # Token sicher via credential store konfigurieren (kein ps-leak, kein shell-inject)
-    if cfg.github_token:
-        await _configure_git_credentials(cfg)
+    # Token sicher via credential store konfigurieren (kein ps-leak, kein
+    # shell-inject); ohne Token räumt der Aufruf verwaiste Einträge weg
+    await _configure_git_credentials(cfg)
     _remote_url = _git_remote_url(cfg)
     # Remote-URL nur setzen wenn sie sich geändert hat (ohne Token, sauber)
     if cfg.repo_url:
@@ -110,11 +160,16 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
         await _run(f"cd {INSTALL_DIR} && git remote set-url origin {safe_url} 2>&1")
 
     if target == "check":
-        rc, out = await _run(
-            f"cd {INSTALL_DIR} && git fetch origin && "
-            "git log HEAD..origin/main --oneline 2>/dev/null || echo '(up to date)'"
+        rc_fetch, out_fetch = await _run(
+            f"cd {INSTALL_DIR} && {_GIT_ENV} git fetch origin 2>&1"
         )
-        if not out.strip() or "(up to date)" in out:
+        if rc_fetch != 0:
+            # Fetch-Fehler NICHT als "aktuell" maskieren
+            return f"❌ git fetch fehlgeschlagen:\n{out_fetch[:400]}{_auth_hint(out_fetch)}"
+        rc, out = await _run(
+            f"cd {INSTALL_DIR} && {_GIT_ENV} git log HEAD..origin/main --oneline 2>&1"
+        )
+        if rc != 0 or not out.strip():
             return "✅ PiClaw ist aktuell."
         lines = out.strip().splitlines()
         return f"🔄 {len(lines)} Update(s) verfügbar:\n" + "\n".join(
@@ -152,8 +207,9 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
             log.debug("git permissions check: %s", _e)
 
         # 1. Lokale Änderungen stashen (verhindert 'overwritten by merge')
+        # _GIT_ENV: der "Saved"-Check funktioniert nur mit englischen Meldungen
         rc_stash, out_stash = await _run(
-            f"cd {INSTALL_DIR} && git stash 2>&1"
+            f"cd {INSTALL_DIR} && {_GIT_ENV} git stash 2>&1"
         )
         stashed = rc_stash == 0 and "Saved" in out_stash
         if stashed:
@@ -165,15 +221,15 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
             results.append("🔧 Lokale Änderungen zurückgesetzt (git checkout --)")
 
         # 2. git pull
-        rc, out = await _run(f"cd {INSTALL_DIR} && git pull origin main 2>&1")
+        rc, out = await _run(f"cd {INSTALL_DIR} && {_GIT_ENV} git pull origin main 2>&1")
         results.append(f"git pull: {out[:200]}")
         if rc != 0:
             if stashed:
-                await _run(f"cd {INSTALL_DIR} && git stash pop 2>&1")
-            return f"❌ git pull fehlgeschlagen:\n{out}"
+                await _run(f"cd {INSTALL_DIR} && {_GIT_ENV} git stash pop 2>&1")
+            return f"❌ git pull fehlgeschlagen:\n{out}{_auth_hint(out)}"
         if "Already up to date" in out:
             if stashed:
-                await _run(f"cd {INSTALL_DIR} && git stash pop 2>&1")
+                await _run(f"cd {INSTALL_DIR} && {_GIT_ENV} git stash pop 2>&1")
             return "✅ PiClaw ist bereits aktuell – kein Neustart nötig."
 
         # 3. pip install -e . (nur wenn sich pyproject.toml geändert hat)
