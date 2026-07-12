@@ -1,8 +1,10 @@
 # BUG: Marketplace Search returns "Keine neuen Inserate" despite results existing
 
-**Status:** Open  
+**Status:** Resolved – behoben durch Location-Regex-Fix + City-Name-Leakage (PR #129, v0.17.0); PLZ/Stadtname werden seitdem vor der Suche aus dem Query entfernt. Weitere Verbesserungen der Query-Extraktion sind für v0.19 geplant.  
 **Priority:** High  
-**Date:** 2026-03-20  
+**Date:** 2026-03-20 (Analyse) · Resolved: v0.17.0 (2026-04-11)  
+
+> Dokument bleibt als Debugging-Historie erhalten.
 
 ---
 

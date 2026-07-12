@@ -1,221 +1,169 @@
-# 🔐 PiClaw OS – Security Documentation
+# 🔐 PiClaw OS – Security Policy
 
-> Letzte Aktualisierung: 2026-04-24  
-> Version: v0.17.0
+> Letzte Aktualisierung: 2026-07-12
+> Gilt für: v0.18.x
 
 ---
 
-## Überblick
+## Überblick & Einsatz-Szenario
 
 PiClaw OS ist für den Betrieb im **lokalen Heimnetzwerk** ausgelegt. Es ist kein
-öffentlich exponiertes System und sollte **nicht ohne Absicherung** (Reverse Proxy,
-HTTPS, VPN) aus dem Internet erreichbar sein.
+öffentlich exponiertes System und sollte **nicht ohne zusätzliche Absicherung**
+(Reverse Proxy mit HTTPS, VPN) aus dem Internet erreichbar sein.
+
+Wichtig für die Einordnung aller folgenden Punkte:
+
+- Die API spricht ab Werk **HTTP ohne TLS**. Das lokale Netz gilt damit als
+  Vertrauenszone – wer vollen Zugriff auf das LAN hat, ist im Bedrohungsmodell
+  nicht enthalten. Für Zugriff von außen: ausschließlich über VPN oder einen
+  TLS-terminierenden Reverse Proxy.
+- Der Agent ist LLM-gesteuert und hat Werkzeuge mit Systemwirkung. Nur
+  vertrauenswürdige Personen sollten freigeschaltet werden (siehe Multi-User).
 
 ---
 
 ## Sicherheitsarchitektur
 
-### Authentifizierung
+### Authentifizierung & Autorisierung (seit v0.18.0: Multi-User)
 
-| Kanal | Methode | Stärke |
-|---|---|---|
-| REST-API `/api/*` | Bearer Token (32 Byte random, `secrets.token_urlsafe`) | ✅ Stark |
-| WebSocket `/ws/chat` | Bearer Token als Query-Parameter | ✅ Gut |
-| Telegram | Chat-ID Whitelist (nur konfigurierte ID wird akzeptiert) | ✅ Stark |
-| WhatsApp | HMAC-SHA256 Signatur via `app_secret` – **Pflicht** | ✅ Stark (wenn konfiguriert) |
-| Threema | Threema-Gateway Eigenverifizierung | ✅ Gut |
-| `/health` | Unauthentifiziert | ℹ️ Nur Status-OK, kein Datenleak |
-
-### Dateisystem
-
-| Datei | Permissions | Inhalt |
-|---|---|---|
-| `/etc/piclaw/config.toml` | `600 (piclaw:piclaw)` | API-Keys, Token, Passwörter |
-| `/etc/piclaw/watchdog.toml` | `640 (piclaw-watchdog:piclaw-watchdog)` | Watchdog-Konfiguration |
-
-> **Hinweis:** Der `piclaw-watchdog` User hat via ACL (`setfacl`) Leserechte auf kritische Systemdateien (wie `config.toml`, `/etc/sudoers`, `/etc/ssh/sshd_config`, `systemd-units`) für Integrity-Checks.
-| `/var/log/piclaw/*.log` | `640` | Logs – keine API-Keys (gemaskert) |
-
-### Sub-Agent Sandbox
-
-Zwei-Tier-System in `piclaw/agents/sandbox.py`:
-
-- **Tier 1 – BLOCKED_ALWAYS:** `shell`, `shell_exec`, `system_reboot`, `watchdog_stop`, `updater_apply` u.a. – kein Override möglich außer `privileged=True`
-- **Tier 2 – BLOCKED_BY_DEFAULT:** `service_stop/restart`, `gpio_write`, `network_set` – nur mit `trusted=True` und explizitem allowlist-Eintrag
-
----
-
-## Bekannte Schwachstellen & Status
-
-### 🔴 Kritisch – Behoben in v0.17.0
-
-#### SEC-7: WiFi-Passwort in Prozessliste – `network.py` ✅ BEHOBEN
-**Beschreibung:** `wifi_connect()` übergab das WiFi-Passwort als CLI-Argument an `nmcli`:
-`nmcli dev wifi connect <SSID> password <PASSWORT>`. Das Passwort war damit für alle
-lokalen User über `ps aux` oder `/proc/<pid>/cmdline` lesbar, solange der Verbindungsaufbau
-lief.
-
-**Impact:** Klartext-Passwort-Diebstahl durch jeden lokalen Benutzer oder Prozess.
-
-**Fix (Commit `86c6a22`):** `--ask`-Flag + Übergabe via stdin:
-```python
-cmd = ["nmcli", "--ask", "dev", "wifi", "connect", ssid]
-return await _run(cmd, timeout=30, input_data=password + "\n")
-```
-Passwort erscheint nicht mehr als Prozessargument.
-
----
-
-#### SEC-8: WiFi-Passwort in Prozessliste – `wizard.py` ✅ BEHOBEN
-**Beschreibung:** Gleiche Schwachstelle wie SEC-7 im Setup-Wizard (`step_wifi()`).
-`subprocess.run(["nmcli", ..., "password", password])` – Passwort sichtbar in `ps aux`.
-
-**Impact:** Wie SEC-7, trifft Nutzer während des initialen Setups.
-
-**Fix (Commit `e013dab`):** `subprocess.run(..., input=password+"\n")` mit `--ask`-Flag.
-Die Fixes wurden separat entdeckt – SEC-7 in `network.py` wurde zuerst behoben,
-`wizard.py` war in der initialen Review übersehen worden.
-
----
-
-#### SEC-9: Argument-Injection in `network_monitor.py` (nmap/ping) ✅ BEHOBEN
-**Beschreibung:** Die Funktionen `scan_devices()`, `port_scan()` und `ping_host()` leiteten
-Benutzereingaben (IP-Range, IP-Adresse, Hostname) ohne Validierung direkt als Argumente
-an `nmap` und `ping` weiter. Ein Angreifer konnte über den LLM-gesteuerten Agent
-präparierte Strings einspeisen (z.B. `192.168.1.0/24 --script malicious`).
-
-**Impact:** Argument-Injection in externe Prozesse via Agent-Eingaben.
-
-**Fix (Commit `800ae27`):** Strikte Eingabevalidierung vor jedem Prozessaufruf:
-- IP-Adressen: `ipaddress.ip_address()` / `ipaddress.ip_network()`
-- Hostnames: Regex `^[a-zA-Z0-9._-]+$`
-- Ungültige Eingaben werden mit Fehlermeldung abgelehnt, kein Prozessstart
-
----
-
-### 🟡 Mittel – Behoben in v0.17.0
-
-#### SEC-10: `subprocess_shell` in `watchdog.py` ✅ BEHOBEN
-**Beschreibung:** `_check_services()` nutzte `asyncio.create_subprocess_shell()` mit einem
-f-String: `f"systemctl is-active {svc} 2>/dev/null"`. Obwohl `WATCHED_SERVICES` hardcoded
-ist, öffnete dies grundsätzlich Shell-Injection – etwa wenn die Liste je dynamisch befüllt würde.
-
-**Impact:** Theore­tische Shell-Injection bei dynamischen Service-Namen; schlechte Praxis.
-
-**Fix (Commit `86c6a22`):** Umgestellt auf `asyncio.create_subprocess_exec("systemctl", "is-active", svc)` –
-kein Shell-Kontext, kein Injection-Risiko.
-
----
-
-### 🔴 Kritisch – Behoben in v0.15.5
-
-#### SEC-1: WhatsApp Webhook Auth-Bypass ✅ BEHOBEN
-**Beschreibung:** `verify_signature()` gab `return True` zurück wenn kein `app_secret`
-konfiguriert war. Jeder im lokalen Netzwerk konnte über `POST /webhook/whatsapp`
-beliebige Befehle an Dameon senden – ohne Authentifizierung.
-
-**Impact:** Unauthentifizierte Remote Code Execution im Netzwerk-Scope.
-
-**Fix (Commit 1fe2ff7):** `return False` + Warning-Log wenn kein `app_secret` gesetzt.
-Konsequenz: WhatsApp-Integration erfordert jetzt zwingend `app_secret` in config.toml.
-
----
-
-#### SEC-2: UFW öffnete Port 7842 für das Internet ✅ BEHOBEN
-**Beschreibung:** `install.sh` führte `ufw allow 7842/tcp` aus – ohne Quelladressen-
-Einschränkung. Bei öffentlicher IP-Adresse oder Port-Forwarding war die gesamte API
-ohne Netzwerkschutz erreichbar. Da Token über HTTP (kein TLS) übertragen werden,
-wäre ein passiver Angreifer bereits nach dem ersten Request im Besitz des Tokens.
-
-**Impact:** Vollständiger API-Zugang bei öffentlicher IP.
-
-**Fix (Commit 1fe2ff7):** UFW-Regeln beschränkt auf RFC-1918 LAN-Ranges:
-`192.168.0.0/16`, `10.0.0.0/8`, `172.16.0.0/12`, `127.0.0.1`.
-
----
-
-#### SEC-3: Command Injection + Token in Prozessliste (Updater) ✅ BEHOBEN
-**Beschreibung:** `_git_remote_url()` bettet den GitHub-Token in die URL ein:
-`https://x-access-token:{token}@github.com/...`. Diese URL wurde dann in einem
-Shell-f-String verwendet: `_run(f"... git remote set-url origin '{url}' 2>&1")`.
-
-Zwei Probleme:
-1. **Token in Prozessliste:** `ps aux` zeigt den Token im Klartext als Prozessargument
-2. **Shell Injection:** Ein `repo_url` mit Sonderzeichen (z.B. `'`) bricht aus dem Shell-String aus
-
-**Impact:** Token-Diebstahl via `ps aux` by any local user; Shell Injection wenn `repo_url` kompromittiert.
-
-**Fix (Commit 1fe2ff7):** GitHub-Token wird via `git credential store` (~/.git-credentials, chmod 600)
-konfiguriert statt in die URL eingebettet. Keine Tokens mehr in Prozessargumenten.
-
----
-
-### 🟡 Mittel – Behoben in v0.15.5
-
-#### SEC-4: CORS `allow_origins=["*"]` auf HTTP ✅ BEHOBEN
-**Beschreibung:** Die FastAPI-App erlaubte Cross-Origin-Requests von beliebigen Domains.
-Kombiniert mit HTTP (kein TLS) könnte eine Malicious-Website im Browser des Nutzers
-API-Calls absetzen, wenn Port 7842 erreichbar ist.
-
-**Impact:** Cross-Site-Request-Forgery gegen API bei erreichbarem Port.
-
-**Fix (Commit folgt):** `LocalNetworkCORSMiddleware` ersetzt `allow_origins=["*"]`.
-Erlaubt nur RFC-1918 IPs, `localhost`, `127.0.0.1`, `piclaw.local`.
-Externe Origins werden abgelehnt – unabhängig vom UFW-Status.
-
----
-
-#### SEC-5: Bearer Token im HTML über HTTP ✅ TEILWEISE BEHOBEN
-**Beschreibung:** Die `/`-Route injizierte `window.PICLAW_TOKEN = "..."` in den HTML-Response.
-Da kein TLS vorhanden, konnte das Token durch passives Abhören im LAN erbeutet werden.
-
-**Impact:** Token-Diebstahl bei passivem Angreifer im selben LAN.
-
-**Fix (Commit folgt):** Zwei Verbesserungen:
-1. **Token-Injection nur für lokale IPs:** Externe Clients (z.B. bei versehentlich offenem Port) erhalten das Token nicht mehr
-2. **Security-Header hinzugefügt:** `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin`, `Cache-Control: no-store`
-
-**Verbleibendes Risiko:** Innerhalb des LANs ist passives Abhören weiterhin möglich (HTTP, kein TLS).
-Vollständige Lösung: nginx + Let's Encrypt als Reverse Proxy (siehe Deployment-Empfehlungen).
-
----
-
-#### SEC-6: Shell-Tool allowlist umgehbar via Command Chaining ✅ BEHOBEN
-**Beschreibung:** `_is_allowed()` prüfte nur das erste Wort des Shell-Befehls gegen die
-Allowlist. `ls && rm -rf /opt/piclaw` bestand die Prüfung weil `ls` erlaubt ist.
-
-**Impact:** Privilegien-Eskalation durch Command-Chaining wenn Shell-Tool aktiv.
-
-**Fix (Commit folgt):** Explizite Blocklist für Shell-Metacharakter **vor** der allowlist-Prüfung:
-`&&`, `||`, `;`, `|`, `$(`, `` ` ``, `${`, `>`, `>>`, `<`
-Jeder Befehl mit diesen Zeichen wird pauschal abgelehnt – unabhängig vom ersten Wort.
-
----
-
-### 🟢 Kein Problem / Best Practice vorhanden
-
-| Bereich | Details |
+| Kanal | Methode |
 |---|---|
-| Token-Vergleich | `secrets.compare_digest()` – timing-safe ✅ |
-| Token-Generierung | `secrets.token_urlsafe(32)` – 256 bit Entropie ✅ |
-| config.toml | `chmod 600` in install.sh ✅ |
-| API-Keys in Logs | Nur erste 8 Zeichen (`%.8s…`) geloggt ✅ |
-| Telegram Sender | `from_id != chat_id` → Fremde werden ignoriert ✅ |
-| Path Traversal (Kamera) | `is_relative_to(CAPTURE_DIR)` Guard ✅ |
-| Memory/API Auth | Alle `/api/*` hinter `require_auth` ✅ |
-| Privileged Sub-Agents | Nur per API mit Bearer Token setzbar (nur du) ✅ |
-| `datetime.utcnow()` | Ersetzt durch `datetime.now(timezone.utc)` (Python 3.12+) ✅ |
-| `os.fsync()` im Event-Loop | Nur für terminale Stati, nicht "running" ✅ |
+| REST-API `/api/*` | Bearer-Token **pro Nutzer** (`web_token`), kryptografisch zufällig generiert, timing-sicherer Vergleich |
+| WebSocket `/ws/chat` | Bearer-Token als Query-Parameter |
+| Telegram | Nutzer-Registrierung über `chat_id`: unbekannte Absender erhalten nur den `/start`-Hinweis, neue Nutzer warten auf Admin-Freigabe |
+| WhatsApp | HMAC-SHA256-Signaturprüfung via `app_secret` – **Pflicht**, ohne Konfiguration wird abgelehnt |
+| Threema | Threema-Gateway-Eigenverifizierung |
+| `/health` | Unauthentifiziert – liefert nur Status-OK, keine Daten |
+
+**Rollenmodell:** `pending` → `user` → `admin`. Der erste registrierte Nutzer
+wird Admin; alle weiteren müssen von einem Admin freigegeben werden
+(`/approve`). Der letzte Admin kann nicht entfernt werden. Systemändernde
+Endpoints (Soul, Backups, Wizard, Sensoren, Nutzerverwaltung) erfordern die
+Admin-Rolle.
+
+**Rate-Limiting:** Wiederholte fehlgeschlagene Auth-Versuche führen zu einem
+temporären IP-Lockout (Standard: 10 Fehlversuche → 15 Minuten Sperre).
+
+**Web-UI-Login:** Seit v0.18.0 wird **kein API-Token mehr in die HTML-Seite
+injiziert**. Das Dashboard fragt den Token einmalig ab und hält ihn nur im
+Browser (localStorage). Jeder Nutzer verwendet seinen eigenen Token
+(`/web_token` in Telegram oder `piclaw user token <Name>` per CLI).
+
+**Legacy-Fallback:** Installationen ohne migrierte Nutzerverwaltung
+akzeptieren übergangsweise den Alt-Token aus `config.toml`. Die Migration
+(`scripts/migrate_to_multiuser.py`) überführt ihn in den Admin-Account.
+
+### Netzwerk-Exposition
+
+- API-Port 7842; die Firewall-Regeln des Installers beschränken den Zugriff
+  auf private RFC-1918-Adressbereiche (LAN) statt „von überall".
+- CORS ist per Middleware auf lokale Origins beschränkt – Anfragen fremder
+  Websites werden unabhängig vom Firewall-Status abgelehnt.
+- Security-Header (u.a. `X-Frame-Options`, `X-Content-Type-Options`,
+  `Referrer-Policy`, `Cache-Control: no-store`) sind gesetzt.
+
+### Dateisystem & Secrets
+
+| Bereich | Maßnahme |
+|---|---|
+| `/etc/piclaw/config.toml` | `600`, Besitzer `piclaw` – enthält API-Keys und Tokens |
+| Logs `/var/log/piclaw/` | API-Keys werden maskiert (nur Präfix geloggt) |
+| GitHub-Token (Updater) | Über den Git-Credential-Store, nicht als Prozessargument oder URL-Bestandteil |
+| WLAN-Zugangsdaten | Übergabe an `nmcli` via stdin, nicht als Prozessargument |
+| `/api/config` | Gibt Secrets bewusst nicht zurück |
+
+### Eingabevalidierung
+
+- Netzwerk-Tools validieren IP-Adressen, Netzbereiche und Hostnamen strikt,
+  bevor externe Programme aufgerufen werden; ungültige Eingaben werden ohne
+  Prozessstart abgelehnt.
+- Externe Programme werden ohne Shell-Kontext gestartet (`subprocess_exec`
+  mit Argumentliste statt Shell-Strings).
+- Das Shell-Tool erlaubt nur Befehle aus einer Allowlist und lehnt Eingaben
+  mit Shell-Metazeichen pauschal ab.
+- Dateizugriffe (Workspace, Kamera) sind gegen Path-Traversal abgesichert
+  (Auflösung + Verzeichnis-Containment-Prüfung).
+
+### Sub-Agent-Sandbox
+
+Sub-Agenten laufen mit einem reduzierten Tool-Satz. Sicherheitskritische
+Werkzeuge (Shell, Systemsteuerung, Updater, Watchdog-Kontrolle u.ä.) sind für
+Sub-Agenten grundsätzlich gesperrt; einzelne weitere Werkzeuge lassen sich nur
+durch den Administrator gezielt freigeben. Die Freigabe erfolgt ausschließlich
+über die authentifizierte API.
+
+### Watchdog
+
+Ein unabhängiger Daemon unter eigenem Linux-User (`piclaw-watchdog`), den der
+Hauptagent nicht steuern kann. Er überwacht Systemressourcen, Service-Status
+und die Integrität kritischer Dateien (u.a. `config.toml`, systemd-Units,
+SSH-Konfiguration). Seine Logs sind append-only.
+
+### Betriebshärtung (Juli 2026)
+
+- Alle geteilten State-Dateien (`users.json`, `subagents.json`,
+  `routines.json`, `parcels.json`, LLM-Registry, `config.toml`, …) werden
+  atomar per Read-Merge-Write unter File-Lock aktualisiert – kein
+  Datenverlust durch konkurrierende Prozesse.
+- Korrupte State-Dateien werden **quarantänisiert** (`.corrupt-<timestamp>`)
+  statt stillschweigend überschrieben.
+- GitHub-Actions-CI führt auf jedem Pull Request Linting (ruff) und die
+  Test-Suite (pytest) aus; Regressionstests decken u.a. Store-Concurrency,
+  Quarantäne-Verhalten und Auth-Flows ab (222 Tests allein für Multi-User).
+
+---
+
+## Behobene Schwachstellen
+
+Die folgenden Schwachstellen wurden intern gefunden und behoben. Diese Tabelle
+dient der Transparenz; bewusst ohne technische Reproduktionsdetails – die
+Fixes sind in der Commit-Historie der jeweiligen Releases nachvollziehbar.
+
+| ID | Bereich | Schwere | Behoben in |
+|---|---|---|---|
+| SEC-1 | WhatsApp-Webhook: fehlende Signaturpflicht | 🔴 Kritisch | v0.15.5 |
+| SEC-2 | Firewall-Regel nicht auf LAN beschränkt | 🔴 Kritisch | v0.15.5 |
+| SEC-3 | GitHub-Token-Handhabung im Updater | 🔴 Kritisch | v0.15.5 |
+| SEC-4 | CORS-Konfiguration zu weit gefasst | 🟡 Mittel | v0.15.5 |
+| SEC-5 | Token-Auslieferung an das Web-UI | 🟡 Mittel | v0.15.5 (entschärft), v0.18.0 (vollständig: keine HTML-Injektion mehr) |
+| SEC-6 | Unvollständige Filterung im Shell-Tool | 🟡 Mittel | v0.15.5 |
+| SEC-7/8 | WLAN-Zugangsdaten als Prozessargument sichtbar | 🔴 Kritisch | v0.17.0 |
+| SEC-9 | Fehlende Eingabevalidierung in Netzwerk-Tools | 🔴 Kritisch | v0.17.0 |
+| SEC-10 | Shell-Aufruf statt direktem Prozessstart im Watchdog | 🟡 Mittel | v0.17.0 |
+| – | Path-Traversal im Workspace-Dateizugriff | 🔴 Kritisch | v0.17.0 |
+| – | Eingabevalidierung in Network-Security-Tools | 🟡 Mittel | v0.17.0 |
+| – | Argument-Quoting im Updater | 🟡 Mittel | v0.17.0 |
+| – | Netzwerk-Tool vollständig auf Shell-freie Prozessaufrufe umgestellt | 🟡 Mittel | v0.17.0 |
+
+---
+
+## Bekannte Einschränkungen
+
+Diese Punkte sind bewusst dokumentiert, damit Betreiber sie beim Deployment
+berücksichtigen können:
+
+- **Kein TLS ab Werk.** Die Kommunikation im LAN ist unverschlüsselt. Wer das
+  Dashboard oder die API außerhalb des eigenen Netzes nutzen will, muss einen
+  HTTPS-Reverse-Proxy oder ein VPN davorschalten (siehe unten).
+- **LLM-Agent mit Systemzugriff.** Wie bei jedem agentischen System besteht
+  ein Restrisiko durch Prompt-Injection über verarbeitete Inhalte (Webseiten,
+  E-Mails). Gegenmaßnahmen: Tool-Sandbox für Sub-Agenten, Allowlist im
+  Shell-Tool, Admin-Gate für systemändernde Aktionen – und: nur
+  vertrauenswürdige Nutzer freischalten.
+- **Amateur-Projekt.** PiClaw OS wird von einem Micro-Team in der Freizeit
+  entwickelt. Trotz Audit und CI kann es schwerwiegende unentdeckte Lücken
+  geben.
 
 ---
 
 ## Deployment-Empfehlungen
 
 ### Muss (Heimnetz)
+
 ```toml
 # /etc/piclaw/config.toml
 [whatsapp]
-app_secret = "dein-meta-app-secret"   # PFLICHT wenn WhatsApp aktiv
+app_secret = "dein-meta-app-secret"   # PFLICHT, wenn WhatsApp aktiv
 ```
 
 ```bash
@@ -223,7 +171,11 @@ app_secret = "dein-meta-app-secret"   # PFLICHT wenn WhatsApp aktiv
 sudo timedatectl set-timezone Europe/Berlin
 ```
 
-### Empfohlen (öffentlicher Zugang)
+- Nach der Migration auf Multi-User: nur bekannte Personen mit `/approve`
+  freischalten, `piclaw user pending` regelmäßig prüfen.
+
+### Empfohlen (Zugriff von außen)
+
 ```nginx
 # nginx als HTTPS-Reverse-Proxy
 server {
@@ -238,47 +190,31 @@ server {
     }
 }
 ```
-Dann `api.py` auf `host = "127.0.0.1"` umstellen (nur localhost).
+
+Dann die API nur noch an `127.0.0.1` binden (in `api.py` bzw. Konfiguration),
+sodass sie ausschließlich über den Proxy erreichbar ist. Alternativ: VPN
+(z.B. WireGuard) und gar keine öffentliche Exposition.
 
 ### Niemals
-- `sudo piclaw update` ausführen (erzeugt root-eigene .git-Dateien → Berechtigungsfehler)
-- API-Token committen (automatisch in `/etc/piclaw/config.toml` mit chmod 600)
-- Port 7842 per Port-Forwarding ins Internet öffnen ohne HTTPS + starkes Passwort
+
+- `sudo piclaw update` ausführen (erzeugt root-eigene `.git`-Dateien → Berechtigungsfehler)
+- API-Tokens oder API-Keys committen oder weitergeben (sie liegen in `/etc/piclaw/config.toml` bzw. `users.json` mit restriktiven Rechten)
+- Port 7842 per Port-Forwarding direkt ins Internet öffnen
+- Unbekannte Telegram-Nutzer freischalten, „nur um zu testen"
 
 ---
 
 ## Vulnerability Disclosure
 
-Sicherheitslücken bitte als **private Issue** melden oder direkt an den Maintainer.
-Bitte keinen öffentlichen Issue erstellen bevor ein Fix verfügbar ist.
+Sicherheitslücken bitte **vertraulich** melden – über GitHubs private
+Vulnerability-Reports (Security → Report a vulnerability) oder direkt an den
+Maintainer. Bitte keinen öffentlichen Issue erstellen, bevor ein Fix verfügbar
+ist.
 
-Wir bemühen uns zu:
-- Bestätigung des Eingangs innerhalb 48h
-- Einschätzung der Schwere innerhalb 7 Tagen
-- Fix oder Workaround innerhalb 30 Tagen für kritische Issues
+Wir bemühen uns um:
+- Bestätigung des Eingangs innerhalb von 48 h
+- Einschätzung der Schwere innerhalb von 7 Tagen
+- Fix oder Workaround innerhalb von 30 Tagen für kritische Issues
 
-Achtung: Diese Software wird aktuell von einem Micro-Team in ihrer Freizeit entwickelt. 
-
----
-
-## Changelog Security-Fixes
-
-| Version | Fix | Commit |
-|---|---|---|
-| v0.17.0 | SEC-7: WiFi-Passwort in Prozessliste (`network.py` → stdin/--ask) | `86c6a22` |
-| v0.17.0 | SEC-8: WiFi-Passwort in Prozessliste (`wizard.py` → stdin/--ask) | `e013dab` |
-| v0.17.0 | SEC-9: Argument-Injection in `network_monitor.py` (nmap/ping Validation) | `800ae27` |
-| v0.17.0 | SEC-10: subprocess_shell → subprocess_exec in `watchdog.py` | `86c6a22` |
-| v0.17.0 | Path-Traversal in `write_workspace_file` (PR #123) | `2b7ac6b` |
-| v0.17.0 | IP-Validierung in `network_security.py` (PR #128) | `2ca758d` |
-| v0.17.0 | Command-Injection in `updater.py` via shlex.quote (PR #132) | `2838785` |
-| v0.17.0 | `network.py` komplett auf subprocess_exec (PR #135) | `1e81e45` |
-| v0.15.5 | SEC-1: WhatsApp Auth-Bypass | `1fe2ff7` |
-| v0.15.5 | SEC-2: UFW LAN-Einschränkung | `1fe2ff7` |
-| v0.15.5 | SEC-3: Git Token/Injection | `1fe2ff7` |
-| v0.15.5 | SEC-4: CORS LAN-only Middleware | `ec1af4d` |
-| v0.15.5 | SEC-5: Security-Header + Token nur für lokale IPs | `ec1af4d` |
-| v0.15.5 | SEC-6: Shell Metacharakter-Blocklist | `ec1af4d` |
-| v0.15.5 | Bug: `os.fsync()` blockierte Event-Loop | `576c44b` |
-| v0.15.5 | Bug: WebSocket Session-Leak | `1fe2ff7` |
-| v0.15.5 | Bug: Infinite Recursion LLM Router | `1fe2ff7` |
+Hinweis: Diese Software wird von einem Micro-Team in der Freizeit entwickelt –
+die Fristen sind Zielwerte, keine Garantie.
