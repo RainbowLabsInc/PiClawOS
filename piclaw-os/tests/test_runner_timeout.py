@@ -18,7 +18,6 @@ import asyncio
 import contextlib
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -26,10 +25,21 @@ from piclaw.agents.runner import SubAgentRunner
 from piclaw.agents.sa_registry import SubAgentDef, SubAgentRegistry
 
 
-def _make_runner(tmp_path: Path, handlers: dict) -> tuple[SubAgentRunner, SubAgentRegistry]:
+@pytest.fixture
+def _isolated_registry_file(tmp_path, monkeypatch):
+    """Registry-Datei für die GESAMTE Testdauer auf tmp_path umbiegen.
+
+    Ein `with patch(...)` nur um den Konstruktor reicht nicht: _save() bei
+    jedem registry.add() liest SA_REGISTRY_FILE erneut — mit dem echten Pfad
+    leakten 'SlowAgent'-Einträge in die Produktiv-Registry auf dem Pi.
+    """
     reg_file = tmp_path / "subagents.json"
-    with patch("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file):
-        registry = SubAgentRegistry()
+    monkeypatch.setattr("piclaw.agents.sa_registry.SA_REGISTRY_FILE", reg_file)
+    return reg_file
+
+
+def _make_runner(tmp_path: Path, handlers: dict) -> tuple[SubAgentRunner, SubAgentRegistry]:
+    registry = SubAgentRegistry()
     runner = SubAgentRunner(
         registry=registry,
         llm=None,  # direct_tool path never touches the LLM
@@ -60,7 +70,7 @@ def _register(registry: SubAgentRegistry, **overrides) -> SubAgentDef:
 
 
 @pytest.mark.asyncio
-async def test_cooperative_sleep_is_hard_capped(tmp_path):
+async def test_cooperative_sleep_is_hard_capped(tmp_path, _isolated_registry_file):
     """A cooperative ``asyncio.sleep`` longer than ``cfg.timeout`` must
     be cancelled and the agent marked ``timeout`` – well within a small
     multiple of ``cfg.timeout``."""
@@ -85,7 +95,7 @@ async def test_cooperative_sleep_is_hard_capped(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_uncancellable_thread_does_not_block_loop(tmp_path):
+async def test_uncancellable_thread_does_not_block_loop(tmp_path, _isolated_registry_file):
     """A blocking ``asyncio.to_thread(time.sleep, ...)`` keeps an OS
     thread running after the Task is cancelled. The watchdog must still
     return control after ``cfg.timeout`` + grace instead of waiting for
@@ -115,7 +125,7 @@ async def test_uncancellable_thread_does_not_block_loop(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_runaway_task_that_swallows_cancel_is_abandoned(tmp_path):
+async def test_runaway_task_that_swallows_cancel_is_abandoned(tmp_path, _isolated_registry_file):
     """If the inner coroutine catches and ignores ``CancelledError``
     (e.g. a third-party library with a broad ``except`` block – which is
     the realistic scrapling/Playwright failure mode), the watchdog
@@ -164,7 +174,7 @@ async def test_runaway_task_that_swallows_cancel_is_abandoned(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_fast_tool_completes_normally(tmp_path):
+async def test_fast_tool_completes_normally(tmp_path, _isolated_registry_file):
     """The hard cap must not interfere with normal sub-second runs."""
 
     async def fast_tool():
@@ -182,7 +192,7 @@ async def test_fast_tool_completes_normally(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_repeated_timeouts_do_not_block_loop(tmp_path):
+async def test_repeated_timeouts_do_not_block_loop(tmp_path, _isolated_registry_file):
     """Even when an agent keeps producing un-cancellable threads on each
     run, the daemon loop must continue to schedule the next iteration
     after ``cfg.timeout``. This pins the property the original bug
