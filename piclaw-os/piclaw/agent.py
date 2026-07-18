@@ -164,6 +164,7 @@ from piclaw.agents.sa_registry import (
     INSTALLER_MISSION_TEMPLATE,
 )
 from piclaw.agents.runner import SubAgentRunner
+from piclaw.agent_context import get_current_user_id
 from piclaw.agents.sa_tools import TOOL_DEFS as SA_TOOL_DEFS
 from piclaw.agents.sa_tools import build_handlers as build_sa_handlers
 from piclaw.llm.mgmt_tools import TOOL_DEFS as LLM_MGMT_TOOL_DEFS
@@ -790,6 +791,7 @@ class Agent:
             schedule=f"cron:{cron_expr}",
             direct_tool=_direct_tool_name,   # leer → LLM-Loop; gesetzt → kein LLM
             created_by="mainagent",
+            owner_id=get_current_user_id(),
         )
         agent_id = self.sa_registry.add(agent)
         if self.sa_runner:
@@ -849,6 +851,7 @@ class Agent:
             notify=True,
             direct_tool="check_new_devices",  # kein LLM nötig – Tool direkt aufrufen
             created_by="mainagent",
+            owner_id=get_current_user_id(),
         )
         agent_id = self.sa_registry.add(agent_def)
 
@@ -1195,6 +1198,7 @@ class Agent:
             notify=True,
             direct_tool="marketplace_monitor",
             created_by="mainagent",
+            owner_id=get_current_user_id(),
         )
         agent_id = self.sa_registry.add(agent_def)
 
@@ -1350,6 +1354,7 @@ class Agent:
             notify=True,
             direct_tool="marketplace_monitor",
             created_by="mainagent",
+            owner_id=get_current_user_id(),
         )
         agent_id = self.sa_registry.add(agent_def)
 
@@ -1540,6 +1545,7 @@ class Agent:
             trusted=True,
             notify=True,
             created_by="mainagent",
+            owner_id=get_current_user_id(),
         )
         agent_id = self.sa_registry.add(agent_def)
         if self.sa_runner:
@@ -1563,6 +1569,7 @@ class Agent:
             schedule="once",
             notify=True,
             created_by="mainagent",
+            owner_id=get_current_user_id(),
         )
         agent_id = self.sa_registry.add(agent_def)
         if self.sa_runner:
