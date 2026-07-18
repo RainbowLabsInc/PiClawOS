@@ -49,6 +49,28 @@ class LLMCallFailed(RuntimeError):
 # Short sleep between continuous agent cycles (seconds)
 CONTINUOUS_SLEEP = 10
 
+# Untergrenze für interval:-Schedules. Jeder Run triggert memory_log →
+# `qmd update` (Node-Prozess, ~1 CPU-Kern); ein Sekunden-Intervall erzeugt
+# damit Dauerlast auf dem Pi (SlowAgent-Debug-Leiche lief 6 Tage bei ~2.5 Load).
+MIN_INTERVAL_SEC = 60
+
+
+def _interval_seconds(schedule: str, agent_name: str) -> int | None:
+    """Parst 'interval:<sec>' und hebt Werte unter MIN_INTERVAL_SEC an.
+    Returns None bei unparsebarem Schedule."""
+    try:
+        interval = int(schedule.split(":")[1])
+    except (ValueError, IndexError):
+        log.error("Invalid interval schedule: %s", schedule)
+        return None
+    if interval < MIN_INTERVAL_SEC:
+        log.warning(
+            "Sub-agent '%s': interval:%d unter Minimum – auf %ds angehoben (Dauerlast-Schutz)",
+            agent_name, interval, MIN_INTERVAL_SEC,
+        )
+        return MIN_INTERVAL_SEC
+    return interval
+
 _DEVICE_INDICATORS_RE = re.compile(
     r"(?:new device detected|unbekanntes gerät|hersteller:|neues gerät|"
     r"new device|hostname:|vendor:|🔍 neues|mac:|ip: |🚨)"
@@ -252,10 +274,8 @@ class SubAgentRunner:
                     await asyncio.wait_for(stop.wait(), timeout=CONTINUOUS_SLEEP)
 
         elif schedule.startswith("interval:"):
-            try:
-                interval = int(schedule.split(":")[1])
-            except (ValueError, IndexError):
-                log.error("Invalid interval schedule: %s", schedule)
+            interval = _interval_seconds(schedule, agent.name)
+            if interval is None:
                 return
             while not stop.is_set():
                 await self._execute(agent)
