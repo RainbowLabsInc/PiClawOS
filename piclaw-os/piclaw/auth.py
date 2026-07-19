@@ -212,6 +212,9 @@ async def require_auth_ws(token: str | None = Query(default=None)) -> User:
     """
     user = _resolve_user(token)
     if user is None:
+        # Ohne diese Zeile sind WS-Rejects im Journal unsichtbar – ein
+        # Browser mit veraltetem Token reconnected dann alle 3s völlig stumm.
+        log.warning("Rejected WebSocket connect – invalid or missing token.")
         raise HTTPException(status_code=401, detail="Unauthorized")
     if user.id != "legacy-admin":
         users_mod.registry().mark_seen(user.id)

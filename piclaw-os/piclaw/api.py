@@ -34,6 +34,7 @@ from piclaw.request_context import new_request_id, request_scope
 from piclaw.logging_setup import configure_logging
 from piclaw.users    import User
 from piclaw import users as users_mod
+from piclaw.agents import sa_history
 
 log = logging.getLogger("piclaw.api")
 
@@ -294,6 +295,20 @@ async def subagents_status(user: User = Depends(require_auth)):
     if not _agent or not _agent.sa_runner:
         return {"sub_agents": []}
     full = _agent.sa_runner.status_dict()
+    # Frischere Laufdaten aus der History-Datei überlagern: die Registry
+    # dieses Prozesses sieht Daemon-Läufe erst nach Prozess-Neustart
+    # (kein Hot-Reload), die History-Datei ist immer aktuell.
+    latest = sa_history.latest_per_agent()
+    for a in full.get("sub_agents", []):
+        entry = latest.get(a.get("id"))
+        if not entry:
+            continue
+        if not a.get("last_run") or entry["ts"] > a["last_run"]:
+            a["last_run"] = entry["ts"]
+            if not a.get("running"):
+                a["last_status"] = entry["status"]
+        a["last_result"] = entry.get("result")
+        a["last_duration_s"] = entry.get("duration_s")
     if user.is_admin:
         return full
     # Non-admin: filter durch sa_registry
@@ -392,6 +407,21 @@ async def subagent_run_now(name: str, _: str = Depends(require_auth)):
     return {"triggered": True, "name": name}
 
 
+@app.get("/api/subagents/{name}/history")
+async def subagent_history(name: str, limit: int = 20, user: User = Depends(require_auth)):
+    """Letzte Läufe eines Sub-Agenten (neuester zuerst), aus sa_history."""
+    if not _agent or not _agent.sa_runner:
+        raise HTTPException(503, "Agent not ready")
+    sa = _agent.sa_registry.get(name)
+    if not sa or not sa.visible_to(None if user.is_admin else user.id):
+        raise HTTPException(404, f"Sub-agent '{name}' not found")
+    return {
+        "id": sa.id,
+        "name": sa.name,
+        "history": sa_history.history_for(sa.id, limit),
+    }
+
+
 # ── Soul endpoints ────────────────────────────────────────────────
 
 @app.get("/api/soul")
@@ -455,6 +485,17 @@ async def llm_mode(_: str = Depends(require_auth)):
     if not _agent:
         return {"mode": "booting", "backends": []}
     return _agent.llm.get_status_dict()
+
+
+@app.get("/api/llm/health")
+async def llm_health(_: str = Depends(require_auth)):
+    """Health-Monitor-Status (Rate-Limits, letzte Fehler) aus der vom
+    Daemon zyklisch geschriebenen Status-Datei. Der Monitor läuft nur im
+    piclaw-agent-Prozess; read_status_file() enthält den 10-min-Staleness-
+    Cutoff bereits."""
+    from piclaw.llm import health_monitor
+
+    return health_monitor.read_status_file()
 
 
 @app.get("/api/stats")
