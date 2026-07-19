@@ -127,6 +127,37 @@
   .send-btn:hover{opacity:.85} .send-btn:disabled{opacity:.4;cursor:not-allowed}
   .ui-select { background: var(--bg2); border: 1px solid var(--border); color: var(--text);
                border-radius: 8px; padding: 0 10px; font-family: var(--font); font-size: 12px; height: 40px; }
+  /* Agent-Detail (aufklappbar) */
+  .agent-detail { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .agent-result { background: var(--bg3); border-radius: 6px; padding: 10px;
+                  white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.6; }
+  .hist-row { display: flex; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border);
+              font-size: 11px; align-items: baseline; }
+  .hist-row:first-child { border-top: none; }
+  /* Toasts */
+  #toasts { position: fixed; bottom: 16px; right: 16px; display: flex;
+            flex-direction: column; gap: 8px; z-index: 1000; }
+  .toast { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+           border-radius: 8px; padding: 10px 14px; font-size: 12px; max-width: 340px;
+           box-shadow: 0 4px 12px rgba(0,0,0,.4); animation: toast-in .2s; }
+  .toast.error { border-left-color: var(--red); }
+  .toast.ok    { border-left-color: var(--green); }
+  @keyframes toast-in { from{opacity:0;transform:translateY(6px)} to{opacity:1} }
+  /* Data-Tables (LLM, Users) */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .data-table th { text-align: left; padding: 8px 10px; color: var(--text2); font-size: 10px;
+                   text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--border);
+                   white-space: nowrap; }
+  .data-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .data-table tr:last-child td { border-bottom: none; }
+  /* Responsive: 10 Tabs passen nicht in eine Handy-Zeile */
+  .tabs { overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex-shrink: 0; }
+  @media (max-width: 900px) {
+    header { flex-wrap: wrap; padding: 8px 12px; }
+    .tabs { margin-left: 0; width: 100%; order: 10; }
+  }
   ::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 </style>
@@ -139,6 +170,7 @@
   <div class="logo">Pi<span>Claw</span> OS</div>
   <div class="status-dot" id="status-dot"></div>
   <div class="header-info" id="header-info">verbinde…</div>
+  <div class="header-info" id="who-val"></div>
   <div id="mode-badge" class="mode-badge mode-boot">⚪ Booting</div>
   <div class="tabs">
     <button class="tab active" onclick="showPanel('dashboard',this)">Dashboard</button>
@@ -147,7 +179,9 @@
     <button class="tab"        onclick="showPanel('soul',this)">Soul</button>
     <button class="tab"        onclick="showPanel('hardware',this)">Hardware</button>
     <button class="tab"        onclick="showPanel('metrics',this)">📊 Metriken</button>
+    <button class="tab"        onclick="showPanel('llm',this)">🧠 LLM</button>
     <button class="tab"        onclick="showPanel('camera',this)">📷 Kamera</button>
+    <button class="tab" id="tab-users" style="display:none" onclick="showPanel('users',this)">👥 Users</button>
     <button class="tab"        onclick="showPanel('chat',this)">Chat</button>
   </div>
 </header>
@@ -208,6 +242,19 @@
         <div class="svc-card" style="color:var(--text2)">Lade…</div>
       </div>
     </div>
+    <div>
+      <div class="section-title">Backups</div>
+      <div class="card" style="padding:14px">
+        <div id="backup-admin-row" style="display:none;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="backup-create-btn" onclick="createBackup()">💾 Backup erstellen</button>
+          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:5px">
+            <input type="checkbox" id="backup-metrics"> inkl. Metriken/Memory
+          </label>
+          <span id="backup-status" style="font-size:11px;color:var(--text2)"></span>
+        </div>
+        <div id="backup-list" style="font-size:12px;color:var(--text2)">Lade…</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -248,8 +295,55 @@
     <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
       <h2 style="font-size:15px;color:var(--accent)">🤖 Sub-Agenten</h2>
       <button class="btn btn-ghost" onclick="loadAgents()">↻ Refresh</button>
+      <button class="btn btn-primary" onclick="showAddAgent()">+ Neuer Agent</button>
       <span id="agents-count" style="font-size:11px;color:var(--text2)"></span>
     </div>
+
+    <!-- Add Agent Form -->
+    <div id="add-agent-form" class="card" style="display:none;padding:14px;flex-shrink:0">
+      <div style="font-size:12px;color:var(--accent);margin-bottom:10px;font-weight:600">Neuen Sub-Agenten erstellen</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div>
+          <div style="font-size:10px;color:var(--text2);margin-bottom:3px">Name</div>
+          <input id="new-agent-name" type="text" placeholder="z.B. Repo_Watcher"
+                 style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px">
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text2);margin-bottom:3px">Beschreibung</div>
+          <input id="new-agent-desc" type="text" placeholder="Was macht der Agent?"
+                 style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px">
+        </div>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:10px;color:var(--text2);margin-bottom:3px">Mission (System-Prompt des Agenten)</div>
+        <textarea id="new-agent-mission" rows="3" placeholder="z.B. Prüfe die CPU-Temperatur und melde Werte über 70°C."
+                  style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px;font-family:var(--font);resize:vertical"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;align-items:end;margin-bottom:10px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:10px;color:var(--text2);margin-bottom:3px">Zeitplan</div>
+          <select id="new-agent-sched-type" onchange="updateSchedInput()"
+                  style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px">
+            <option value="once">Einmalig</option>
+            <option value="interval">Intervall (Sekunden)</option>
+            <option value="cron">Cron-Ausdruck</option>
+          </select>
+        </div>
+        <div id="sched-val-box" style="display:none">
+          <div style="font-size:10px;color:var(--text2);margin-bottom:3px" id="sched-val-label">Wert</div>
+          <input id="new-agent-sched-val" type="text" placeholder="3600"
+                 style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px;font-family:monospace">
+        </div>
+        <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:5px;padding-bottom:7px">
+          <input type="checkbox" id="new-agent-notify" checked> Benachrichtigung nach Lauf
+        </label>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="font-size:12px" onclick="addAgent()">Erstellen</button>
+        <button class="btn btn-ghost"   style="font-size:12px" onclick="hideAddAgent()">Abbrechen</button>
+      </div>
+    </div>
+
     <div id="agents-list" style="display:flex;flex-direction:column;gap:10px">
       <div style="color:var(--text2)">Lade…</div>
     </div>
@@ -396,6 +490,31 @@
   </div>
 </div>
 
+<!-- Users (nur Admin) -->
+<div class="panel" id="users">
+  <div style="display:flex;flex-direction:column;height:100%;padding:20px;gap:14px;overflow-y:auto">
+    <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+      <h2 style="font-size:15px;color:var(--accent)">👥 Users</h2>
+      <button class="btn btn-ghost" onclick="loadUsers()">↻ Refresh</button>
+    </div>
+    <div>
+      <div class="section-title">Wartend auf Freigabe</div>
+      <div id="users-pending" style="display:flex;flex-direction:column;gap:8px">
+        <div style="color:var(--text2);font-size:12px">Lade…</div>
+      </div>
+    </div>
+    <div>
+      <div class="section-title">Aktive Nutzer</div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table class="data-table" id="users-table">
+          <thead><tr><th>Name</th><th>Rolle</th><th>Telegram</th><th>Zuletzt gesehen</th><th></th></tr></thead>
+          <tbody><tr><td colspan="5" style="color:var(--text2)">Lade…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Chat -->
 <div class="panel" id="chat">
   <div class="chat-messages" id="chat-messages">
@@ -446,6 +565,23 @@ Frag mich alles über diesen Raspberry Pi – Hardware, Services, WLAN, GPIO, Su
   </div>
 </div>
 
+<!-- LLM-Backends -->
+<div class="panel" id="llm">
+  <div style="padding:20px;overflow-y:auto;width:100%">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <h2 style="font-size:15px;color:var(--accent)">🧠 LLM-Backends</h2>
+      <button class="btn btn-ghost" onclick="loadLLM()">↻ Refresh</button>
+      <span id="llm-summary" style="font-size:11px;color:var(--text2)"></span>
+    </div>
+    <div id="llm-table"><div style="color:var(--text2)">Lade…</div></div>
+    <p style="font-size:11px;color:var(--text2);margin-top:14px;line-height:1.6">
+      <strong>auto-*</strong>-Backends werden vom Health-Monitor dynamisch entdeckt und bei Erholung
+      der Original-Backends automatisch wieder entfernt – eine schwankende Anzahl ist normal.
+      Die Monitor-Spalte kommt aus dem piclaw-agent-Daemon (Status-Datei, max. 10 min alt).
+    </p>
+  </div>
+</div>
+
 <!-- Kamera -->
 <div class="panel" id="camera">
   <div style="padding:20px;overflow-y:auto;width:100%">
@@ -492,7 +628,26 @@ Frag mich alles über diesen Raspberry Pi – Hardware, Services, WLAN, GPIO, Su
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 function authHeaders(){const t=window.PICLAW_TOKEN||'';return t?{'Authorization':`Bearer ${t}`}:{};}
-function authFetch(url,opts={}){opts.headers={...authHeaders(),...(opts.headers||{})};return fetch(url,opts);}
+let _auth401shown=false;
+async function authFetch(url,opts={}){
+  opts.headers={...authHeaders(),...(opts.headers||{})};
+  const r=await fetch(url,opts);
+  if(r.status===401&&!_auth401shown){
+    _auth401shown=true;
+    const b=document.getElementById('conn-banner');
+    b.textContent='🔒 Token ungültig oder abgelaufen – PICLAW_LOGOUT() in der Browser-Konsole ausführen und Seite neu laden.';
+    b.style.display='block';
+  }
+  return r;
+}
+
+// ── Toasts ────────────────────────────────────────────────────────
+function showToast(msg,type='error'){
+  let c=document.getElementById('toasts');
+  if(!c){c=document.createElement('div');c.id='toasts';document.body.appendChild(c);}
+  const t=document.createElement('div');t.className='toast '+type;t.textContent=msg;
+  c.appendChild(t);setTimeout(()=>t.remove(),4000);
+}
 
 // ── Panel ─────────────────────────────────────────────────────────
 function showPanel(name,tabEl){
@@ -504,7 +659,9 @@ function showPanel(name,tabEl){
   if(name==='soul')    loadSoul();
   if(name==='hardware')loadHardware();
   if(name==='metrics') loadMetrics();
+  if(name==='llm')     loadLLM();
   if(name==='camera')  loadCameraList();
+  if(name==='users')   loadUsers();
   if(name==='memory')refreshMemoryStats();
 }
 
@@ -758,8 +915,8 @@ async function readSensor(name){
     const r=await authFetch('/api/sensors/'+name);
     const d=await r.json();
     loadSensors();// refresh list
-    if(d.error)alert('Fehler: '+d.error);
-  }catch(e){alert('Fehler: '+e.message);}
+    if(d.error)showToast('Sensor-Fehler: '+d.error);
+  }catch(e){showToast('Sensor-Fehler: '+e.message);}
 }
 
 async function deleteSensor(name){
@@ -776,21 +933,29 @@ async function addSensor(){
   const type=document.getElementById('new-sensor-type').value;
   const desc=document.getElementById('new-sensor-desc').value.trim();
   const cfgRaw=document.getElementById('new-sensor-config').value.trim();
-  if(!name){alert('Name erforderlich');return;}
+  if(!name){showToast('Name erforderlich');return;}
   let config={};
-  if(cfgRaw){try{config=JSON.parse(cfgRaw);}catch{alert('Config muss gültiges JSON sein');return;}}
+  if(cfgRaw){try{config=JSON.parse(cfgRaw);}catch{showToast('Config muss gültiges JSON sein');return;}}
   const r=await authFetch('/api/sensors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,type,description:desc,config})});
   const d=await r.json();
-  if(d.error){alert('Fehler: '+d.error);}else{hideAddSensor();loadSensors();}
+  if(d.error){showToast('Fehler: '+d.error);}else{hideAddSensor();loadSensors();showToast('Sensor angelegt','ok');}
 }
 
 
 // ── Agents ────────────────────────────────────────────────────────
+const expandedAgents=new Set();
+let _agentsById={};
+function fmtTs(iso){return iso?iso.slice(0,16).replace('T',' '):'—';}
+function fmtDur(s){
+  if(s==null)return'';
+  return s<60?Math.round(s)+'s':Math.round(s/60)+'m '+Math.round(s%60)+'s';
+}
 async function loadAgents(){
   const list=document.getElementById('agents-list'),cnt=document.getElementById('agents-count');
   try{
     const r=await authFetch('/api/subagents');if(!r.ok)return;const d=await r.json();
     const agents=d.sub_agents||[],running=agents.filter(a=>a.running).length;
+    _agentsById={};agents.forEach(a=>_agentsById[a.id]=a);
     cnt.textContent=`${agents.length} definiert · ${running} laufend`;
     val('da-total',agents.length.toString());val('da-sub',`${running} laufend`);
     if(!agents.length){
@@ -800,43 +965,133 @@ async function loadAgents(){
       const icon={ok:'✅',error:'❌',timeout:'⏱️',running:'⚙️'}[a.last_status]||'⬜';
       const runBadge=a.running?'<span class="badge badge-green">RUNNING</span>':'';
       const disBadge=!a.enabled?'<span class="badge badge-gray">DISABLED</span>':'';
-      const lr=a.last_run?a.last_run.slice(0,16).replace('T',' '):'nie';
+      const ownBadge=a.owner_id
+        ?`<span class="badge badge-gray">👤 ${esc(a.owner_name||a.owner_id.slice(0,8))}</span>`
+        :'<span class="badge badge-gray">SYSTEM</span>';
+      const lr=a.last_run?fmtTs(a.last_run):'nie';
+      const dur=a.last_duration_s!=null?` (${fmtDur(a.last_duration_s)})`:'';
+      const nxt=a.next_run?` &nbsp;|&nbsp; nächster: ${fmtTs(a.next_run)}`:'';
+      const open=expandedAgents.has(a.id);
       return `
         <div class="agent-card" id="ac-${esc(a.id)}">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer" onclick="toggleAgent('${esc(a.id)}')">
             <span style="font-size:18px">${icon}</span>
             <span style="font-weight:600;font-size:14px">${esc(a.name)}</span>
             <span style="font-size:10px;color:var(--text2);background:var(--bg3);border-radius:4px;padding:2px 6px">${a.id}</span>
-            ${runBadge}${disBadge}
+            ${runBadge}${disBadge}${ownBadge}
             <div class="agent-actions">
-              ${!a.running?`<button class="btn btn-yellow" onclick="agentRun('${esc(a.name)}')">⚡ Jetzt</button>`:''}
-              ${!a.running?`<button class="btn btn-green"  onclick="agentAct('${esc(a.name)}','start')">▶ Start</button>`:''}
-              ${ a.running?`<button class="btn btn-red"    onclick="agentAct('${esc(a.name)}','stop')">■ Stop</button>`:''}
-              <button class="btn btn-ghost" style="color:var(--red)" onclick="agentDel('${esc(a.name)}')">✕</button>
+              ${!a.running?`<button class="btn btn-yellow" onclick="event.stopPropagation();agentRun('${esc(a.name)}')">⚡ Jetzt</button>`:''}
+              ${!a.running?`<button class="btn btn-green"  onclick="event.stopPropagation();agentAct('${esc(a.name)}','start')">▶ Start</button>`:''}
+              ${ a.running?`<button class="btn btn-red"    onclick="event.stopPropagation();agentAct('${esc(a.name)}','stop')">■ Stop</button>`:''}
+              <button class="btn btn-ghost" style="color:var(--red)" onclick="event.stopPropagation();agentDel('${esc(a.name)}')">✕</button>
             </div>
           </div>
           <div style="font-size:12px;color:var(--text);line-height:1.5">${esc(a.description)}</div>
           <div style="font-size:11px;color:var(--text2);margin-top:4px">
             schedule: <strong>${a.schedule}</strong> &nbsp;|&nbsp;
-            letzter Lauf: ${lr} &nbsp;|&nbsp; status: ${a.last_status||'—'}
+            letzter Lauf: ${lr}${dur} &nbsp;|&nbsp; status: ${a.last_status||'—'}${nxt}
           </div>
+          <div class="agent-detail" id="ad-${esc(a.id)}" style="display:${open?'block':'none'}"></div>
         </div>`;
     }).join('');
+    // Bereits aufgeklappte Karten nach dem Re-Render neu befüllen
+    expandedAgents.forEach(id=>{if(_agentsById[id])renderAgentDetail(id);});
   }catch(e){list.innerHTML=`<div style="color:var(--red)">Fehler: ${esc(String(e))}</div>`;}
 }
+function toggleAgent(id){
+  const det=document.getElementById('ad-'+id);
+  if(!det)return;
+  if(expandedAgents.has(id)){expandedAgents.delete(id);det.style.display='none';return;}
+  expandedAgents.add(id);det.style.display='block';
+  renderAgentDetail(id);
+}
+async function renderAgentDetail(id){
+  const det=document.getElementById('ad-'+id),a=_agentsById[id];
+  if(!det||!a)return;
+  const lastRes=a.last_result
+    ?`<div class="section-title">Letztes Ergebnis${a.last_duration_s!=null?' · '+fmtDur(a.last_duration_s):''}</div>
+       <div class="agent-result">${esc(a.last_result)}</div>`
+    :'<div style="color:var(--text2);font-size:12px">Noch kein Ergebnis aufgezeichnet.</div>';
+  det.innerHTML=lastRes+'<div style="color:var(--text2);font-size:11px;margin-top:8px">Lade Verlauf…</div>';
+  try{
+    const r=await authFetch(`/api/subagents/${encodeURIComponent(a.name)}/history`);
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const hist=d.history||[];
+    const rows=hist.map(h=>{
+      const hIcon={ok:'✅',error:'❌',timeout:'⏱️'}[h.status]||'⬜';
+      return `<div class="hist-row">
+        <span style="flex-shrink:0">${hIcon}</span>
+        <span style="color:var(--text2);flex-shrink:0">${fmtTs(h.ts)}</span>
+        <span style="color:var(--text2);flex-shrink:0">${fmtDur(h.duration_s)}</span>
+        <span style="white-space:pre-wrap;word-break:break-word">${esc((h.result||'').slice(0,200))}</span>
+      </div>`;
+    }).join('');
+    det.innerHTML=lastRes+
+      `<div class="section-title" style="margin-top:10px">Verlauf (${hist.length})</div>`+
+      (rows||'<div style="color:var(--text2);font-size:12px">Keine Läufe aufgezeichnet.</div>');
+  }catch(e){
+    det.innerHTML=lastRes+`<div style="color:var(--red);font-size:11px;margin-top:8px">Verlauf nicht ladbar: ${esc(String(e))}</div>`;
+  }
+}
 async function agentAct(name,action){
-  try{await authFetch(`/api/subagents/${encodeURIComponent(name)}/${action}`,{method:'POST'});setTimeout(loadAgents,800);}catch(e){}
+  try{
+    const r=await authFetch(`/api/subagents/${encodeURIComponent(name)}/${action}`,{method:'POST'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    setTimeout(loadAgents,800);
+  }catch(e){showToast(`${action} fehlgeschlagen: ${e.message}`);}
 }
 async function agentRun(name){
   try{
-    await authFetch(`/api/subagents/${encodeURIComponent(name)}/run`,{method:'POST'});
+    const r=await authFetch(`/api/subagents/${encodeURIComponent(name)}/run`,{method:'POST'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
     const card=document.getElementById(`ac-${name}`);
     if(card){card.style.borderColor='var(--yellow)';setTimeout(()=>{card.style.borderColor='';loadAgents();},2000);}
-  }catch(e){}
+  }catch(e){showToast('Start fehlgeschlagen: '+e.message);}
 }
 async function agentDel(name){
   if(!confirm(`Sub-Agent "${name}" wirklich löschen?`))return;
-  try{await authFetch(`/api/subagents/${encodeURIComponent(name)}`,{method:'DELETE'});loadAgents();}catch(e){}
+  try{
+    const r=await authFetch(`/api/subagents/${encodeURIComponent(name)}`,{method:'DELETE'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    loadAgents();
+  }catch(e){showToast('Löschen fehlgeschlagen: '+e.message);}
+}
+function showAddAgent(){document.getElementById('add-agent-form').style.display='block';}
+function hideAddAgent(){document.getElementById('add-agent-form').style.display='none';}
+function updateSchedInput(){
+  const type=document.getElementById('new-agent-sched-type').value;
+  const box=document.getElementById('sched-val-box');
+  const lbl=document.getElementById('sched-val-label');
+  const inp=document.getElementById('new-agent-sched-val');
+  box.style.display=type==='once'?'none':'block';
+  if(type==='interval'){lbl.textContent='Sekunden (min. 60)';inp.placeholder='3600';}
+  if(type==='cron'){lbl.textContent='Cron-Ausdruck';inp.placeholder='15 7 * * *';}
+}
+async function addAgent(){
+  const name=document.getElementById('new-agent-name').value.trim();
+  const description=document.getElementById('new-agent-desc').value.trim();
+  const mission=document.getElementById('new-agent-mission').value.trim();
+  const type=document.getElementById('new-agent-sched-type').value;
+  const schedVal=document.getElementById('new-agent-sched-val').value.trim();
+  const notify=document.getElementById('new-agent-notify').checked;
+  if(!name||!description||!mission){showToast('Name, Beschreibung und Mission sind Pflichtfelder');return;}
+  let schedule='once';
+  if(type==='interval'){
+    if(!/^\d+$/.test(schedVal)){showToast('Intervall muss eine Zahl (Sekunden) sein');return;}
+    schedule=`interval:${schedVal}`;
+  }else if(type==='cron'){
+    if(!schedVal){showToast('Cron-Ausdruck fehlt');return;}
+    schedule=`cron:${schedVal}`;
+  }
+  try{
+    const r=await authFetch('/api/subagents',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,description,mission,schedule,notify})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+    showToast(`Agent "${d.name}" erstellt`,'ok');
+    hideAddAgent();loadAgents();
+  }catch(e){showToast('Erstellen fehlgeschlagen: '+e.message);}
 }
 
 // ── Soul ──────────────────────────────────────────────────────────
@@ -861,6 +1116,96 @@ async function saveSoul(){
   }catch(e){st.textContent='❌ Fehler.';st.style.color='var(--red)';}
 }
 
+
+// ── Whoami / Users ────────────────────────────────────────────────
+let IS_ADMIN=false;
+async function loadWhoami(){
+  try{
+    const r=await authFetch('/api/whoami');if(!r.ok)return;const d=await r.json();
+    IS_ADMIN=!!d.is_admin;
+    val('who-val','👤 '+(d.name||'?'));
+    if(IS_ADMIN){
+      document.getElementById('tab-users').style.display='';
+      document.getElementById('backup-admin-row').style.display='flex';
+    }
+  }catch(e){}
+}
+async function loadUsers(){
+  const pend=document.getElementById('users-pending');
+  const tbody=document.querySelector('#users-table tbody');
+  try{
+    const [pr,ar]=await Promise.all([authFetch('/api/users/pending'),authFetch('/api/users')]);
+    if(!pr.ok||!ar.ok)throw new Error('HTTP '+(pr.ok?ar.status:pr.status));
+    const pending=(await pr.json()).pending||[];
+    const active=(await ar.json()).users||[];
+    pend.innerHTML=pending.length?pending.map(u=>`
+      <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:10px">
+        <span style="font-weight:600">${esc(u.name)}</span>
+        <span style="font-size:11px;color:var(--text2)">chat_id: ${esc(String(u.telegram_chat_id||'–'))} · seit ${fmtTs(u.created_at)}</span>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-green" onclick="userAct('${esc(u.id)}','approve')">✔ Freigeben</button>
+          <button class="btn btn-red"   onclick="userAct('${esc(u.id)}','revoke')">✕ Ablehnen</button>
+        </div>
+      </div>`).join('')
+      :'<div style="color:var(--text2);font-size:12px">Keine offenen Anfragen.</div>';
+    tbody.innerHTML=active.length?active.map(u=>`
+      <tr>
+        <td style="font-weight:600">${esc(u.name)}</td>
+        <td>${u.role==='admin'?'<span class="badge badge-green">ADMIN</span>':'<span class="badge badge-gray">USER</span>'}</td>
+        <td style="color:var(--text2)">${esc(String(u.telegram_chat_id||'–'))}</td>
+        <td style="color:var(--text2)">${fmtTs(u.last_seen)}</td>
+        <td><button class="btn btn-ghost" style="color:var(--red)" onclick="userRevoke('${esc(u.id)}','${esc(u.name)}')">Revoke</button></td>
+      </tr>`).join('')
+      :'<tr><td colspan="5" style="color:var(--text2)">Keine aktiven Nutzer.</td></tr>';
+  }catch(e){
+    pend.innerHTML=`<div style="color:var(--red);font-size:12px">Fehler: ${esc(String(e))}</div>`;
+    tbody.innerHTML='';
+  }
+}
+async function userAct(id,action){
+  try{
+    const r=await authFetch(`/api/users/${encodeURIComponent(id)}/${action}`,{method:'POST'});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+    showToast(action==='approve'?'Nutzer freigegeben':'Nutzer entfernt','ok');
+    loadUsers();
+  }catch(e){showToast('Aktion fehlgeschlagen: '+e.message);}
+}
+function userRevoke(id,name){
+  if(!confirm(`Nutzer "${name}" wirklich den Zugriff entziehen?`))return;
+  userAct(id,'revoke');
+}
+
+// ── Backups ───────────────────────────────────────────────────────
+async function loadBackups(){
+  const list=document.getElementById('backup-list');
+  try{
+    const r=await authFetch('/api/backup/list');if(!r.ok)return;const d=await r.json();
+    const backups=(d.backups||[]).slice(0,5);
+    if(!backups.length){list.textContent='Noch keine Backups vorhanden.';return;}
+    list.innerHTML=backups.map(b=>`
+      <div style="display:flex;gap:14px;padding:4px 0;flex-wrap:wrap">
+        <span style="color:var(--text);font-family:monospace">${esc(b.filename)}</span>
+        <span>${esc(b.age||'')}</span>
+        <span>${b.size_kb} KB</span>
+        <span>v${esc(String(b.version||'?'))}</span>
+      </div>`).join('');
+  }catch(e){}
+}
+async function createBackup(){
+  const btn=document.getElementById('backup-create-btn'),st=document.getElementById('backup-status');
+  btn.disabled=true;st.textContent='⏳ Erstelle Backup… (kann bei Metriken/Memory dauern)';
+  try{
+    const inc=document.getElementById('backup-metrics').checked;
+    const r=await authFetch('/api/backup/create?include_metrics='+inc,{method:'POST'});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+    st.textContent=`✅ ${d.filename} (${d.size_kb} KB)`;
+    showToast('Backup erstellt','ok');
+    loadBackups();
+  }catch(e){st.textContent='';showToast('Backup fehlgeschlagen: '+e.message);}
+  finally{btn.disabled=false;}
+}
 
 // ── Metriken ─────────────────────────────────────────────────────
 let metricsChartTemp=null, metricsChartCpuRam=null;
@@ -939,8 +1284,8 @@ async function renderMetricChart(metric, canvasId, since, unit, color){
     ctx.fillStyle = (color||'#4f8ef7')+'22';
     ctx.fill();
 
-    // Labels
-    ctx.fillStyle = 'var(--text2,#888)';
+    // Labels – Canvas kann keine CSS-Variablen, fester Hex-Wert (--text2)
+    ctx.fillStyle = '#8890b0';
     ctx.font = '10px Arial';
     ctx.fillText(`${minV.toFixed(1)}${unit}`, 4, H-3);
     ctx.fillText(`${maxV.toFixed(1)}${unit}`, 4, 12);
@@ -979,9 +1324,53 @@ async function renderMultiChart(metrics, canvasId, since){
   metrics.forEach((m,i)=>{
     ctx.fillStyle=colors[i];
     ctx.fillRect(W-100+i*50,4,10,10);
-    ctx.fillStyle='var(--text2,#888)';
+    ctx.fillStyle='#8890b0'; // Canvas kann keine CSS-Variablen
     ctx.fillText(m.replace('_percent',''),W-86+i*50,13);
   });
+}
+
+// ── LLM-Backends ──────────────────────────────────────────────────
+async function loadLLM(){
+  const box=document.getElementById('llm-table'),sum=document.getElementById('llm-summary');
+  try{
+    const [mr,hr]=await Promise.all([authFetch('/api/mode'),authFetch('/api/llm/health')]);
+    if(!mr.ok)throw new Error('HTTP '+mr.status);
+    const mode=await mr.json();
+    const health=hr.ok?await hr.json():{available:false};
+    const backends=mode.backends||[];
+    const hb=(health.backends)||{};
+    const nEn=backends.filter(b=>b.enabled).length;
+    const nAuto=backends.filter(b=>(b.name||'').startsWith('auto-')).length;
+    sum.textContent=`${backends.length} Backends · ${nEn} enabled · ${nAuto} auto-discovered`
+      +(health.available?'':` · Monitor: ${esc(health.message||'offline')}`);
+    if(!backends.length){box.innerHTML='<div style="color:var(--text2)">Keine Backends registriert.</div>';return;}
+    box.innerHTML=`<div class="card" style="padding:0;overflow-x:auto"><table class="data-table">
+      <thead><tr><th>Backend</th><th>Provider</th><th>Model</th><th>Tags</th><th>Prio</th>
+      <th>Status</th><th>Calls</th><th>Fehler</th><th>Ø ms</th><th>Monitor</th></tr></thead>
+      <tbody>${backends.map(b=>{
+        const h=hb[b.name]||{};
+        const mon=[
+          h.rate_limited?`⏳ rate-limited${h.rate_limited_minutes?' '+h.rate_limited_minutes+'m':''}`:'',
+          h.is_tpd_limited?'📅 TPD-Limit':'',
+          h.failures?`${h.failures}× fail`:'',
+          h.last_error?esc(String(h.last_error).slice(0,60)):'',
+        ].filter(x=>x).join(' · ')||'–';
+        return `<tr>
+          <td>${esc(b.name)}${(b.name||'').startsWith('auto-')?' <span class="badge badge-yellow">AUTO</span>':''}</td>
+          <td style="color:var(--text2)">${esc(b.provider||'')}</td>
+          <td style="color:var(--text2)">${esc(b.model||'')}</td>
+          <td style="color:var(--text2)">${esc((b.tags||[]).join(', '))}</td>
+          <td>${b.priority??''}</td>
+          <td>${b.enabled?'<span class="badge badge-green">ON</span>':'<span class="badge badge-gray">OFF</span>'}${b.degraded?' <span class="badge badge-red">DEGRADED</span>':''}</td>
+          <td>${b.calls??0}</td>
+          <td>${b.errors??0}</td>
+          <td>${b.avg_ms??'–'}</td>
+          <td style="color:var(--text2)">${mon}</td>
+        </tr>`;
+      }).join('')}</tbody></table></div>`;
+  }catch(e){
+    box.innerHTML=`<div style="color:var(--red)">Fehler: ${esc(String(e))}</div>`;
+  }
 }
 
 // ── Kamera ────────────────────────────────────────────────────────
@@ -1055,6 +1444,7 @@ function showSnapshotImage(filename, size_kb){
 // ── Init ──────────────────────────────────────────────────────────
 connectWS();
 refreshStats();refreshServices();refreshMode();refreshMemoryStats();refreshAgentSummary();
+loadWhoami();loadBackups();
 
 // Polling nur wenn Tab aktiv + erhöhte Intervalle für geringere CPU-Last
 let _polls = [];

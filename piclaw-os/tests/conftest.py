@@ -31,6 +31,7 @@ def patch_config_dir(tmp_path_factory):
     import piclaw.config
     import piclaw.agents as agents_pkg
     import piclaw.agents.ipc as agents_ipc
+    import piclaw.agents.sa_history as sa_history_mod
     import piclaw.agents.sa_registry as sa_registry_mod
     import piclaw.agents.watchdog as watchdog_mod
     import piclaw.hardware.sensors as sensors_mod
@@ -50,6 +51,7 @@ def patch_config_dir(tmp_path_factory):
         (piclaw.config, "CRASH_DIR", cfg_dir / "crashes"),
         (piclaw.config, "REMINDERS_DB", cfg_dir / "reminders.json"),
         (sa_registry_mod, "SA_REGISTRY_FILE", cfg_dir / "subagents.json"),
+        (sa_history_mod, "HISTORY_FILE", cfg_dir / "sa_history.json"),
         (users_mod, "USERS_FILE", cfg_dir / "users.json"),
         (llm_registry_mod, "REGISTRY_FILE", cfg_dir / "llm_registry.json"),
         (sensors_mod, "SENSOR_FILE", cfg_dir / "sensors.json"),

@@ -26,9 +26,10 @@ import contextlib
 import logging
 import re
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections.abc import Callable, Awaitable
 
+from piclaw.agents import sa_history
 from piclaw.agents.sa_registry import SubAgentDef, SubAgentRegistry
 from piclaw.llm.base import Message, LLMBackend, ToolCall, ToolDefinition
 from piclaw.taskutils import create_background_task
@@ -70,6 +71,43 @@ def _interval_seconds(schedule: str, agent_name: str) -> int | None:
         )
         return MIN_INTERVAL_SEC
     return interval
+
+def _next_run_iso(agent: SubAgentDef) -> str | None:
+    """Nächster geplanter Lauf als ISO-String (Anzeige in der Web-UI).
+
+    Best-effort: None bei once/continuous/disabled oder unparsebarem
+    Schedule. Bei interval: eine Schätzung ab last_run – die Schedule-Loop
+    tickt unabhängig davon.
+    """
+    if not agent.enabled:
+        return None
+    schedule = agent.schedule.strip()
+    if schedule.startswith("cron:"):
+        try:
+            from croniter import croniter
+
+            expr = schedule.split(":", 1)[1].strip()
+            nxt = croniter(expr, datetime.now()).get_next(datetime)
+            return nxt.isoformat(timespec="seconds")
+        except Exception:
+            return None
+    if schedule.startswith("interval:"):
+        # Bewusst nicht _interval_seconds(): das würde bei jedem Status-Poll
+        # die Clamp-Warnung ins Log wiederholen.
+        try:
+            interval = max(int(schedule.split(":")[1]), MIN_INTERVAL_SEC)
+        except (ValueError, IndexError):
+            return None
+        base = datetime.now()
+        if agent.last_run:
+            try:
+                base = datetime.fromisoformat(agent.last_run)
+            except ValueError:
+                pass
+        nxt = max(base + timedelta(seconds=interval), datetime.now())
+        return nxt.isoformat(timespec="seconds")
+    return None
+
 
 _DEVICE_INDICATORS_RE = re.compile(
     r"(?:new device detected|unbekanntes gerät|hersteller:|neues gerät|"
@@ -236,6 +274,20 @@ class SubAgentRunner:
 
     def status_dict(self) -> dict:
         agents = self.registry.list_all()
+
+        # Owner-Namen für die Web-UI auflösen. Lazy import: piclaw.users
+        # wird sonst im Daemon-Prozess nicht gebraucht.
+        def _owner_name(uid: str | None) -> str | None:
+            if not uid:
+                return None
+            try:
+                from piclaw import users as users_mod
+
+                u = users_mod.find_by_id(uid)
+                return u.name if u else None
+            except Exception:
+                return None
+
         result = []
         for a in agents:
             task = self._tasks.get(a.id)
@@ -254,6 +306,9 @@ class SubAgentRunner:
                     "privileged": a.privileged,
                     "direct_tool": a.direct_tool,
                     "mission": a.mission,
+                    "owner_id": a.owner_id,
+                    "owner_name": _owner_name(a.owner_id),
+                    "next_run": _next_run_iso(a),
                 }
             )
         return {"sub_agents": result}
@@ -452,6 +507,14 @@ class SubAgentRunner:
             log.error(result)
 
         self.registry.mark_run(agent.id, status)
+        sa_history.record_run(
+            agent.id,
+            agent.name,
+            status,
+            (datetime.now() - start).total_seconds(),
+            result,
+            agent.owner_id,
+        )
 
         # ── Auto-cleanup einmaliger Agenten ────────────────────────
         # once-Agenten und SearchAssistant werden nach Abschluss automatisch entfernt
