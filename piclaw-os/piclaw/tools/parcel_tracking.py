@@ -1,6 +1,7 @@
 """
 PiClaw OS – Paket-Tracking Tool
-Verfolgt Pakete über DHL, Hermes, DPD, GLS, UPS via Parcello + DHL API.
+Verfolgt Pakete über DHL, Hermes, DPD, GLS (direkte Endpoints) und UPS
+(offizielle Track API, braucht Credentials aus config.toml [parcel_tracking]).
 Benachrichtigt via Telegram bei Statusänderungen.
 
 Nutzung durch den Agent:
@@ -18,6 +19,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from datetime import datetime
 from urllib.parse import quote_plus
 
@@ -335,7 +337,13 @@ async def _query_parcello(
 ) -> dict | None:
     """
     Fragt Parcello nach Tracking-Status + Zustellprognose.
-    Parcello liefert Status UND geschätztes Zustellfenster.
+
+    ACHTUNG, seit ~07/2026 faktisch tot: parcello.org liefert nur noch eine
+    Angular-SPA-Shell ohne SSR (keins der json_patterns matcht, keine
+    Status-Keywords im HTML), die /app/track/<TN>-Route redirected auf die
+    Startseite und die neue api-v4.parcello.org verlangt einen Account-
+    Bearer-Token. Wird nur noch als Last-Resort für Carrier ohne eigenen
+    Endpoint aufgerufen — Rückgabe ist praktisch immer None.
     """
     url = f"https://www.parcello.org/app/track/{quote_plus(tracking_number)}"
 
@@ -980,6 +988,217 @@ async def _query_dhl(
     return result
 
 
+# ── UPS Track API (OAuth client_credentials) ────────────────────────────────
+
+_UPS_OAUTH_URL = "https://onlinetools.ups.com/security/v1/oauth/token"
+_UPS_TRACK_URL = "https://onlinetools.ups.com/api/track/v1/details/{tn}"
+
+# Token-Cache pro Prozess (api und agent halten je einen eigenen).
+# UPS-Tokens gelten ~4h; 60s Sicherheitsabstand vor Ablauf.
+_ups_token: dict = {"value": None, "expires_at": 0.0}
+
+# currentStatus.type / activity.status.type → interner Status.
+# "M" = Billing Information Received (elektronisch angekündigt).
+_UPS_STATUS_TYPE = {
+    "M": "pending",
+    "MV": "pending",
+    "P": "in_transit",       # Pickup
+    "I": "in_transit",
+    "O": "out_for_delivery",
+    "OFD": "out_for_delivery",
+    "D": "delivered",
+    "X": "exception",
+    "RS": "returned",
+}
+
+# Fallback wenn der type-Code unbekannt ist: Keyword in der Beschreibung.
+_UPS_STATUS_KEYWORDS = [
+    ("delivered", "delivered"),
+    ("zugestellt", "delivered"),
+    ("out for delivery", "out_for_delivery"),
+    ("in zustellung", "out_for_delivery"),
+    ("on the way", "in_transit"),
+    ("in transit", "in_transit"),
+    ("unterwegs", "in_transit"),
+    ("label created", "pending"),
+    ("shipper created", "pending"),
+]
+
+
+def _load_ups_credentials() -> tuple[str, str] | None:
+    """Liest client_id/client_secret aus config.toml [parcel_tracking]."""
+    try:
+        import tomllib
+        cfg_path = CONFIG_DIR / "config.toml"
+        if cfg_path.exists():
+            cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+            sec = cfg.get("parcel_tracking", {})
+            cid = sec.get("ups_client_id")
+            secret = sec.get("ups_client_secret")
+            if cid and secret:
+                return str(cid), str(secret)
+    except Exception as e:
+        log.warning("UPS Credentials nicht lesbar: %s", e)
+    return None
+
+
+async def _get_ups_token(session: aiohttp.ClientSession) -> str | None:
+    creds = _load_ups_credentials()
+    if not creds:
+        log.debug("Keine UPS API Credentials konfiguriert – überspringe UPS API")
+        return None
+    if _ups_token["value"] and time.time() < _ups_token["expires_at"]:
+        return _ups_token["value"]
+
+    client_id, client_secret = creds
+    try:
+        async with session.post(
+            _UPS_OAUTH_URL,
+            data={"grant_type": "client_credentials"},
+            auth=aiohttp.BasicAuth(client_id, client_secret),
+            headers={"x-merchant-id": client_id},
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                log.warning("UPS OAuth HTTP %d: %s", resp.status, body[:200])
+                return None
+            data = await resp.json()
+    except Exception as e:
+        log.warning("UPS OAuth Fehler: %s", e)
+        return None
+
+    token = data.get("access_token")
+    if not token:
+        log.warning("UPS OAuth: kein access_token in Antwort")
+        return None
+    try:
+        ttl = int(data.get("expires_in", 3600))
+    except (TypeError, ValueError):
+        ttl = 3600
+    _ups_token["value"] = token
+    _ups_token["expires_at"] = time.time() + max(ttl - 60, 60)
+    return token
+
+
+def _parse_ups_response(data: dict) -> dict | None:
+    """
+    Extrahiert Status/Events/ETA aus einer UPS Track API v1 Antwort.
+    Bei unbekannter TN liefert UPS shipment[] mit warnings statt package[].
+    """
+    try:
+        package = data["trackResponse"]["shipment"][0]["package"][0]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+    cur = package.get("currentStatus") or {}
+    desc = cur.get("description") or ""
+    raw_status = _UPS_STATUS_TYPE.get((cur.get("type") or "").upper())
+    if raw_status is None:
+        low = desc.lower()
+        raw_status = next(
+            (st for kw, st in _UPS_STATUS_KEYWORDS if kw in low), "unknown"
+        )
+
+    def _iso(d: str, t: str) -> str:
+        # UPS liefert date="YYYYMMDD", time="HHMMSS"
+        if len(d) != 8:
+            return ""
+        ts = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+        if len(t) == 6:
+            ts += f"T{t[:2]}:{t[2:4]}:{t[4:]}"
+        return ts
+
+    events = []
+    for act in package.get("activity", [])[:10]:
+        st = act.get("status") or {}
+        addr = (act.get("location") or {}).get("address") or {}
+        events.append({
+            "timestamp": _iso(act.get("date") or "", act.get("time") or ""),
+            "location": addr.get("city") or "",
+            "description": st.get("description") or "",
+            "status_code": st.get("code") or "",
+        })
+
+    eta = None
+    dd = package.get("deliveryDate") or []
+    if dd:
+        eta = _iso(dd[0].get("date") or "", "") or None
+
+    def _hhmm(v: str) -> str:
+        return f"{v[:2]}:{v[2:4]}" if len(v) >= 4 else ""
+
+    dt = package.get("deliveryTime") or {}
+    eta_window = None
+    if _hhmm(dt.get("startTime") or "") and _hhmm(dt.get("endTime") or ""):
+        eta_window = {
+            "from": _hhmm(dt["startTime"]),
+            "to": _hhmm(dt["endTime"]),
+            "date": eta or "",
+        }
+
+    return {
+        "source": "ups_api",
+        "raw_status": raw_status,
+        "status_text": desc,
+        "events": events,
+        "eta": eta,
+        "eta_window": eta_window,
+    }
+
+
+async def _query_ups(
+    tracking_number: str,
+    session: aiohttp.ClientSession | None = None,
+) -> dict | None:
+    """
+    Fragt die offizielle UPS Track API ab (kostenloser Key von developer.ups.com).
+    Ohne Credentials in config.toml wird still übersprungen (wie _query_dhl).
+    """
+    close_session = False
+    if session is None:
+        session = aiohttp.ClientSession()
+        close_session = True
+
+    try:
+        token = await _get_ups_token(session)
+        if not token:
+            return None
+        url = _UPS_TRACK_URL.format(tn=quote_plus(tracking_number))
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "transId": uuid.uuid4().hex,
+            "transactionSrc": "piclaw",
+            "Accept": "application/json",
+        }
+        params = {"locale": "de_DE", "returnSignature": "false"}
+        async with session.get(
+            url, params=params, headers=headers,
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as resp:
+            if resp.status == 401:
+                # Token serverseitig invalidiert → verwerfen, nächster
+                # Check holt frisch statt bis expires_at weiter 401 zu laufen
+                _ups_token["value"] = None
+                log.warning("UPS API 401 für %s – Token verworfen", tracking_number)
+                return None
+            if resp.status != 200:
+                log.warning("UPS API HTTP %d für %s", resp.status, tracking_number)
+                return None
+            data = await resp.json()
+    except Exception as e:
+        log.warning("UPS API Fehler für %s: %s", tracking_number, e)
+        return None
+    finally:
+        if close_session:
+            await session.close()
+
+    parsed = _parse_ups_response(data)
+    if parsed is None:
+        log.warning("UPS %s: keine Paketdaten in Antwort — TN unbekannt?", tracking_number)
+    return parsed
+
+
 # ── Combined Tracking ────────────────────────────────────────────────────────
 
 async def track_single(
@@ -995,7 +1214,10 @@ async def track_single(
       2. DHL Unified API (für DHL-Pakete) – falls API-Key konfiguriert, als Backup
       3. Hermes Public XHR (für Hermes-Pakete) – kein Auth, echte Events
       4. DPD/GLS via Scrapling (Anti-Bot-Bypass für blockierte Carrier)
-      5. Parcello-Scraping – Zustellfenster + Fallback für unbekannte Carrier
+      5. UPS Track API (für UPS-Pakete) – braucht Credentials in config.toml
+      6. Parcello-Scraping – NUR noch Last-Resort für Carrier ohne eigenen
+         Endpoint (Amazon/FedEx/unbekannt). Seit ~07/2026 liefert Parcello
+         faktisch nichts mehr: SPA ohne SSR, API nur mit Account-Token.
 
     `session` kann übergeben werden um sie über mehrere Pakete hinweg
     wiederzuverwenden (z.B. beim Batch-Check in parcel_monitor_check).
@@ -1019,9 +1241,7 @@ async def track_single(
     # Dict-basiertes Slot-Mapping — vermeidet die alte None-Index-Padding-Logik
     # und macht das Hinzufügen weiterer Carrier trivial.
     async def _run(s: aiohttp.ClientSession) -> dict:
-        slots: dict[str, asyncio.Future | None] = {
-            "parcello": _query_parcello(tn, s),
-        }
+        slots: dict[str, asyncio.Future | None] = {}
         if carrier == "dhl":
             slots["dhl_public"] = _query_dhl_public(tn, session=s)
             slots["dhl_api"] = _query_dhl(tn, session=s)
@@ -1031,6 +1251,14 @@ async def track_single(
             slots["dpd"] = _query_dpd(tn)
         elif carrier == "gls":
             slots["gls"] = _query_gls(tn)
+        elif carrier == "ups":
+            slots["ups"] = _query_ups(tn, session=s)
+        if not slots:
+            # Kein eigener Endpoint (Amazon/FedEx/unbekannt): Parcello als
+            # Last-Resort probieren, obwohl es seit ~07/2026 tot ist (siehe
+            # _query_parcello). Für Carrier MIT Endpoint nicht mehr anfragen —
+            # spart pro Check einen sinnlosen HTTP-Call.
+            slots["parcello"] = _query_parcello(tn, s)
 
         keys = list(slots.keys())
         gathered = await asyncio.gather(
@@ -1053,9 +1281,13 @@ async def track_single(
     hermes_result = _ok(results.get("hermes"))
     dpd_result = _ok(results.get("dpd"))
     gls_result = _ok(results.get("gls"))
+    ups_result = _ok(results.get("ups"))
 
     # Carrier-spezifische primäre Quelle
-    primary = dhl_public_result or hermes_result or dpd_result or gls_result
+    primary = (
+        dhl_public_result or hermes_result or dpd_result or gls_result
+        or ups_result
+    )
     if primary and primary.get("raw_status"):
         result["status"] = primary["raw_status"]
         result["status_text"] = primary.get("status_text", "")
@@ -1070,6 +1302,13 @@ async def track_single(
             result["status_text"] = dhl_api_result.get("status_detail", "")
         if dhl_api_result.get("eta"):
             result["eta"] = dhl_api_result["eta"]
+
+    # UPS API: Zustelldatum/-fenster kommen aus derselben Antwort
+    if ups_result:
+        if ups_result.get("eta"):
+            result["eta"] = ups_result["eta"]
+        if ups_result.get("eta_window"):
+            result["eta_window"] = ups_result["eta_window"]
 
     # Parcello: Zustellfenster (genauer) + Fallback für unbekannte Carrier
     if parcello_result:
