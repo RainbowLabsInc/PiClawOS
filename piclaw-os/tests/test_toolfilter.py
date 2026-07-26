@@ -121,6 +121,37 @@ class TestFilterTools:
         renamed = [td("völlig_anderer_name"), td("noch_einer")]
         assert filter_tools(renamed, ["action"]) is renamed
 
+    def test_almost_empty_result_falls_back_to_full_set(self):
+        """
+        Regression: die agent_*-Tools haengen an _wire_sa_runner() und fehlen
+        vor dem Boot. Die Objekt-Einengung schnurrte "Loesche den Agenten X"
+        dadurch auf memory_search allein zusammen – ein Modell mit einem
+        einzigen Tool ruft garantiert das falsche auf.
+        """
+        without_agent_tools = [
+            t for t in ALL_TOOLS if not t.name.startswith(("agent_", "routine_"))
+        ]
+        out = filter_tools(
+            without_agent_tools, ["action", "german"], "Lösche den Agenten X"
+        )
+        # Statt auf memory_search allein: Einengung verworfen, breitere
+        # Aktions-Auswahl bleibt stehen.
+        assert len(out) >= 2
+        assert {"service_control", "reminder_create"} <= {t.name for t in out}
+
+    def test_object_narrowing_skipped_when_group_not_registered(self):
+        """Fehlt die Objekt-Gruppe, bleibt die breitere Intent-Auswahl."""
+        without_reminders = [
+            t for t in ALL_TOOLS if not t.name.startswith("reminder_")
+        ]
+        out = {t.name for t in filter_tools(
+            without_reminders, ["action", "german"],
+            "Lösche die Erinnerung von gestern",
+        )}
+        # Nicht auf die leere Reminder-Gruppe eingeengt, sondern Aktions-Satz
+        assert len(out) > 3
+        assert "agent_remove" in out
+
     def test_filtering_is_stable_and_order_preserving(self):
         out = filter_tools(ALL_TOOLS, ["action"])
         names = [t.name for t in out]

@@ -34,6 +34,10 @@ LANGUAGE_TAGS = frozenset({"german", "english", "french", "spanish"})
 # Nur diese Tags lösen überhaupt eine Filterung aus.
 NARROW_TAGS = frozenset({"action", "home_automation", "query"})
 
+# Unter so vielen verbleibenden Tools gilt die Filterung als kaputt und der
+# volle Satz geht raus. Siehe filter_tools().
+_MIN_FILTERED = 2
+
 # Immer dabei, egal welcher Intent: ohne agent_list/routine_list kann das
 # Modell einen falsch geschriebenen Namen nicht nachschlagen, und
 # memory_search ist der Einstieg in jeden Rückfrage-Kontext.
@@ -199,7 +203,9 @@ def _object_group(text: str) -> frozenset[str] | None:
     return None
 
 
-def select_tool_names(tags, text: str | None = None) -> set[str] | None:
+def select_tool_names(
+    tags, text: str | None = None, available: set[str] | None = None
+) -> set[str] | None:
     """Namen der für `tags` erlaubten Tools, oder None für 'nicht filtern'.
 
     None heißt ausdrücklich "voller Satz" und ist der Default für alles,
@@ -209,6 +215,12 @@ def select_tool_names(tags, text: str | None = None) -> set[str] | None:
     wird zusätzlich auf dessen Gruppe eingeengt – aber immer im Schnitt mit
     dem Intent, damit eine Status-Frage nicht plötzlich Löschwerkzeug
     bekommt.
+
+    `available` sind die tatsächlich registrierten Tool-Namen. Ohne diese
+    Prüfung engt der Filter auf Namen ein, die es in dieser Installation
+    gar nicht gibt: die `agent_*`-Tools etwa hängen an `_wire_sa_runner()`
+    und fehlen, solange der Agent nicht fertig gebootet hat. Ein Befehl
+    wäre dann auf `memory_search` allein zusammengeschnurrt.
     """
     if not tags:
         return None
@@ -226,11 +238,20 @@ def select_tool_names(tags, text: str | None = None) -> set[str] | None:
         group = _object_group(text)
         if group:
             narrowed = (group & keep) | set(ALWAYS_TOOLS)
-            # Schnitt leer (z.B. "Zeig mir das Paket" – parcel_status ist in
-            # QUERY, parcel_remove nicht): nur übernehmen wenn etwas über die
-            # Immer-dabei-Tools hinaus bleibt.
-            if narrowed > set(ALWAYS_TOOLS):
+            useful = narrowed - ALWAYS_TOOLS
+            if available is not None:
+                useful &= available
+            # Nur einengen, wenn dabei echtes Werkzeug übrig bleibt. Sonst
+            # wäre die Gruppe entweder inhaltlich unpassend (z.B. reine
+            # Status-Frage ohne passendes Lese-Tool) oder in dieser
+            # Installation nicht registriert.
+            if useful:
                 keep = narrowed
+            else:
+                log.debug(
+                    "Objekt-Einengung verworfen – keine passenden Tools "
+                    "registriert (tags=%s)", sorted(tags),
+                )
 
     return keep
 
@@ -244,18 +265,21 @@ def filter_tools(tools, tags, text: str | None = None):
     if not tools:
         return tools
 
-    keep = select_tool_names(tags, text)
+    available = {getattr(t, "name", None) for t in tools}
+    keep = select_tool_names(tags, text, available=available)
     if keep is None:
         return tools
 
     filtered = [t for t in tools if getattr(t, "name", None) in keep]
-    if not filtered:
-        # Kein einziger Treffer – vermutlich wurden Tools umbenannt und die
-        # Listen oben sind veraltet. Dann lieber alles schicken als nichts.
+    # Zweites Schutznetz: bleibt fast nichts übrig, obwohl viele Tools da
+    # sind, stimmen die Namenslisten nicht mehr mit der Registrierung
+    # überein. Ein Modell mit einem einzigen Tool ruft garantiert das
+    # falsche auf – dann lieber den vollen Satz.
+    if not filtered or (len(filtered) < _MIN_FILTERED < len(tools)):
         log.warning(
-            "Tool-Filter für tags=%s ließ nichts übrig (%d Tools) – "
+            "Tool-Filter für tags=%s ließ nur %d von %d Tools übrig – "
             "schicke ungefiltert. Namenslisten in toolfilter.py pruefen.",
-            sorted(tags), len(tools),
+            sorted(tags), len(filtered), len(tools),
         )
         return tools
 
