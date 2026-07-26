@@ -99,13 +99,15 @@ _FREE_TIER_MODELS = {
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
         # ── Preview (für Evaluation, aber API funktioniert) ──
-        "meta-llama/llama-4-scout-17b-16e-instruct",
-        "qwen/qwen3-32b",
         "qwen/qwen3.6-27b",
         # ── Entfernt: nicht mehr in Groq-Catalog (Juni 2026) ──
         # - meta-llama/llama-4-maverick-17b-128e-instruct (deprecated)
         # - moonshotai/kimi-k2-instruct (deprecated)
         # - gemma2-9b-it (deprecated)
+        # ── Entfernt: gegen GET /openai/v1/models geprüft (26.07.2026) ──
+        # - meta-llama/llama-4-scout-17b-16e-instruct → 404 model_not_found;
+        #   war das Modell von groq-fallback und hat es lahmgelegt
+        # - qwen/qwen3-32b → nicht mehr im Catalog
     ],
     "integrate.api.nvidia.com": [
         # NVIDIA NIM Free API: 40 RPM, 100+ Modelle
@@ -196,6 +198,15 @@ _RE_TPD = re.compile(r"tokens per day", re.IGNORECASE)
 _RE_RETRY_AFTER = re.compile(r"try again in (\d+)m(\d+(?:\.\d+)?)s", re.IGNORECASE)
 _RE_RETRY_SECONDS = re.compile(r"retry.after[\":\s]+(\d+)", re.IGNORECASE)
 
+# HTTP 413 – "Request too large": der Provider meldet ein Input-Budget, das
+# kleiner ist als unser Prompt. Das ist KEIN Verfügbarkeitsproblem, sondern
+# eine strukturelle Kapazitätsgrenze: ein Retry mit demselben Prompt scheitert
+# garantiert wieder. Beispiel (Groq Free-Tier, 24.07.2026):
+#   "Request too large for model `openai/gpt-oss-120b` … on tokens per minute
+#    (TPM): Limit 8000, Requested 11122, please reduce your message size"
+_RE_TPM_LIMIT = re.compile(r"\bLimit\s+(\d+)", re.IGNORECASE)
+_RE_TPM_REQUESTED = re.compile(r"\bRequested\s+(\d+)", re.IGNORECASE)
+
 
 @dataclass
 class BackendHealth:
@@ -220,6 +231,17 @@ class LLMHealthMonitor:
     INTERVAL_DEGRADED = 300    # 5min wenn Backends degraded
     INITIAL_DELAY = 60         # 1min nach Boot (statt 10min)
 
+    # Deaktivierte Backends werden jeden N-ten Zyklus erneut geprobt.
+    # Bei INTERVAL_HEALTHY=1h also ca. alle 6h. Der erste Zyklus nach dem
+    # Boot probt immer (siehe run_check) – ein Restart soll Recovery
+    # beschleunigen, nicht verhindern.
+    DISABLED_RETRY_EVERY = 6
+
+    # Obergrenze für auto-discovered Backends. Der Pool ist als Notfall-
+    # Reserve gedacht, nicht als Dauerzustand: ohne Deckel wuchs er durch
+    # die tägliche Discovery auf 16 Einträge (Stand 25.07.2026).
+    MAX_AUTO_BACKENDS = 4
+
     def __init__(
         self,
         registry,                           # LLMRegistry Instanz
@@ -237,6 +259,24 @@ class LLMHealthMonitor:
         self._warned_no_notification_email = False  # AgentMail-Backup: nur 1× warnen
         self._last_discovery_time: float = 0.0  # Unix-Timestamp der letzten Discovery
         self.DISCOVERY_INTERVAL = 86400  # 24h – proaktive Discovery
+        self._cycle_count = 0  # run_check-Zähler, steuert den Disabled-Retry
+
+    # ── Notify-Hilfe ──────────────────────────────────────────────
+
+    def _notify_soon(self, msg: str, name: str):
+        """Feuert eine Notify als Background-Task, falls ein Loop läuft.
+
+        `report_error` wird aus synchronem Code aufgerufen (Multirouter-
+        Except-Zweig, CLI, Tests). Ohne laufenden Event-Loop wirft
+        asyncio.create_task RuntimeError – die Meldung ist dann nicht
+        wichtig genug, um den Aufrufer zu reißen.
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            log.debug("Notify übersprungen (kein Event-Loop): %s", msg[:60])
+            return
+        create_background_task(self._safe_notify(msg), name=name)
 
     # ── Echtzeit-Meldung vom Multirouter ──────────────────────────
 
@@ -246,6 +286,16 @@ class LLMHealthMonitor:
         Reagiert SOFORT statt auf den nächsten Check-Zyklus zu warten.
         """
         h = self._health.setdefault(backend_name, BackendHealth(name=backend_name))
+
+        # 413 ist kein Ausfall, sondern eine Kapazitätsgrenze – der Zähler
+        # darf nicht hochlaufen, sonst deaktiviert der Monitor ein völlig
+        # gesundes Backend nur weil unser Prompt zu groß war.
+        if error_code == 413:
+            h.last_error = error_msg[:200]
+            h.last_error_code = error_code
+            self._handle_request_too_large(backend_name, error_msg)
+            return
+
         h.consecutive_failures += 1
         h.last_error = error_msg[:200]
         h.last_error_code = error_code
@@ -255,6 +305,52 @@ class LLMHealthMonitor:
 
         # Prüfen ob ALLE API-Backends jetzt down sind
         self._check_all_backends_down()
+
+    # ── 413 Handling ──────────────────────────────────────────────
+
+    def _handle_request_too_large(self, backend_name: str, error_msg: str):
+        """Merkt sich das gemeldete Input-Budget des Backends.
+
+        Ein 413 heißt: dieses Backend kann Requests unserer Größe grundsätzlich
+        nicht bedienen. Deaktivieren wäre falsch (das Backend ist gesund und
+        für kleine Requests nutzbar), Retry wäre sinnlos (derselbe Prompt
+        scheitert wieder). Stattdessen persistieren wir das Limit, damit
+        MultiLLMRouter._select_backend das Backend für zu große Requests von
+        vornherein überspringt.
+        """
+        backend = self.registry.get(backend_name)
+        if not backend:
+            return
+
+        m_limit = _RE_TPM_LIMIT.search(error_msg)
+        if not m_limit:
+            log.warning(
+                "Backend '%s': 413 ohne erkennbares Limit – Meldung: %s",
+                backend_name, error_msg[:120],
+            )
+            return
+
+        limit = int(m_limit.group(1))
+        m_req = _RE_TPM_REQUESTED.search(error_msg)
+        requested = int(m_req.group(1)) if m_req else 0
+
+        if backend.max_input_tokens == limit:
+            return  # schon bekannt, nicht erneut schreiben/melden
+
+        self.registry.update(backend_name, max_input_tokens=limit)
+        log.warning(
+            "Backend '%s': Input-Budget %d Tokens (Request war %d) – "
+            "wird für größere Requests künftig übersprungen",
+            backend_name, limit, requested,
+        )
+        self._notify_soon(
+            f"📏 *LLM Health Monitor*\n\n"
+            f"Backend `{backend_name}` meldet ein Input-Limit von "
+            f"**{limit} Tokens** (Request war {requested}).\n"
+            f"Es wird für größere Anfragen künftig übersprungen, bleibt "
+            f"für kleine aber nutzbar.",
+            name="llm-notify-413",
+        )
 
     def report_success(self, backend_name: str):
         """Backend hat erfolgreich geantwortet.
@@ -315,10 +411,15 @@ class LLMHealthMonitor:
 
         # Sperre setzen
         h.rate_limited_until = time.time() + retry_seconds
-        h.original_priority = h.original_priority or backend.priority
+        h.original_priority = h.original_priority or backend.original_priority or backend.priority
 
-        # Priorität auf 0 senken (wird bei Recovery wiederhergestellt)
-        self.registry.update(backend_name, priority=0)
+        # Priorität auf 0 senken (wird bei Recovery wiederhergestellt).
+        # original_priority wandert MIT in die Registry: ohne persistierten
+        # Wert bleibt die Priorität nach einem Restart dauerhaft auf 0 stehen,
+        # weil der In-Memory-Health-State dann leer ist.
+        self.registry.update(
+            backend_name, priority=0, original_priority=h.original_priority
+        )
         log.info(
             "Backend '%s': Rate-limitiert, Priorität %d→0 für %.0fmin",
             backend_name, backend.priority, retry_seconds / 60
@@ -334,7 +435,7 @@ class LLMHealthMonitor:
                 f"Sperre: ~{hours_left:.1f}h (bis Mitternacht UTC)\n"
                 f"Andere Backends übernehmen automatisch."
             )
-            create_background_task(self._safe_notify(msg), name="llm-notify")
+            self._notify_soon(msg, name="llm-notify")
 
     def _parse_retry_after(self, error_msg: str) -> float:
         """Extrahiert Retry-After Sekunden aus Fehlermeldung."""
@@ -395,7 +496,7 @@ class LLMHealthMonitor:
                     "⚙️ Lokales Modell (gemma-2b) übernimmt.\n"
                     "🔍 Auto-Discovery läuft – suche alternative Backends..."
                 )
-                create_background_task(self._safe_notify(msg), name="llm-notify")
+                self._notify_soon(msg, name="llm-notify")
                 log.warning("ALLE API-Backends ausgefallen – Auto-Discovery gestartet")
 
     # ── Auto-Discovery: Neue Backends auf bekannten Providern finden ──
@@ -711,13 +812,16 @@ class LLMHealthMonitor:
         if not backends:
             return
 
-        log.info("LLM Health-Check: %d Backends", len(backends))
+        self._cycle_count += 1
+        log.info(
+            "LLM Health-Check: %d Backends (%d aktiv, Zyklus %d)",
+            len(backends),
+            sum(1 for b in backends if b.enabled),
+            self._cycle_count,
+        )
         repaired = []
         deactivated = []
         recovered = []
-        # Auto-Cleanup soll NUR triggern, wenn ein "echtes" Original-Backend recovered —
-        # nicht wenn ein auto-* Backend selbst recovered (das löscht es sonst selbst).
-        non_auto_recovered = False
 
         for backend in backends:
             h = self._health.setdefault(backend.name, BackendHealth(name=backend.name))
@@ -734,18 +838,25 @@ class LLMHealthMonitor:
                 probe_code, probe_err = await self._test_backend(backend)
                 h.last_checked = time.time()
                 if probe_code is None:
-                    # Probe OK → voll wiederherstellen
-                    if h.original_priority is not None:
-                        self.registry.update(backend.name, priority=h.original_priority)
+                    # Probe OK → voll wiederherstellen.
+                    # Die geparkte Priorität kommt bevorzugt aus der Registry,
+                    # damit sie auch nach einem Restart noch bekannt ist.
+                    parked = (
+                        h.original_priority
+                        if h.original_priority is not None
+                        else backend.original_priority
+                    )
+                    if parked is not None:
+                        self.registry.update(
+                            backend.name, priority=parked, original_priority=None
+                        )
                         log.info(
                             "Backend '%s': Rate-Limit abgelaufen + Probe OK – Priorität %d wiederhergestellt",
-                            backend.name, h.original_priority
+                            backend.name, parked
                         )
                         recovered.append(
-                            f"✅ `{backend.name}`: Rate-Limit abgelaufen – wiederhergestellt (Prio {h.original_priority})"
+                            f"✅ `{backend.name}`: Rate-Limit abgelaufen – wiederhergestellt (Prio {parked})"
                         )
-                        if not backend.name.startswith("auto-"):
-                            non_auto_recovered = True
                     h.rate_limited_until = 0.0
                     h.original_priority = None
                     h.is_tpd_limited = False
@@ -775,21 +886,88 @@ class LLMHealthMonitor:
                 continue
 
             if not backend.enabled:
+                # Deaktivierte Backends wurden früher übersprungen und damit
+                # NIE wieder getestet – ein einmal deaktiviertes Backend war
+                # endgültig tot. Jetzt: jeden N-ten Zyklus (und immer im
+                # ersten Zyklus nach dem Boot) still anproben und bei Erfolg
+                # reaktivieren.
+                #
+                # auto-* bleiben ausgenommen: die sind als Wegwerf-Reserve
+                # gedacht und werden vom Auto-Cleanup unten entsorgt, nicht
+                # wiederbelebt.
+                if backend.name.startswith("auto-"):
+                    continue
+                if not (
+                    self._cycle_count == 1
+                    or self._cycle_count % self.DISABLED_RETRY_EVERY == 0
+                ):
+                    continue
+                probe_code, probe_err = await self._test_backend(backend)
+                h.last_checked = time.time()
+                if probe_code is not None:
+                    log.info(
+                        "Backend '%s': bleibt deaktiviert (Probe: %s)",
+                        backend.name, probe_code,
+                    )
+                    continue
+                parked = (
+                    h.original_priority
+                    if h.original_priority is not None
+                    else backend.original_priority
+                )
+                updates = {"enabled": True}
+                if parked is not None:
+                    updates["priority"] = parked
+                    updates["original_priority"] = None
+                self.registry.update(backend.name, **updates)
+                h.consecutive_failures = 0
+                h.last_error = ""
+                h.original_priority = None
+                self._all_api_down_notified = False
+                log.info(
+                    "Backend '%s': Probe erfolgreich – reaktiviert%s",
+                    backend.name,
+                    f" (Prio {parked} wiederhergestellt)" if parked is not None else "",
+                )
+                recovered.append(f"✅ `{backend.name}`: wieder erreichbar – reaktiviert")
                 continue
 
             # ── Health-Test ─────────────────────────────────────────
             error_code, error_msg = await self._test_backend(backend)
             h.last_checked = time.time()
 
+            # 413 im Health-Test: der Probe-Prompt ist winzig, ein 413 hier
+            # bedeutet ein absurd kleines Budget. Nicht als Ausfall zählen.
+            if error_code == 413:
+                self._handle_request_too_large(backend.name, error_msg)
+                continue
+
             if error_code is None:
                 if h.consecutive_failures > 0:
                     log.info("Backend '%s': wieder gesund nach %d Fehlern",
                              backend.name, h.consecutive_failures)
                     recovered.append(f"✅ `{backend.name}`: wieder erreichbar")
-                    if not backend.name.startswith("auto-"):
-                        non_auto_recovered = True
                 h.consecutive_failures = 0
                 h.last_error = ""
+                # Verwaiste Priorität-Parkung aufräumen: nach einem Restart ist
+                # h.rate_limited_until leer, der Rate-Limit-Zweig oben greift
+                # also nicht mehr – ein gesundes Backend bliebe sonst dauerhaft
+                # auf Priorität 0 stehen, weil nur dieser Zweig je restauriert
+                # hat. Der persistierte Wert ist hier die einzige Quelle.
+                if backend.original_priority is not None and not h.rate_limited_until:
+                    self.registry.update(
+                        backend.name,
+                        priority=backend.original_priority,
+                        original_priority=None,
+                    )
+                    log.info(
+                        "Backend '%s': geparkte Priorität %d wiederhergestellt "
+                        "(Sperre war nach Restart nicht mehr aktiv)",
+                        backend.name, backend.original_priority,
+                    )
+                    recovered.append(
+                        f"✅ `{backend.name}`: Priorität {backend.original_priority} wiederhergestellt"
+                    )
                 continue
 
             h.consecutive_failures += 1
@@ -824,14 +1002,21 @@ class LLMHealthMonitor:
             await self._safe_notify(msg)
 
         # ── Auto-Discovery Cleanup ─────────────────────────────────
-        # Wenn Original-Backends wieder gesund sind, auto-discovered entfernen.
-        # WICHTIG: nur triggern, wenn ein NICHT-auto-* Backend recovered ist.
-        # Sonst löscht ein recoverender auto-* sich selbst (Bug A3).
-        if non_auto_recovered:
-            auto_backends = [
-                b for b in backends
-                if b.name.startswith("auto-") and "auto-discovered" in b.tags
-            ]
+        # Läuft in JEDEM Zyklus, nicht mehr nur wenn ein Nicht-auto-Backend
+        # gerade recovered ist. Die alte Kopplung an `non_auto_recovered` war
+        # eine Selbstverriegelung: waren alle statischen Backends deaktiviert,
+        # konnte keines mehr recovern (deaktivierte wurden nie getestet), also
+        # lief der Cleanup nie, also wuchs der Auto-Pool mit jeder täglichen
+        # Discovery weiter – bis auf 16 Einträge am 25.07.2026.
+        #
+        # Zwei Stufen:
+        #   1. Original-Backend gesund → gesamten Auto-Pool entsorgen (alte Absicht)
+        #   2. Sonst → Pool auf MAX_AUTO_BACKENDS deckeln, ältester zuerst raus
+        auto_backends = [
+            b for b in backends
+            if b.name.startswith("auto-") and "auto-discovered" in b.tags
+        ]
+        if auto_backends:
             original_healthy = any(
                 not b.name.startswith("auto-")
                 and b.enabled
@@ -840,14 +1025,23 @@ class LLMHealthMonitor:
                 for b in backends
                 if b.provider != "local"
             )
-            if original_healthy and auto_backends:
-                for ab in auto_backends:
-                    self.registry.remove(ab.name)
-                    self._health.pop(ab.name, None)
-                    log.info("Auto-Cleanup: '%s' entfernt (Original-Backend wieder gesund)", ab.name)
+            if original_healthy:
+                doomed, reason = auto_backends, "Original-Backend wieder gesund"
+            else:
+                # Deaktivierte zuerst opfern, danach die ältesten (Registry-
+                # Reihenfolge = Einfügereihenfolge, JSON-Roundtrip erhält sie).
+                surplus = len(auto_backends) - self.MAX_AUTO_BACKENDS
+                ranked = sorted(auto_backends, key=lambda b: b.enabled)
+                doomed = ranked[:surplus] if surplus > 0 else []
+                reason = f"Pool-Deckel {self.MAX_AUTO_BACKENDS}"
+            for ab in doomed:
+                self.registry.remove(ab.name)
+                self._health.pop(ab.name, None)
+                log.info("Auto-Cleanup: '%s' entfernt (%s)", ab.name, reason)
+            if doomed:
                 await self._safe_notify(
-                    f"🧹 *Auto-Cleanup*: {len(auto_backends)} temporäre Backend(s) entfernt – "
-                    f"Original-Backends wieder verfügbar."
+                    f"🧹 *Auto-Cleanup*: {len(doomed)} temporäre Backend(s) entfernt – "
+                    f"{reason}."
                 )
 
         # ── Proaktive Discovery (täglich) ──────────────────────────

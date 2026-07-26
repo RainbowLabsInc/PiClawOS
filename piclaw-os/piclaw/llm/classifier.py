@@ -157,6 +157,40 @@ PATTERN_RULES: list[tuple[str, list[str], float]] = [
         ["research", "general"],
         0.65,
     ),
+    # ── Aktions-Befehle (deutsche Imperative) ─────────────────────
+    # Stage 0 deckt nur Home-Automation ab (Verb + Geräte-Nomen). Befehle auf
+    # PiClaw-eigene Objekte ("Lösche den Agenten X", "Stoppe die Routine Y")
+    # matchten vorher gar nichts und landeten auf ["general"]/0.30 → das
+    # action-getaggte Backend wurde nie gewählt.
+    #
+    # Regel A: eindeutiges Steuer-Verb am Satzanfang. Bewusst OHNE
+    # mach/mache/erstelle/schreibe/übersetze/berechne/analysiere – die sind
+    # mehrdeutig und würden Coding-/Kreativ-/Übersetzungs-Anfragen abfangen.
+    (
+        r"^\s*(?:(?:hey|hallo|hi|ok|okay|bitte|piclaw|kannst\s+du|"
+        r"könntest\s+du|koenntest\s+du|du\s+sollst)[\s,!]+){0,2}"
+        r"(lösche|loesche|lösch|loesch|entferne|entfern|stoppe|starte|"
+        r"restarte|beende|pausiere|aktiviere|deaktiviere|reaktiviere|"
+        r"sperre|entsperre|schalte|schalt|kille)\b",
+        ["action", "german"],
+        0.88,
+    ),
+    # Regel B: mehrdeutiges Verb, aber zusammen mit einem PiClaw-Objekt –
+    # reihenfolgeunabhängig, damit auch "Den Agenten X löschen" greift.
+    # Die Objekt-Liste ist bewusst auf Domänen-Entitäten begrenzt (kein
+    # script/service/backend), sonst würden Coding-Anfragen mitgefangen.
+    (
+        r"(?=.*\b(lösch|loesch|entfern|stopp|start|beend|pausier|aktivier|"
+        r"deaktivier|reaktivier|erstell|anleg|umbenenn|konfigurier|"
+        r"aktualisier|neustart|restart)\w*)"
+        r"(?=.*\b(agent|agenten|subagent|sub-agent|sub-agenten|routine|"
+        r"routinen|erinnerung|erinnerungen|reminder|timer|cronjob|cron|"
+        r"aufgabe|paket|pakete|sendung|tracking|nutzer|user|backup|notiz|"
+        r"memory|gerät|geraet|geräte|sensor|szene|automation|regel|regeln|"
+        r"lampe|licht|steckdose|heizung)\b)",
+        ["action"],
+        0.85,
+    ),
     # ── System / Pi specific ──────────────────────────────────────
     (
         r"\b(raspberry|gpio|sensor|i2c|spi|uart|pwm|pin)\b",
@@ -257,7 +291,16 @@ class TaskClassifier:
         return result
 
     def classify_sync(self, text: str) -> ClassificationResult:
-        """Pattern-only classification (synchronous, no LLM)."""
+        """Pattern-only classification (synchronous, no LLM).
+
+        Enthält Stage 0 mit derselben Schwelle wie classify() – sonst liefert
+        der synchrone Pfad für HA-Befehle ein anderes Ergebnis als der
+        asynchrone (z.B. "Schalte das Licht an" → ["general"] statt
+        ["action", "home_automation", "german"]).
+        """
+        regex_result = self._regex_classify(text)
+        if regex_result and regex_result.confidence >= 0.90:
+            return regex_result
         return self._pattern_classify(text)
 
     # ── Stage 0: Regex-Schnell-Erkennung ─────────────────────────

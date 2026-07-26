@@ -26,6 +26,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 
 from piclaw.config import CONFIG_DIR
+from piclaw.textutils import normalize
 
 log = logging.getLogger("piclaw.agents.sa_registry")
 
@@ -269,13 +270,61 @@ class SubAgentRegistry:
         return agent.id
 
     def get(self, id_or_name: str) -> SubAgentDef | None:
-        # Try by ID first, then by name
+        """Löst ID oder Name auf – tolerant, aber nie ratend.
+
+        Vier Stufen, absteigend streng. Die Stufen 3 und 4 gab es früher nicht:
+        `Monitor_SchweigertenRosengar` war per Chat unauffindbar, weil nur
+        exakt verglichen wurde (Vorfall 24.07.2026).
+
+          1. ID (exakt)
+          2. Name (exakt, case-insensitiv)
+          3. Name normalisiert – "monitor schweißgeräte" findet
+             "Monitor_Schweissgeraete"
+          4. Eindeutiger Substring der Normalform – "schweissgeraete" findet
+             "Monitor_SchweissgeraetenRosengarten"
+
+        Bei Mehrdeutigkeit in Stufe 4 gibt die Methode None zurück statt zu
+        raten – wer eine Kandidatenliste braucht, nimmt find_candidates().
+        """
+        if not id_or_name:
+            return None
+        # 1. ID
         if id_or_name in self._agents:
             return self._agents[id_or_name]
+        # 2. Name exakt
+        needle_raw = id_or_name.lower()
         for a in self._agents.values():
-            if a.name.lower() == id_or_name.lower():
+            if a.name.lower() == needle_raw:
                 return a
+        # 3. Name normalisiert
+        needle = normalize(id_or_name)
+        if not needle:
+            return None
+        for a in self._agents.values():
+            if normalize(a.name) == needle:
+                return a
+        # 4. Eindeutiger Substring
+        matches = [a for a in self._agents.values() if needle in normalize(a.name)]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            log.info(
+                "Sub-Agent-Auflösung '%s' mehrdeutig: %s",
+                id_or_name, [a.name for a in matches],
+            )
         return None
+
+    def find_candidates(self, id_or_name: str) -> list[SubAgentDef]:
+        """Alle plausiblen Treffer für einen Namen – für Fehlermeldungen.
+
+        Damit kann ein fehlgeschlagener Tool-Call dem LLM die tatsächlich
+        vorhandenen Namen zurückgeben, statt nur "nicht gefunden". Das LLM
+        korrigiert sich dann im nächsten Loop-Schritt selbst.
+        """
+        needle = normalize(id_or_name)
+        if not needle:
+            return []
+        return [a for a in self._agents.values() if needle in normalize(a.name)]
 
     def update(self, id_or_name: str, **kwargs) -> bool:
         agent = self.get(id_or_name)

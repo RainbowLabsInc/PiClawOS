@@ -93,6 +93,72 @@ class TestPatternMatching:
         assert len(r.tags) <= 4
 
 
+class TestGermanActionCommands:
+    """
+    Regression: deutsche Aktions-Befehle auf PiClaw-Objekte wurden auf
+    ["general"]/0.30/default klassifiziert. Damit gab es keinen Tag-Overlap
+    mit dem action-getaggten Backend (groq-actions), und jeder Lösch-/Stopp-
+    Befehl landete auf dem langsamen general-Backend.
+    """
+
+    # Satzanfang-Imperativ (Regel A) – ohne PiClaw-Objekt im Satz
+    @pytest.mark.parametrize("text", [
+        "Lösche den Agenten Schweissgeraete",
+        "Loesche den Agenten X",
+        "Stoppe den Agenten CronJob_0715",
+        "Starte die Routine Morgenbriefing",
+        "Deaktiviere den Sub-Agenten Wetter",
+        "Aktiviere die Nachtabsenkung",
+        "Pausiere die Routine",
+        "Entferne den Nutzer max",
+        "Beende den laufenden Job",
+        "Bitte lösche die Erinnerung von gestern",
+    ])
+    def test_imperative_is_tagged_action(self, clf, text):
+        r = clf.classify_sync(text)
+        assert "action" in r.tags, f"{text!r} → {r.tags}"
+        assert r.confidence >= 0.65, f"{text!r} conf={r.confidence}"
+        assert r.method != "default"
+
+    # Verb + PiClaw-Objekt, reihenfolgeunabhängig (Regel B)
+    @pytest.mark.parametrize("text", [
+        "Erstelle einen Sub-Agenten für Wetter",
+        "Den Agenten CronJob_0715 stoppen",
+        "Kannst du den Agenten X löschen?",
+        "Aktualisiere das Tracking für Paket 12345",
+        "Backup neu erstellen",
+    ])
+    def test_verb_plus_object_is_tagged_action(self, clf, text):
+        r = clf.classify_sync(text)
+        assert "action" in r.tags, f"{text!r} → {r.tags}"
+
+    def test_german_imperative_also_tagged_german(self, clf):
+        r = clf.classify_sync("Lösche den Agenten Schweissgeraete")
+        assert "german" in r.tags
+
+    # Gegenprobe: Aktions-Pattern dürfen fachliche Anfragen nicht kapern
+    @pytest.mark.parametrize("text,forbidden", [
+        ("Übersetze das auf Englisch", "translation"),
+        ("Schreibe ein Gedicht über das Meer", "creative"),
+        ("Berechne das Integral von x^2", "math"),
+        ("Analysiere die Vor- und Nachteile von SQLite", "analysis"),
+        ("Write a Python function to read a CSV file", "coding"),
+    ])
+    def test_non_action_requests_stay_unaffected(self, clf, text, forbidden):
+        r = clf.classify_sync(text)
+        assert "action" not in r.tags, f"{text!r} → {r.tags}"
+        assert forbidden in r.tags, f"{text!r} → {r.tags}"
+
+    def test_sync_and_async_agree_on_ha_command(self, clf):
+        """classify_sync übersprang früher Stage 0 → anderes Ergebnis als classify()."""
+        import asyncio
+        text = "Schalte das Licht im Wohnzimmer an"
+        sync = clf.classify_sync(text)
+        async_ = asyncio.run(clf.classify(text))
+        assert sync.tags == async_.tags == ["action", "home_automation", "german"]
+        assert sync.method == async_.method == "regex"
+
+
 class TestEdgeCases:
 
     def test_empty_string(self, clf):

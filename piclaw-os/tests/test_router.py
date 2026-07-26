@@ -106,3 +106,78 @@ class TestClassifierRouterIntegration:
             candidates = reg.find_by_tags(result.tags)
 
             assert len(candidates) >= 1
+
+
+class TestSelectBackend:
+    """
+    Regression: _select_backend gegen die reale Registry-Form
+    (action-Backend mit hoher Priorität, general-Backends mit niedrigerer).
+    """
+
+    @pytest.fixture
+    def router(self, tmp_path):
+        from piclaw.llm.registry import LLMRegistry
+        from piclaw.llm.multirouter import MultiLLMRouter
+        from piclaw.llm.classifier import TaskClassifier
+
+        with patch("piclaw.llm.registry.REGISTRY_FILE", tmp_path / "r.json"):
+            reg = LLMRegistry()
+            reg.add(make_backend(
+                "groq-actions",
+                ["action", "home_automation", "query", "german"],
+                priority=10,
+            ))
+            reg.add(make_backend(
+                "openai-default", ["general", "reasoning", "analysis", "coding"],
+                priority=7,
+            ))
+            reg.add(make_backend(
+                "nemotron", ["general", "reasoning", "fast", "summarization"],
+                priority=6,
+            ))
+
+            cfg = MagicMock()
+            cfg.llm.backend = "openai"
+            cfg.llm.model = "gpt-4o"
+            r = MultiLLMRouter(reg, cfg)
+            r._classifier = TaskClassifier(llm_for_classification=None)
+            # Thermal-Modul auf dem Test-Host nicht vorhanden/irrelevant
+            yield r
+
+    async def _pick(self, router, text):
+        from piclaw.llm.base import Message
+        cfg, classification = await router._select_backend(
+            [Message(role="user", content=text)]
+        )
+        return cfg.name, classification
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("text", [
+        "Lösche den Agenten Schweissgeraete",
+        "Stoppe den Agenten CronJob_0715",
+        "Erstelle einen Sub-Agenten für Wetter",
+        "Schalte das Licht im Wohnzimmer an",
+    ])
+    async def test_german_action_routes_to_action_backend(self, router, text):
+        name, cl = await self._pick(router, text)
+        assert "action" in cl.tags, f"{text!r} → {cl.tags}"
+        assert name == "groq-actions", f"{text!r} → {cl.tags} → {name}"
+
+    @pytest.mark.asyncio
+    async def test_coding_still_routes_to_general_backend(self, router):
+        name, cl = await self._pick(
+            router, "Write a Python function to read a CSV file"
+        )
+        assert name == "openai-default", f"{cl.tags} → {name}"
+
+    @pytest.mark.asyncio
+    async def test_no_signal_selects_by_priority_not_general_tag(self, router):
+        """
+        Bei method="default" ist ["general"] ein Platzhalter, kein Capability-
+        Signal. Vorher gewann dadurch immer ein "general"-getaggtes Backend,
+        obwohl ein höher priorisiertes Backend verfügbar war.
+        """
+        name, cl = await self._pick(router, "hmm")
+        assert cl.method == "default"
+        assert cl.tags == ["general"]
+        assert name == "groq-actions", f"{cl.tags} → {name}"
