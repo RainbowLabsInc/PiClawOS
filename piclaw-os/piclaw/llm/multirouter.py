@@ -34,6 +34,7 @@ from collections.abc import AsyncIterator
 from piclaw.llm.base import LLMBackend, Message, ToolDefinition, LLMResponse
 from piclaw.llm.registry import LLMRegistry, BackendConfig
 from piclaw.llm.classifier import TaskClassifier, ClassificationResult
+from piclaw.llm.toolfilter import filter_tools
 from piclaw.llm.api import AnthropicBackend, OpenAIBackend
 from piclaw.llm.local import LocalBackend, DEFAULT_MODEL_PATH
 
@@ -54,6 +55,14 @@ DEGRADED_RETRY_S = 120
 _CHARS_PER_TOKEN = 4
 # Sicherheitszuschlag, damit wir bei knappen Fällen nicht doch ins 413 laufen.
 _TOKEN_ESTIMATE_MARGIN = 1.15
+
+
+def _last_user_text(messages: list[Message]) -> str:
+    """Inhalt der letzten User-Nachricht (leer, wenn keine da ist)."""
+    for m in reversed(messages):
+        if m.role == "user":
+            return m.content or ""
+    return ""
 
 
 def estimate_prompt_tokens(
@@ -283,12 +292,7 @@ class MultiLLMRouter(LLMBackend):
         self, messages: list[Message]
     ) -> tuple[BackendConfig, ClassificationResult]:
         """Select the best backend for the given messages."""
-        # Find last user message
-        user_text = ""
-        for m in reversed(messages):
-            if m.role == "user":
-                user_text = m.content
-                break
+        user_text = _last_user_text(messages)
 
         # Classify the task
         t_classify = time.time()
@@ -457,6 +461,11 @@ class MultiLLMRouter(LLMBackend):
 
         # Add routing note to system context (debug mode)
         messages = self._inject_routing_note(messages, cfg, classification)
+
+        # Tool-Set auf den erkannten Intent eindampfen. Muss VOR
+        # _call_with_fallback passieren, damit auch estimate_prompt_tokens()
+        # und der max_input_tokens-Skip mit der reduzierten Größe rechnen.
+        tools = filter_tools(tools, classification.tags, _last_user_text(messages))
 
         # Try selected backend, fall back on failure
         return await self._call_with_fallback(cfg, messages, tools, classification)
