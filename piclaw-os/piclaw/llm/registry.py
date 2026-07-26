@@ -32,6 +32,11 @@ log = logging.getLogger("piclaw.llm.registry")
 
 REGISTRY_FILE = CONFIG_DIR / "llm_registry.json"
 
+# Sprach-Tags beschreiben keine Fähigkeit, sondern nur die Eingabesprache.
+# find_by_tags() wertet sie deshalb nur als Tiebreaker – siehe dort.
+# Deckungsgleich mit toolfilter.LANGUAGE_TAGS.
+_LANGUAGE_TAGS = frozenset({"german", "english", "french", "spanish"})
+
 
 @dataclass
 class BackendConfig:
@@ -271,27 +276,43 @@ class LLMRegistry:
         self, tags: list[str], min_overlap: int = 1
     ) -> list[BackendConfig]:
         """
-        Return enabled backends sorted by tag overlap (descending),
-        then priority (descending).
+        Return enabled backends sorted by capability overlap (descending),
+        then language overlap, then priority (descending).
 
         If tags are empty or no overlap is found (with min_overlap=1),
         it falls back to all enabled backends sorted by priority.
+
+        Sprach-Tags zählen bewusst NICHT als Capability. Vorher waren sie
+        gleichrangig, und weil `groq-actions` neben action/query auch
+        `german` trägt (Priorität 10), gewann es jede deutschsprachige
+        Fachfrage: "Wie debugge ich das Python-Skript?" → ['coding','german']
+        → Overlap 1 zu 1 gegen openai-default → Priorität entschied.
+        Sprache bleibt als Tiebreaker erhalten, kann einen echten
+        Capability-Treffer aber nicht mehr überstimmen.
         """
         all_enabled = self.list_enabled()
         if not tags:
             return all_enabled
 
+        wanted = {str(t).lower() for t in tags}
+        wanted_caps = wanted - _LANGUAGE_TAGS
+        wanted_langs = wanted & _LANGUAGE_TAGS
+
         results = []
         for b in all_enabled:
-            overlap = b.tag_overlap(tags)
-            if overlap >= min_overlap:
-                results.append((overlap, b.priority, b))
+            own = {str(t).lower() for t in b.tags}
+            cap_overlap = len(own & wanted_caps)
+            lang_overlap = len(own & wanted_langs)
+            # min_overlap bezieht sich weiterhin auf den Gesamt-Overlap,
+            # damit rein sprachliche Treffer nicht plötzlich rausfallen.
+            if cap_overlap + lang_overlap >= min_overlap:
+                results.append((cap_overlap, lang_overlap, b.priority, b))
 
         if not results and min_overlap == 1:
             return all_enabled
 
-        results.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        return [b for _, _, b in results]
+        results.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+        return [b for _, _, _, b in results]
 
     def best_for_tags(self, tags: list[str]) -> BackendConfig | None:
         """Return the single best backend for the given tags."""
