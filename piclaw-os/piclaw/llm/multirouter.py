@@ -23,6 +23,7 @@ Override:
 """
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -45,6 +46,33 @@ OVERRIDE_RE = re.compile(r"^@(\S+)\s+(.*)", re.DOTALL)
 FAILURE_THRESHOLD = 3
 # Degraded backends are retried after this many seconds
 DEGRADED_RETRY_S = 120
+
+# Grobe Token-Schätzung: ~4 Zeichen pro Token für deutsch/englisch gemischten
+# Text. Bewusst kein Tokenizer – wir brauchen nur die Größenordnung, um
+# Backends mit bekannt zu kleinem Input-Budget zu überspringen, und ein
+# tiktoken-Import pro Request wäre auf dem Pi teurer als der Nutzen.
+_CHARS_PER_TOKEN = 4
+# Sicherheitszuschlag, damit wir bei knappen Fällen nicht doch ins 413 laufen.
+_TOKEN_ESTIMATE_MARGIN = 1.15
+
+
+def estimate_prompt_tokens(
+    messages: list[Message], tools: list[ToolDefinition] | None = None
+) -> int:
+    """Schätzt die Input-Größe eines Requests in Tokens (Obergrenze).
+
+    Die Tool-Definitionen zählen mit: sie werden als JSON-Schema mitgesendet
+    und machen bei PiClaw den Großteil des Prompts aus (~11k Tokens am
+    24.07.2026, bei einem Groq-Free-Tier-Limit von 8000).
+    """
+    chars = sum(len(m.content or "") for m in messages)
+    for t in tools or []:
+        chars += len(t.name) + len(t.description or "")
+        try:
+            chars += len(json.dumps(t.parameters, ensure_ascii=False))
+        except (TypeError, ValueError):
+            chars += len(str(t.parameters))
+    return int(chars / _CHARS_PER_TOKEN * _TOKEN_ESTIMATE_MARGIN)
 
 
 @dataclass
@@ -285,7 +313,21 @@ class MultiLLMRouter(LLMBackend):
             pass  # Telemetrie darf nie crashen
 
         # Find matching backends
-        candidates = self.registry.find_by_tags(classification.tags, min_overlap=1)
+        #
+        # Sonderfall method="default": der Classifier hat GAR NICHTS erkannt und
+        # liefert das Platzhalter-Tag ["general"]. Das ist kein Capability-
+        # Signal – würde man danach per Tag-Overlap suchen, gewinnt immer ein
+        # zufällig "general"-getaggtes Backend, während höher priorisierte
+        # Backends ohne "general"-Tag nie drankommen. Bei echtem Nicht-Wissen
+        # ist die konfigurierte Priorität die bessere Entscheidungsgrundlage.
+        if classification.method == "default":
+            candidates = self.registry.list_enabled()
+            log.debug(
+                "Classifier had no signal (method=default) – "
+                "selecting by priority instead of tag overlap"
+            )
+        else:
+            candidates = self.registry.find_by_tags(classification.tags, min_overlap=1)
 
         # ── Thermal routing: if Pi is hot, deprioritise local backends ──────
         # Graduierte Stufen statt boolean hard cut:
@@ -471,6 +513,7 @@ class MultiLLMRouter(LLMBackend):
 
         last_exc: Exception | None = None
         attempt_names: list[str] = []
+        _prompt_tokens = estimate_prompt_tokens(messages, tools)
         for cfg in ordered:
             if cfg.name in tried:
                 continue
@@ -478,6 +521,19 @@ class MultiLLMRouter(LLMBackend):
             _monitor_health = self._get_monitor_health(cfg.name)
             if _monitor_health and _monitor_health.get("rate_limited"):
                 log.debug("Skipping rate-limited backend '%s'", cfg.name)
+                tried.add(cfg.name)
+                continue
+
+            # Skip backends whose bekanntes Input-Budget zu klein ist. Ohne
+            # das kostete jeder Request zwei garantiert scheiternde
+            # Roundtrips gegen die Groq-Free-Tier-Backends (413, TPM 8000
+            # gegen ~11k Prompt-Tokens).
+            _budget = getattr(cfg, "max_input_tokens", 0)
+            if _budget and _prompt_tokens > _budget:
+                log.info(
+                    "Skipping '%s': Prompt ~%d Tokens > Budget %d",
+                    cfg.name, _prompt_tokens, _budget,
+                )
                 tried.add(cfg.name)
                 continue
 
@@ -565,6 +621,11 @@ class MultiLLMRouter(LLMBackend):
         err_str = str(error)
         if "429" in err_str:
             return 429
+        # 413 muss VOR dem generischen 500-Fallback erkannt werden, sonst
+        # zählt ein "Request too large" als Ausfall und der Health-Monitor
+        # deaktiviert nach drei Versuchen ein völlig gesundes Backend.
+        if "413" in err_str:
+            return 413
         if "404" in err_str:
             return 404
         if "401" in err_str or "403" in err_str:

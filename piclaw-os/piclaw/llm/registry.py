@@ -47,6 +47,20 @@ class BackendConfig:
     temperature: float = 0.7
     timeout: int = 60
     notes: str = ""  # user-visible description
+    # ── Persistierter Health-State ────────────────────────────────────────
+    # Diese zwei Felder gehören logisch zum LLMHealthMonitor, müssen aber
+    # einen Prozess-Restart überleben. Lagen sie nur im In-Memory-
+    # BackendHealth, war ein Backend nach Restart unrettbar: die Sperr-Info
+    # war weg, der einzige Re-Enable-Pfad hing daran, und `enabled: False`
+    # stand persistiert in der Registry. Ergebnis (25.07.2026): alle fünf
+    # statischen Backends dauerhaft aus, nur noch auto-* im Betrieb.
+    #
+    # original_priority – geparkte Priorität während einer 429-Sperre.
+    #                     None = keine Sperre aktiv.
+    # max_input_tokens  – vom Provider gemeldetes Input-Budget (aus 413).
+    #                     0 = unbekannt/kein bekanntes Limit.
+    original_priority: int | None = None
+    max_input_tokens: int = 0
 
     def __post_init__(self):
         """Coerce field types after init/JSON load to prevent TypeError in sort."""
@@ -54,6 +68,9 @@ class BackendConfig:
         self.max_tokens = int(self.max_tokens)
         self.timeout = int(self.timeout)
         self.temperature = float(self.temperature)
+        self.max_input_tokens = int(self.max_input_tokens or 0)
+        if self.original_priority is not None:
+            self.original_priority = int(self.original_priority)
         self.enabled = bool(self.enabled) if not isinstance(self.enabled, bool) else self.enabled
         if isinstance(self.tags, str):
             self.tags = [t.strip() for t in self.tags.split(",") if t.strip()]
@@ -172,13 +189,17 @@ class LLMRegistry:
             backend = d.get(name)
             if backend is None:
                 return False
-            _INT_FIELDS = {"priority", "max_tokens", "timeout"}
+            _INT_FIELDS = {"priority", "max_tokens", "timeout", "max_input_tokens"}
             _FLOAT_FIELDS = {"temperature"}
             _BOOL_FIELDS = {"enabled"}
+            # original_priority ist bewusst nullable – None löscht die Parkung.
+            _NULLABLE_INT_FIELDS = {"original_priority"}
             for k, v in kwargs.items():
                 if not hasattr(backend, k):
                     continue
-                if k in _INT_FIELDS:
+                if k in _NULLABLE_INT_FIELDS:
+                    v = None if v is None else int(v)
+                elif k in _INT_FIELDS:
                     v = int(v)
                 elif k in _FLOAT_FIELDS:
                     v = float(v)
