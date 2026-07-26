@@ -24,7 +24,7 @@ Tags are free-form strings. Built-in tag categories (used by the classifier):
 
 import json
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 
 from piclaw.config import CONFIG_DIR
 
@@ -98,15 +98,42 @@ class LLMRegistry:
     # ── Persistence ───────────────────────────────────────────────
 
     def _read_disk(self) -> dict[str, BackendConfig] | None:
-        """Liest registry.json. None = Datei fehlt oder ist fehlerhaft."""
+        """Liest registry.json. None = Datei fehlt oder ist fehlerhaft.
+
+        Unbekannte Felder werden verworfen statt zu werfen. BackendConfig ist
+        ein plain dataclass: ein Feld, das eine neuere Version geschrieben hat,
+        ließ `BackendConfig(**v)` mit TypeError scheitern – der Except-Zweig
+        schluckte das zu "Registry load error" und der Prozess startete mit
+        LEERER Registry, also ohne jedes Cloud-Backend. Bei rollierenden
+        Deploys (api und agent starten nicht gleichzeitig neu) ist das ein
+        realer Ausfallpfad, kein theoretischer.
+        """
         if not REGISTRY_FILE.exists():
             return None
         try:
             data = json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
-            return {k: BackendConfig(**v) for k, v in data.items()}
         except Exception as e:
             log.error("Registry load error: %s", e)
             return None
+
+        known = {f.name for f in fields(BackendConfig)}
+        out: dict[str, BackendConfig] = {}
+        for k, v in data.items():
+            if not isinstance(v, dict):
+                log.warning("Registry: Eintrag '%s' ist kein Objekt – übersprungen", k)
+                continue
+            unknown = set(v) - known
+            if unknown:
+                log.warning(
+                    "Registry: Backend '%s' hat unbekannte Felder %s – ignoriert "
+                    "(neuere PiClaw-Version hat sie geschrieben?)",
+                    k, sorted(unknown),
+                )
+            try:
+                out[k] = BackendConfig(**{kk: vv for kk, vv in v.items() if kk in known})
+            except Exception as e:
+                log.error("Registry: Backend '%s' unlesbar – übersprungen: %s", k, e)
+        return out
 
     def _load(self):
         fresh = self._read_disk()

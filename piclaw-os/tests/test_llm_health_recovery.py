@@ -410,3 +410,61 @@ def test_groq_whitelist_has_no_retired_models():
     assert "meta-llama/llama-4-scout-17b-16e-instruct" not in groq
     assert "qwen/qwen3-32b" not in groq
     assert "llama-3.3-70b-versatile" in groq
+
+
+# ── 7. Vorwärts-/Rückwärtskompatibilität der Registry-Datei ───────
+
+
+class TestRegistryForwardCompat:
+    """Ein Feld aus einer neueren Version darf die Registry nicht leeren."""
+
+    def test_unknown_fields_are_ignored_not_fatal(self, tmp_path):
+        import json
+        from piclaw.llm import registry as registry_mod
+
+        data = {
+            "groq-actions": {
+                "name": "groq-actions",
+                "provider": "openai",
+                "model": "llama-3.3-70b-versatile",
+                "priority": 10,
+                "enabled": True,
+                # Feld aus einer hypothetischen neueren Version
+                "zukunfts_feld": {"nested": True},
+            }
+        }
+        f = tmp_path / "llm_registry.json"
+        f.write_text(json.dumps(data), encoding="utf-8")
+
+        with patch.object(registry_mod, "REGISTRY_FILE", f):
+            reg = registry_mod.LLMRegistry()
+            assert reg.get("groq-actions") is not None, (
+                "Ein unbekanntes Feld ließ BackendConfig(**v) mit TypeError "
+                "scheitern -> Registry leer -> kein Cloud-Backend mehr."
+            )
+            assert reg.get("groq-actions").priority == 10
+
+    def test_one_broken_entry_does_not_kill_the_others(self, tmp_path):
+        import json
+        from piclaw.llm import registry as registry_mod
+
+        data = {
+            "good": {"name": "good", "provider": "openai", "model": "m"},
+            "broken": "not-an-object",
+        }
+        f = tmp_path / "llm_registry.json"
+        f.write_text(json.dumps(data), encoding="utf-8")
+
+        with patch.object(registry_mod, "REGISTRY_FILE", f):
+            reg = registry_mod.LLMRegistry()
+            assert reg.get("good") is not None
+            assert reg.get("broken") is None
+
+    def test_corrupt_json_still_returns_none(self, tmp_path):
+        from piclaw.llm import registry as registry_mod
+
+        f = tmp_path / "llm_registry.json"
+        f.write_text("{not json", encoding="utf-8")
+        with patch.object(registry_mod, "REGISTRY_FILE", f):
+            reg = registry_mod.LLMRegistry()
+            assert reg.list_all() == []
