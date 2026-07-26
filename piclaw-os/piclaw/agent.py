@@ -10,7 +10,7 @@ from datetime import datetime
 
 import re
 
-from piclaw.textutils import ascii_name
+from piclaw.textutils import ascii_name, normalize
 
 # Tool-Handler geben Fehler als Freitext zurück (kein Exception-Pfad), damit
 # das LLM sie lesen kann. Für das Logging brauchen wir eine Heuristik, um
@@ -99,7 +99,38 @@ _RE_AGENT_STATUS_KW = re.compile(r'(laufende|running|welche|status|aktive|liste|
 _RE_AGENT_NOUN_KW = re.compile(r'(sub\-agent|subagent|monitor|aufgabe|agent|task|job)')
 _RE_AGENT_STOP_KW = re.compile(r'(deaktiviere|halte\ an|stopp|beend|pause|stop)')
 _RE_AGENT_START_KW = re.compile(r'(reaktiviere|aktiviere|starte|start)')
-_RE_AGENT_REMOVE_KW = re.compile(r'(entfern|delete|remove|lösch)')
+# "loesch" muss mit rein: Telegram-Clients ohne deutsche Tastatur schicken
+# "Loesche den Agenten X", was sonst als einzige Löschformulierung durchfiel.
+_RE_AGENT_REMOVE_KW = re.compile(r'(entfern|delete|remove|lösch|loesch)')
+
+# Wörter, die nie ein Agentname sind. Neben den generischen Substantiven
+# stehen hier die Imperative der Shortcut-Keywords: sie stehen am Satzanfang
+# und wären damit der erste Kandidat, sobald ein Agentname sie zufällig als
+# Substring enthält (die Registry löst seit 56dfd31 tolerant auf).
+# Verglichen wird über normalize(), deshalb hier nur ASCII-Kleinschreibung:
+# "loesche" deckt auch "Lösche" ab.
+_AGENT_REF_STOPWORDS = frozenset({
+    # generische Substantive
+    "agent", "agenten", "agents", "subagent", "subagenten", "sub",
+    "monitor", "monitore", "monitors", "job", "jobs", "task", "tasks",
+    "aufgabe", "aufgaben",
+    # Imperative der Stop/Start/Remove-Keywords
+    "loesch", "loesche", "loeschen", "entfern", "entferne", "entfernen",
+    "delete", "remove", "stopp", "stoppe", "stoppen", "stop", "beende",
+    "beenden", "pausiere", "pause", "deaktiviere", "deaktivieren", "halte",
+    "start", "starte", "starten", "aktiviere", "aktivieren", "reaktiviere",
+    # Füllwörter
+    "bitte", "danke", "sofort", "jetzt", "doch", "mal",
+    "eine", "einen", "mein", "meine", "meinen", "vom", "von",
+})
+
+# Zwei Stufen, absteigend streng – siehe _resolve_agent_reference().
+_RE_AGENT_CAND_STRICT = re.compile(
+    r"\b(Monitor_[\wÄÖÜäöüß]+"          # explizite Monitor_-Namen
+    r"|[0-9a-f]{6,12}"                   # Sub-Agent-IDs
+    r"|[A-ZÄÖÜ][\wÄÖÜäöüß]{3,})\b"      # großgeschriebene Wörter, umlautfest
+)
+_RE_AGENT_CAND_LOOSE = re.compile(r"\b[\wÄÖÜäöüß]{4,}\b")
 _RE_LLM_DISCOVER_KW = re.compile(r'(neue\ modelle\ finden|neue\ modelle\ suchen|backends\ entdecken|modelle\ entdecken|discover\ backends|backends\ finden|backends\ suchen|finde\ neue\ llm|neue\ backends|llm\ autonomie|llm\ discover|find\ new\ llm|llm\ suchen|llm\ finden|api\ finden|api\ suchen|gratis\ api|freie\ api|neue\ api|neue\ llm)')
 _RE_MONITOR_KW = re.compile(r'(halte\ die\ augen\ offen|jede\ halbe\ stunde|check\ regelmäßig|halte\ ausschau|benachrichtig|sag\ mir\ wenn|sag\ bescheid|automatisch|jede\ stunde|alle\ stunde|schick\ mir|regelmäßig|informier|stündlich|überwach|beobacht|monitor|notify|alert|watch|meld)')
 _RE_NET_MARKET_KW = re.compile(r'(?:kleinanzeigen|zoll\-auktion|sonnenschirm|zollauktion|troostwijk|marktplatz|willhaben|verkaufen|inserat|anzeige|fahrrad|wohnung|kaufen|ebay|egun|auto)')
@@ -1613,6 +1644,15 @@ class Agent:
         der sich zu einem existierenden Sub-Agenten auflösen lässt. Kein
         Treffer → None, damit der Aufrufer ans LLM durchfallen kann.
 
+        Zwei Durchgänge, absteigend streng:
+          1. Monitor_-Namen, Sub-Agent-IDs, großgeschriebene Wörter
+          2. alle Wörter ab vier Zeichen – fängt komplett kleingeschriebene
+             Eingaben ("lösche den agenten wetter"), wie sie per Telegram
+             üblich sind und an denen Stufe 1 vorbeiläuft
+
+        Kandidaten aus _AGENT_REF_STOPWORDS fliegen raus, sonst gewinnt das
+        Verb am Satzanfang oder das Substantiv "Agenten".
+
         Wichtig für Deutsch: `[A-ZÄÖÜ][\\wÄÖÜäöüß]{3,}` statt `[A-Z][a-zA-Z0-9_]{4,}`.
         Der alte Ausdruck brach an Umlauten ab, sodass "Schweißgeräte" gar nicht
         als Kandidat erkannt wurde und stattdessen das nächste großgeschriebene
@@ -1621,25 +1661,15 @@ class Agent:
         if not self.sa_registry:
             return None
 
-        candidates = re.findall(
-            r"\b(Monitor_[\wÄÖÜäöüß]+"          # explizite Monitor_-Namen
-            r"|[0-9a-f]{6,12}"                   # Sub-Agent-IDs
-            r"|[A-ZÄÖÜ][\wÄÖÜäöüß]{3,})\b",     # großgeschriebene Wörter, umlautfest
-            user_input,
-        )
-        # Generische Substantive sind keine Agentnamen. Ohne diese Liste
-        # kandidiert bei "Lösche den X Agenten" auch "Agenten" – und wenn
-        # zufällig ein Agent so heißt, träfe der Shortcut den Falschen.
-        _GENERIC = {
-            "agent", "agenten", "agents", "subagent", "subagenten",
-            "monitor", "monitore", "job", "jobs", "task", "tasks",
-            "aufgabe", "aufgaben", "bitte", "danke", "sofort",
-        }
-        for cand in candidates:
-            if cand.casefold() in _GENERIC:
-                continue
-            if self.sa_registry.get(cand):
-                return cand
+        seen: set[str] = set()
+        for pattern in (_RE_AGENT_CAND_STRICT, _RE_AGENT_CAND_LOOSE):
+            for cand in pattern.findall(user_input):
+                key = normalize(cand)
+                if not key or key in _AGENT_REF_STOPWORDS or key in seen:
+                    continue
+                seen.add(key)
+                if self.sa_registry.get(cand):
+                    return cand
         return None
 
     async def _run_internal(

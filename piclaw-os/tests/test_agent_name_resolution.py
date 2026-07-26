@@ -223,6 +223,85 @@ class TestShortcutCandidateResolution:
         assert Agent._resolve_agent_reference(fake, "lösche X") is None
 
 
+class TestImperativeVerbIsNotTheAgentName:
+    """Das Verb steht am Satzanfang und ist damit der erste Kandidat.
+
+    Solange die Registry exakt verglich, ging das gut – seit sie tolerant
+    per Substring auflöst (56dfd31), kann "Stoppe" auf einen Agenten
+    passen, der gar nicht gemeint war.
+    """
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("Lösche den Agenten Schweissgeraete", "Schweissgeraete"),
+            ("Stoppe den Agenten CronJob_0715", "CronJob_0715"),
+            ("Lösche den Sub-Agenten Wetter", "Wetter"),
+            ("Loesche den Agenten Schweissgeraete", "Schweissgeraete"),
+            ("Entferne bitte den Monitor Wetter", "Wetter"),
+        ],
+    )
+    def test_named_agent_wins_over_verb_and_noun(self, text, expected):
+        names = ["Schweissgeraete", "CronJob_0715", "Wetter"]
+        assert _resolve(names, text) == expected
+
+    def test_verb_does_not_hit_an_unrelated_agent(self):
+        """"Stoppe" ist Substring von "Monitor_Stoppelfeld" – ohne
+        Verb-Filter würde der falsche Agent gestoppt."""
+        names = ["Monitor_Stoppelfeld", "Monitor_Wetter"]
+        assert _resolve(names, "Stoppe den Agenten Wetter") == "Wetter"
+
+
+class TestLowercaseInput:
+    """Per Telegram kommt fast alles klein – Stufe 1 findet dort nichts."""
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("lösche den agenten schweissgeraete", "schweissgeraete"),
+            ("loesche den agenten schweissgeraete", "schweissgeraete"),
+            ("stoppe den agenten wetter", "wetter"),
+            ("stopp monitor_wetter", "monitor_wetter"),
+        ],
+    )
+    def test_lowercase_names_are_resolved(self, text, expected):
+        names = ["Monitor_Schweissgeraete", "Monitor_Wetter"]
+        assert _resolve(names, text) == expected
+
+    def test_generic_only_input_still_falls_through_to_llm(self):
+        assert _resolve(["Monitor_Wetter"], "lösche den agenten") is None
+        assert _resolve(["Monitor_Wetter"], "stoppe bitte alles sofort") is None
+
+    def test_uppercase_name_still_wins_over_lowercase_noise(self):
+        """Stufe 1 vor Stufe 2: der Eigenname schlägt das Füllwort."""
+        names = ["Monitor_Wetter", "Monitor_Pakete"]
+        assert _resolve(names, "stoppe bitte den Wetter agenten") == "Wetter"
+
+
+class TestRemoveKeywordAsciiVariant:
+    """ASCII-Tastaturen schicken "Loesche" – das fiel komplett durch."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "lösche den agenten wetter",
+            "loesche den agenten wetter",
+            "Loesche den Agenten Wetter",
+            "entferne den agenten wetter",
+            "delete agent wetter",
+        ],
+    )
+    def test_remove_keyword_matches(self, text):
+        from piclaw.agent import _RE_AGENT_REMOVE_KW
+
+        assert _RE_AGENT_REMOVE_KW.search(text.lower()) is not None
+
+    def test_remove_keyword_does_not_match_unrelated_text(self):
+        from piclaw.agent import _RE_AGENT_REMOVE_KW
+
+        assert _RE_AGENT_REMOVE_KW.search("wie ist das wetter") is None
+
+
 # ── Schutz geschützter Agenten ────────────────────────────────────
 
 
