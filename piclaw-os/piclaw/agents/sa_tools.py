@@ -169,6 +169,30 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
 
     from piclaw.agent_context import get_current_user_id
 
+    def _not_found(name: str) -> str:
+        """Fehlermeldung, aus der das LLM sich selbst korrigieren kann.
+
+        Ein nacktes "nicht gefunden" ließ dem Modell nur Raten übrig – es
+        wählte daraufhin auch schon mal ein völlig anderes Tool
+        (`sensor_remove` statt `agent_remove`, 24.07.2026). Mit der Liste
+        der tatsächlichen Namen korrigiert es sich im nächsten Loop-Schritt.
+        """
+        candidates = registry.find_candidates(name)
+        if candidates:
+            names = ", ".join(f"'{a.name}' (ID {a.id})" for a in candidates[:8])
+            return (
+                f"Sub-Agent '{name}' ist nicht eindeutig. Gemeint sein könnte: "
+                f"{names}. Bitte mit exaktem Namen oder ID erneut aufrufen."
+            )
+        available = registry.list_all(get_current_user_id())
+        if not available:
+            return f"Sub-Agent '{name}' nicht gefunden – es sind keine Sub-Agenten definiert."
+        names = ", ".join(f"'{a.name}' (ID {a.id})" for a in available[:15])
+        return (
+            f"Sub-Agent '{name}' nicht gefunden. Vorhanden sind: {names}. "
+            f"Bitte mit exaktem Namen oder ID erneut aufrufen."
+        )
+
     async def agent_list(**_) -> str:
         user_id = get_current_user_id()
         status = runner.status_dict()
@@ -245,28 +269,45 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
     async def agent_start(name: str, **_) -> str:
         return await runner.start_agent(name)  # Rückmeldung kommt aus runner.start_agent()
 
-    async def agent_stop(name: str, **_) -> str:
+    def _protected(name: str) -> str | None:
+        """Prüft den Schutzstatus auf dem AUFGELÖSTEN Namen.
+
+        Der frühere Vergleich lief gegen die rohe Eingabe. Seit
+        registry.get() normalisiert und Substrings auflöst, wäre das eine
+        Umgehung: "stoppe netzwerk" löst zu Monitor_Netzwerk auf, hätte aber
+        nie in _PROTECTED_AGENTS gematcht. Erst auflösen, dann prüfen.
+        """
         if name in _PROTECTED_AGENTS:
+            return name
+        agent = registry.get(name)
+        if agent and agent.name in _PROTECTED_AGENTS:
+            return agent.name
+        return None
+
+    async def agent_stop(name: str, **_) -> str:
+        if (_p := _protected(name)):
             return (
-                f"⛔ '{name}' ist ein geschützter Sicherheits-Agent und kann nicht "
+                f"⛔ '{_p}' ist ein geschützter Sicherheits-Agent und kann nicht "
                 f"gestoppt werden. Er überwacht das Netzwerk auf neue Geräte."
             )
         return await runner.stop_agent(name)
 
     async def agent_remove(name: str, **_) -> str:
-        if name in _PROTECTED_AGENTS:
+        if (_p := _protected(name)):
             return (
-                f"⛔ '{name}' ist ein geschützter Sicherheits-Agent und kann nicht "
+                f"⛔ '{_p}' ist ein geschützter Sicherheits-Agent und kann nicht "
                 f"gelöscht werden. Er ist Teil der Netzwerk-Sicherheitsarchitektur."
             )
         # Stop first if running
         agent = registry.get(name)
         if not agent:
-            return f"Sub-Agent '{name}' nicht gefunden."
+            return _not_found(name)
         agent_id = agent.id
         if agent_id in runner._tasks and not runner._tasks[agent_id].done():
             await runner.stop_agent(name)
-        success = registry.remove(name)
+        # Über die aufgelöste ID löschen, nicht über die Nutzer-Eingabe: der
+        # Name kann eine Normalform/ein Substring gewesen sein.
+        success = registry.remove(agent_id)
         # Notify the other piclaw process (api ↔ daemon split): the schedule-
         # loop for this agent might run there, and its in-memory registry
         # would otherwise resurrect the entry on its next mark_run save.
@@ -276,7 +317,11 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
                 ipc.write_remove(agent_id)
             except Exception:
                 pass
-        return f"Sub-Agent '{name}' gelöscht." if success else f"'{name}' nicht gefunden."
+        return (
+            f"Sub-Agent '{agent.name}' gelöscht."
+            if success
+            else _not_found(name)
+        )
 
     async def agent_update(name: str, **kwargs) -> str:
         # Remove None values
@@ -285,13 +330,13 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
             return "Keine Änderungen angegeben."
         success = registry.update(name, **updates)
         if not success:
-            return f"Sub-Agent '{name}' nicht gefunden."
+            return _not_found(name)
         return f"Sub-Agent '{name}' aktualisiert: {list(updates.keys())}"
 
     async def agent_run_now(name: str, **_) -> str:
         agent = registry.get(name)
         if not agent:
-            return f"Sub-Agent '{name}' nicht gefunden."
+            return _not_found(name)
         # Sofortige Ausführung als Background-Task, ohne den regulären Schedule zu berühren
         from piclaw.taskutils import create_background_task
         create_background_task(
