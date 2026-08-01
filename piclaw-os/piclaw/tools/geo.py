@@ -36,7 +36,14 @@ _MIN_INTERVAL = {"nominatim": 1.1, "overpass": 2.0}
 
 # Läden, die für eine Einkaufsliste relevant sind. Reihenfolge egal, wird als
 # Regex-Alternative in die Overpass-Query gesetzt.
+#
+# Aufgenommen wird nur, wofür es auch eine Angebotsquelle gibt – sonst
+# entstehen Filialen ohne Preise. `furniture` und `electronics` fehlen
+# deshalb bewusst: 2 km um den Hamburger Rathausmarkt liefern sie 43
+# Einzelhändler und Möbelboutiquen ohne Prospekt, die gegen MAX_SHOPS
+# drücken und echte Märkte verdrängen würden.
 DEFAULT_SHOP_TYPES = (
+    # Lebensmittel und Drogerie
     "supermarket",
     "convenience",
     "chemist",
@@ -44,11 +51,26 @@ DEFAULT_SHOP_TYPES = (
     "butcher",
     "bakery",
     "greengrocer",
+    # Baumarkt (OBI, toom, HORNBACH, BAUHAUS, Hagebau, HELLWEG)
+    "doityourself",
+    "hardware",
+    "trade",
+    # Tierbedarf und Garten (Fressnapf, DAS FUTTERHAUS, Dehner, Pflanzen-Kölle)
+    "pet",
+    "garden_centre",
+    "agrarian",
+    # Non-Food-Discounter (Action, Woolworth, TEDi, Thomas Philipps)
+    "variety_store",
 )
 
-# Obergrenze für find_shops. Schützt Store und Dashboard davor, in einer
-# Innenstadt mit 10 km Radius vierstellig viele Läden zu halten.
-MAX_SHOPS = 300
+# Reine Speicher-Obergrenze für find_shops, kein fachlicher Filter.
+#
+# Die inhaltliche Reduktion macht piclaw/shopping/location.py, weil nur dort
+# die Marken bekannt sind. Ein hartes distanzsortiertes Limit an dieser Stelle
+# wäre falsch: 5 km um den Hamburger Rathausmarkt liefern 130 Bäckereien, die
+# einen weiter entfernten Baumarkt verdrängen würden – obwohl der die einzige
+# Filiale seiner Kette im Umkreis ist.
+MAX_SHOPS = 2000
 
 # Genauigkeitsklassen von Nominatim, die eine echte Hausadresse bedeuten.
 # Alles andere (postcode, road, suburb, city) ist ein Zentroid – als
