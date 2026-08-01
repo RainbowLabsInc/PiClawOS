@@ -29,7 +29,7 @@ import aiohttp
 
 from piclaw.shopping import analysis, location
 from piclaw.shopping.matching import matches_item, normalize_title
-from piclaw.shopping.providers import search_all
+from piclaw.shopping.providers import Offer, search_all
 from piclaw.shopping.store import PricePoint, ShoppingDB, get_db
 
 log = logging.getLogger("piclaw.shopping.sampler")
@@ -96,7 +96,7 @@ async def run_sample(
             continue
 
         # Pro Produkt den günstigsten Treffer dieses Laufs behalten.
-        best: dict[tuple[str, str], tuple[float, str, str, bool]] = {}
+        best: dict[tuple[str, str], Offer] = {}
         rejected = 0
         for offer in offers:
             if offer.price is None or offer.price <= 0:
@@ -116,14 +116,15 @@ async def run_sample(
                 continue
             key = (retailer, title_norm)
             current = best.get(key)
-            if current is None or offer.price < current[0]:
-                best[key] = (offer.price, offer.title, offer.unit,
-                             bool(offer.old_price))
+            if current is None or offer.price < (current.price or float("inf")):
+                best[key] = offer
 
         points: list[PricePoint] = []
-        for (retailer, title_norm), (price, title, unit, is_promo) in best.items():
+        for (retailer, title_norm), offer in best.items():
+            price = offer.price
             product_id = db.upsert_product(
-                item.id, retailer, title, title_norm, unit, ts=now
+                item.id, retailer, offer.title, title_norm, offer.unit, ts=now,
+                unit_size=offer.unit_size, unit_label=offer.unit_label,
             )
             if not product_id:
                 continue
@@ -141,10 +142,12 @@ async def run_sample(
                 db.add_alert(product_id, price, verdict.baseline or 0.0,
                              verdict.drop_pct, ts=now)
                 summary["alerts"] += 1
-                log.info("Preisrutsch: '%s' bei %s – %.2f € (%s)",
-                         title, retailer, price, verdict.reason)
+                log.info("Preisrutsch: '%s' bei %s – %.2f € %s(%s)",
+                         offer.title, retailer, price,
+                         f"({offer.unit_price_text}) " if offer.unit_price_text else "",
+                         verdict.reason)
 
-            points.append(PricePoint(product_id, price, now, is_promo))
+            points.append(PricePoint(product_id, price, now, bool(offer.old_price)))
 
         summary["points"] += db.record_prices(points)
         # Eine Diagnosezeile pro Artikel – so lässt sich ein leeres Ergebnis

@@ -104,16 +104,30 @@ class Product:
     title: str = ""
     title_norm: str = ""
     unit: str = ""
+    # Packungsgröße in kg/l/Stk. Der Grundpreis wird daraus und aus dem
+    # jeweiligen Preis berechnet – so stimmen auch historische Werte.
+    unit_size: float | None = None
+    unit_label: str = ""
     first_seen: int = 0
     last_seen: int = 0
 
+    def unit_price(self, price: float | None) -> float | None:
+        from piclaw.shopping.units import unit_price
+
+        return unit_price(price, self.unit_size)
+
     def to_dict(self) -> dict:
+        from piclaw.shopping.units import format_size
+
         return {
             "id": self.id,
             "item_id": self.item_id,
             "retailer": self.retailer,
             "title": self.title,
             "unit": self.unit,
+            "unit_size": self.unit_size,
+            "unit_label": self.unit_label,
+            "size_text": format_size(self.unit_size, self.unit_label),
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
         }
@@ -142,6 +156,22 @@ def address_hash(*parts: str) -> str:
 
 
 # ── Datenbank ────────────────────────────────────────────────────────────────
+
+
+def _add_column(con: sqlite3.Connection, table: str, column: str, ddl: str) -> bool:
+    """Fügt eine Spalte hinzu, falls sie fehlt. Idempotent.
+
+    Das Repo hat keine Migrations-Infrastruktur; das Schema wird bewusst
+    vollständig angelegt. Für Felder, die einer bereits befüllten Datenbank
+    fehlen, ist das hier der minimale Weg – ein Neuaufbau würde Monate an
+    Preishistorie kosten.
+    """
+    vorhanden = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+    if column in vorhanden:
+        return False
+    con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+    log.info("ShoppingDB: Spalte %s.%s ergänzt", table, column)
+    return True
 
 
 class ShoppingDB:
@@ -200,6 +230,8 @@ class ShoppingDB:
                     title      TEXT    NOT NULL,
                     title_norm TEXT    NOT NULL,
                     unit       TEXT    DEFAULT '',
+                    unit_size  REAL,
+                    unit_label TEXT    DEFAULT '',
                     first_seen INTEGER NOT NULL,
                     last_seen  INTEGER NOT NULL,
                     UNIQUE(item_id, retailer, title_norm)
@@ -208,6 +240,9 @@ class ShoppingDB:
             con.execute(
                 "CREATE INDEX IF NOT EXISTS idx_products_item ON products(item_id)"
             )
+            # Bestandsdatenbanken nachziehen (Grundpreis kam später dazu).
+            _add_column(con, "products", "unit_size", "REAL")
+            _add_column(con, "products", "unit_label", "TEXT DEFAULT ''")
 
             con.execute("""
                 CREATE TABLE IF NOT EXISTS price_points (
@@ -341,19 +376,31 @@ class ShoppingDB:
     def upsert_product(
         self, item_id: int, retailer: str, title: str, title_norm: str,
         unit: str = "", ts: int | None = None,
+        unit_size: float | None = None, unit_label: str = "",
     ) -> int:
-        """Legt das Produkt an oder frischt last_seen auf. Gibt product_id zurück."""
+        """Legt das Produkt an oder frischt last_seen auf. Gibt product_id zurück.
+
+        Eine einmal bekannte Packungsgröße wird nicht durch einen leeren Wert
+        überschrieben: liefert eine Quelle sie später nicht mehr mit, bleibt
+        der Grundpreis trotzdem berechenbar.
+        """
         now = ts if ts is not None else int(time.time())
         with self._conn() as con:
             con.execute(
                 "INSERT INTO products (item_id, retailer, title, title_norm, unit,"
-                " first_seen, last_seen) VALUES (?,?,?,?,?,?,?)"
+                " unit_size, unit_label, first_seen, last_seen)"
+                " VALUES (?,?,?,?,?,?,?,?,?)"
                 " ON CONFLICT(item_id, retailer, title_norm) DO UPDATE SET"
                 "   last_seen = excluded.last_seen,"
                 "   title = excluded.title,"
                 "   unit = CASE WHEN excluded.unit != '' THEN excluded.unit"
-                "               ELSE products.unit END",
-                (item_id, retailer, title, title_norm, unit, now, now),
+                "               ELSE products.unit END,"
+                "   unit_size = COALESCE(excluded.unit_size, products.unit_size),"
+                "   unit_label = CASE WHEN excluded.unit_label != ''"
+                "                     THEN excluded.unit_label"
+                "                     ELSE products.unit_label END",
+                (item_id, retailer, title, title_norm, unit,
+                 unit_size, unit_label, now, now),
             )
             row = con.execute(
                 "SELECT id FROM products WHERE item_id = ? AND retailer = ?"
@@ -454,26 +501,57 @@ class ShoppingDB:
 
     def best_current(self, item_id: int, max_age_s: int = 3 * _SECS_PER_DAY) -> dict | None:
         """Günstigster zuletzt gesehener Preis eines Artikels."""
+        return self._best(item_id, max_age_s, "p.price ASC, p.ts DESC")
+
+    def best_unit_price(
+        self, item_id: int, max_age_s: int = 3 * _SECS_PER_DAY
+    ) -> dict | None:
+        """Bestes Preis-Leistungs-Verhältnis (€/kg, €/l, €/Stück).
+
+        Das ist die eigentlich interessante Frage: 1,79 € für 250 g Butter ist
+        teurer als 2,49 € für 400 g, obwohl der Absolutpreis das Gegenteil
+        nahelegt. Produkte ohne bekannte Packungsgröße bleiben außen vor.
+        """
+        return self._best(
+            item_id, max_age_s,
+            "(p.price / pr.unit_size) ASC, p.ts DESC",
+            zusatz=" AND pr.unit_size IS NOT NULL AND pr.unit_size > 0",
+        )
+
+    def _best(
+        self, item_id: int, max_age_s: int, order: str, zusatz: str = ""
+    ) -> dict | None:
         cutoff = int(time.time()) - max_age_s
         with self._conn() as con:
             row = con.execute(
                 "SELECT p.price, p.ts, p.is_promo, pr.retailer, pr.title, pr.unit,"
-                "       pr.id AS product_id"
+                "       pr.unit_size, pr.unit_label, pr.id AS product_id"
                 " FROM price_points p JOIN products pr ON pr.id = p.product_id"
-                " WHERE pr.item_id = ? AND p.ts >= ?"
-                " ORDER BY p.price ASC, p.ts DESC LIMIT 1",
+                f" WHERE pr.item_id = ? AND p.ts >= ?{zusatz}"
+                f" ORDER BY {order} LIMIT 1",
                 (item_id, cutoff),
             ).fetchone()
         if not row:
             return None
+        from piclaw.shopping.units import format_size, format_unit_price, unit_price
+
+        preis = float(row["price"])
+        groesse = row["unit_size"]
+        groesse = float(groesse) if groesse is not None else None
+        label = row["unit_label"] or ""
         return {
             "product_id": int(row["product_id"]),
-            "price": float(row["price"]),
+            "price": preis,
             "ts": int(row["ts"]),
             "is_promo": bool(row["is_promo"]),
             "retailer": row["retailer"],
             "title": row["title"],
             "unit": row["unit"],
+            "unit_size": groesse,
+            "unit_label": label,
+            "size_text": format_size(groesse, label),
+            "unit_price": unit_price(preis, groesse),
+            "unit_price_text": format_unit_price(preis, groesse, label),
         }
 
     # ── Alerts ───────────────────────────────────────────────────────────
@@ -635,6 +713,7 @@ def _row_to_item(row: sqlite3.Row) -> Item:
 
 
 def _row_to_product(row: sqlite3.Row) -> Product:
+    groesse = row["unit_size"] if "unit_size" in row.keys() else None
     return Product(
         id=int(row["id"]),
         item_id=int(row["item_id"]),
@@ -642,6 +721,8 @@ def _row_to_product(row: sqlite3.Row) -> Product:
         title=row["title"],
         title_norm=row["title_norm"],
         unit=row["unit"] or "",
+        unit_size=float(groesse) if groesse is not None else None,
+        unit_label=(row["unit_label"] if "unit_label" in row.keys() else "") or "",
         first_seen=int(row["first_seen"]),
         last_seen=int(row["last_seen"]),
     )

@@ -459,6 +459,9 @@ async def shopping_items(_days: int = 90, user: User = Depends(require_auth)):
             out.append({
                 **item.to_dict(),
                 "best": best,
+                # Bestes Preis-Leistungs-Verhaeltnis – kann ein anderes
+                # Produkt sein als der niedrigste Absolutpreis.
+                "best_unit": db.best_unit_price(item.id),
                 "trend": analysis.trend(history),
                 "points": len(history),
                 "status": verdict.describe() if verdict else "Datenaufbau läuft",

@@ -126,7 +126,10 @@ async def shopping_list() -> str:
             suffix = f" _({', '.join(details)})_" if details else ""
             best = db.best_current(item.id)
             if best:
-                suffix += f" — aktuell {_price(best['price'])} bei {best['retailer']}"
+                grund = (f" · {best['unit_price_text']}"
+                         if best.get("unit_price_text") else "")
+                suffix += (f" — aktuell {_price(best['price'])}{grund}"
+                           f" bei {best['retailer']}")
             lines.append(f"• {item.name}{suffix}")
         if len(items) > MAX_LIST:
             lines.append(f"… und {len(items) - MAX_LIST} weitere")
@@ -277,6 +280,11 @@ async def shopping_offers(item: str = "") -> str:
                 if not offers:
                     continue
 
+                # Bester Grundpreis markieren: 1,79 € für 250 g ist teurer als
+                # 2,49 € für 400 g, der Absolutpreis allein führt in die Irre.
+                mit_grundpreis = [o for o in offers[:5] if o.unit_price is not None]
+                bester = min((o.unit_price for o in mit_grundpreis), default=None)
+
                 lines = [f"*{entry.name}*"]
                 for offer in offers[:5]:
                     shop = surroundings.nearest(offer.retailer_key)
@@ -284,8 +292,14 @@ async def shopping_offers(item: str = "") -> str:
                     alt = (f" ~{_price(offer.old_price)}~"
                            if offer.old_price and offer.old_price > (offer.price or 0)
                            else "")
+                    grund = ""
+                    if offer.unit_price_text:
+                        marke = " 🏆" if (bester is not None
+                                          and offer.unit_price == bester
+                                          and len(mit_grundpreis) > 1) else ""
+                        grund = f" ({offer.unit_price_text}){marke}"
                     lines.append(
-                        f"  {_price(offer.price)}{alt} — {offer.retailer}"
+                        f"  {_price(offer.price)}{alt}{grund} — {offer.retailer}"
                         f"{entfernung}\n    {offer.title}"
                     )
                 if entry.id:
@@ -343,7 +357,10 @@ async def shopping_test(query: str = "") -> str:
 
         lines = [f"🔍 »{query}« — {len(offers)} passende Treffer:"]
         for offer in offers[:5]:
-            lines.append(f"  {_price(offer.price)} — {offer.retailer}: {offer.title}")
+            grund = f" ({offer.unit_price_text})" if offer.unit_price_text else ""
+            lines.append(
+                f"  {_price(offer.price)}{grund} — {offer.retailer}: {offer.title}"
+            )
 
         # Aussortierte mitzeigen: sonst wirkt es wie ein Fehler, wenn zu
         # »Kaffee« keine »Kaffeepads« erscheinen. So sieht man den Grund und

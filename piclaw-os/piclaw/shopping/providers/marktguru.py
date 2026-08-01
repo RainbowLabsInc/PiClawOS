@@ -27,6 +27,11 @@ import aiohttp
 
 from piclaw.shopping.matching import normalize_retailer, retailer_label
 from piclaw.shopping.providers.base import Offer
+from piclaw.shopping.units import (
+    refine_size,
+    size_from_quantity,
+    size_from_reference,
+)
 
 log = logging.getLogger("piclaw.shopping.providers.marktguru")
 
@@ -152,10 +157,22 @@ def parse_offer(raw: dict) -> Offer | None:
     unit_parts = []
     if description:
         unit_parts.append(description)
-    ref = raw.get("referencePrice")
+    ref = _price(raw.get("referencePrice"))
     unit_info = raw.get("unit") or {}
-    if ref and unit_info.get("shortName"):
-        unit_parts.append(f"{ref} €/{unit_info['shortName']}")
+    short_name = str(unit_info.get("shortName") or "")
+    if ref and short_name:
+        unit_parts.append(f"{ref} €/{short_name}")
+
+    # marktguru liefert den Grundpreis bei praktisch jedem Angebot mit; daraus
+    # folgt die Packungsgröße direkt (1,79 € bei 7,16 €/kg ⇒ 250 g).
+    unit_size, unit_label = size_from_reference(price, ref, short_name)
+    text_size, text_label = size_from_quantity(description)
+    if unit_size is None:
+        unit_size, unit_label = text_size, text_label
+    elif text_label == unit_label:
+        # Beide Zahlen sind gerundet; die Textangabe ist die exaktere, wenn
+        # sie zur abgeleiteten passt (400,4 g → 400 g).
+        unit_size = refine_size(unit_size, text_size)
 
     return Offer(
         title=title,
@@ -164,6 +181,8 @@ def parse_offer(raw: dict) -> Offer | None:
         price=price,
         old_price=_price(raw.get("oldPrice")),
         unit=" · ".join(unit_parts),
+        unit_size=unit_size,
+        unit_label=unit_label,
         brand=brand,
         valid_from=valid_from,
         valid_to=valid_to,
