@@ -27,6 +27,12 @@ log = logging.getLogger("piclaw.shopping.matching")
 # anhängen ("REWE Center", "Lidl Filiale", "E center", "Aldi Süd").
 # Reihenfolge zählt: spezifischere Marken zuerst, damit "netto marken-discount"
 # nicht an einem allgemeineren Muster hängenbleibt.
+#
+# Aufgenommen wird nur, was auch eine Angebotsquelle liefert: die Liste ist
+# gegen die 469 Händler von `GET api.marktguru.de/api/v1/advertisers`
+# abgeglichen. Möbel und Elektronik (XXXLutz, IKEA, Media Markt) fehlen
+# bewusst – ihre OSM-Kategorien schleppen in Innenstädten dutzende
+# Einzelhändler ohne Prospekt mit und verdrängen echte Märkte aus MAX_SHOPS.
 _BRAND_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("aldi-nord", ("aldi nord",)),
     ("aldi-sued", ("aldi sued", "aldi sud", "aldi suued")),
@@ -43,10 +49,14 @@ _BRAND_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("famila", ("famila",)),
     ("combi", ("combi",)),
     ("marktkauf", ("marktkauf",)),
+    # Muss VOR "globus" stehen, sonst schluckt der Supermarkt den Baumarkt.
+    ("globus-baumarkt", ("globus baumarkt",)),
     ("globus", ("globus",)),
     ("hit", ("hit markt",)),
     ("tegut", ("tegut",)),
-    ("dm", ("dm drogerie", "dm-drogerie", "dm markt")),
+    # marktguru schreibt "dm-drogerie markt"; die Bindestrich-Variante fehlte
+    # und dm fiel dadurch komplett aus der Zuordnung.
+    ("dm", ("dm drogerie", "dm markt")),
     ("rossmann", ("rossmann",)),
     ("mueller", ("mueller", "muller")),
     ("budni", ("budni", "budnikowsky")),
@@ -56,8 +66,35 @@ _BRAND_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("trinkgut", ("trinkgut",)),
     ("getraenke-hoffmann", ("getraenke hoffmann", "getranke hoffmann")),
     ("fristo", ("fristo",)),
+    # ── Non-Food-Discounter ────────────────────────────────────────────
     ("action", ("action",)),
     ("woolworth", ("woolworth",)),
+    ("tedi", ("tedi",)),
+    ("thomas-philipps", ("thomas philipps",)),
+    ("mac-geiz", ("mac geiz", "maec geiz")),
+    ("pepco", ("pepco",)),
+    # ── Baumarkt ───────────────────────────────────────────────────────
+    ("obi", ("obi",)),
+    ("toom", ("toom",)),
+    ("hornbach", ("hornbach",)),
+    ("bauhaus", ("bauhaus",)),
+    ("hagebau", ("hagebau",)),
+    ("hellweg", ("hellweg",)),
+    ("baywa", ("baywa",)),
+    ("b1-baumarkt", ("b1 discount",)),
+    ("sonderpreis-baumarkt", ("sonderpreis baumarkt",)),
+    ("v-baumarkt", ("v baumarkt",)),
+    # ── Tierbedarf und Garten ──────────────────────────────────────────
+    ("fressnapf", ("fressnapf",)),
+    ("futterhaus", ("futterhaus",)),
+    ("dehner", ("dehner",)),
+    ("pflanzen-koelle", ("pflanzen koelle", "pflanzen kolle")),
+    ("megazoo", ("megazoo",)),
+    ("koelle-zoo", ("koelle zoo", "kolle zoo")),
+    ("zoo-zajac", ("zoo zajac",)),
+    ("zoo-co", ("zoo co",)),
+    ("raiffeisen", ("raiffeisen markt", "raiffeisen os", "zg raiffeisen")),
+    ("bellandris", ("bellandris",)),
 )
 
 # Anzeigename je kanonischem Schlüssel.
@@ -92,10 +129,41 @@ _BRAND_LABELS = {
     "fristo": "Fristo",
     "action": "Action",
     "woolworth": "Woolworth",
+    "tedi": "TEDi",
+    "thomas-philipps": "Thomas Philipps",
+    "mac-geiz": "Mäc Geiz",
+    "pepco": "Pepco",
+    "obi": "OBI",
+    "toom": "toom",
+    "hornbach": "HORNBACH",
+    "bauhaus": "BAUHAUS",
+    "hagebau": "Hagebaumarkt",
+    "hellweg": "HELLWEG",
+    "baywa": "BayWa Bau- & Gartenmarkt",
+    "b1-baumarkt": "B1 Discount Baumarkt",
+    "sonderpreis-baumarkt": "Sonderpreis-Baumarkt",
+    "v-baumarkt": "V-Baumarkt",
+    "globus-baumarkt": "Globus Baumarkt",
+    "fressnapf": "Fressnapf",
+    "futterhaus": "DAS FUTTERHAUS",
+    "dehner": "Dehner Garten-Center",
+    "pflanzen-koelle": "Pflanzen-Kölle",
+    "megazoo": "MEGAZOO",
+    "koelle-zoo": "KÖLLE-ZOO",
+    "zoo-zajac": "Zoo Zajac",
+    "zoo-co": "ZOO & CO",
+    "raiffeisen": "Raiffeisen-Markt",
+    "bellandris": "BELLANDRIS Gartencenter",
 }
 
-# "dm" ist zu kurz für Substring-Suche (steckt in "Edeka dm..." nicht, aber in
-# vielen Wörtern); deshalb exakte Treffer separat.
+# Namen, die für eine Substring-Suche zu kurz sind ("dm" steckt in vielen
+# Wörtern, "real" in "Areal"). Sie werden nur bei exakter Übereinstimmung
+# zugeordnet.
+#
+# Achtung: das gilt für das *Muster*, nicht für den ganzen Schlüssel. Ein
+# spezifischeres Muster desselben Schlüssels greift weiterhin – sonst fiele
+# "dm-drogerie markt" komplett aus der Zuordnung, weil es weder exakt "dm"
+# ist noch ein anderes Muster geprüft würde.
 _EXACT_BRANDS = {
     "dm": "dm",
     "hit": "hit",
@@ -174,9 +242,9 @@ def normalize_retailer(name: str) -> str:
         return _EXACT_BRANDS[flat]
 
     for key, patterns in _BRAND_PATTERNS:
-        if key in _EXACT_BRANDS:
-            continue  # nur über exakten Treffer oben erreichbar
         for pattern in patterns:
+            if pattern in _EXACT_BRANDS:
+                continue  # zu kurz – nur über den exakten Treffer oben
             if pattern in flat:
                 return key
     return ""

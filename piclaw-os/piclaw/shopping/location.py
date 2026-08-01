@@ -286,6 +286,45 @@ async def resolve_home(
     return None
 
 
+# Wie viele Filialen je erkannter Kette gespeichert werden. Gebraucht wird
+# eigentlich nur die nächste; ein paar mehr schaden nicht und machen die
+# Liste im Dashboard brauchbar.
+_PRO_KETTE = 3
+# Budget für Läden ohne erkannte Kette (Hofläden, Bäckereien, Kioske).
+_OHNE_KETTE = 60
+
+
+def _reduce(shops: list) -> list:
+    """Dampft die Ladenliste auf das fachlich Nötige ein.
+
+    Ohne das entscheidet in einer Innenstadt die schiere Zahl der Bäckereien
+    darüber, ob ein Baumarkt am Rand des Radius noch in die Liste passt –
+    und damit, ob dessen Angebote überhaupt angezeigt werden. Deshalb wird
+    **pro Kette** gekappt statt global nach Entfernung.
+
+    Die Liste kommt bereits nach Distanz sortiert an; die Reihenfolge bleibt
+    erhalten.
+    """
+    pro_kette: dict[str, int] = {}
+    ohne_kette = 0
+    behalten = []
+    for shop in shops:
+        key = normalize_retailer(shop.brand) or normalize_retailer(shop.name)
+        if key:
+            if pro_kette.get(key, 0) >= _PRO_KETTE:
+                continue
+            pro_kette[key] = pro_kette.get(key, 0) + 1
+        else:
+            if ohne_kette >= _OHNE_KETTE:
+                continue
+            ohne_kette += 1
+        behalten.append(shop)
+    if len(behalten) < len(shops):
+        log.debug("Ladenliste: %d → %d (max %d je Kette, %d ohne Kette)",
+                  len(shops), len(behalten), _PRO_KETTE, _OHNE_KETTE)
+    return behalten
+
+
 async def resolve_surroundings(
     session: aiohttp.ClientSession,
     home: Home,
@@ -323,6 +362,8 @@ async def resolve_surroundings(
                 radius_km=radius,
             )
         return Surroundings(radius_km=radius)
+
+    shops = _reduce(shops)
 
     serialised = []
     unknown: set[str] = set()

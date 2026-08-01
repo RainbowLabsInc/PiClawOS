@@ -167,6 +167,77 @@ def test_netto_discount_vor_netto():
     assert normalize_retailer("Netto Marken Discount") == "netto-discount"
 
 
+def test_globus_baumarkt_vor_globus():
+    """Gleiche Falle: der Supermarkt darf den Baumarkt nicht schlucken."""
+    assert normalize_retailer("Globus Baumarkt") == "globus-baumarkt"
+    assert normalize_retailer("GLOBUS") == "globus"
+
+
+@pytest.mark.parametrize(
+    "name, erwartet",
+    [
+        # Baumarkt
+        ("OBI", "obi"),
+        ("toom", "toom"),
+        ("HORNBACH", "hornbach"),
+        ("BAUHAUS", "bauhaus"),
+        ("Hagebaumarkt", "hagebau"),
+        ("HELLWEG", "hellweg"),
+        ("BayWa Bau- & Gartenmarkt", "baywa"),
+        ("B1 Discount Baumarkt", "b1-baumarkt"),
+        # Tierbedarf und Garten
+        ("Fressnapf", "fressnapf"),
+        ("DAS FUTTERHAUS", "futterhaus"),
+        ("Dehner Garten-Center", "dehner"),
+        ("Pflanzen-Kölle", "pflanzen-koelle"),
+        ("KÖLLE-ZOO", "koelle-zoo"),
+        ("ZOO & CO", "zoo-co"),
+        ("Zoo Zajac", "zoo-zajac"),
+        ("Raiffeisen-Markt", "raiffeisen"),
+        ("ZG Raiffeisen Markt", "raiffeisen"),
+        # Non-Food-Discounter
+        ("TEDi", "tedi"),
+        ("Thomas Philipps", "thomas-philipps"),
+        ("Mäc Geiz", "mac-geiz"),
+    ],
+)
+def test_nonfood_ketten(name, erwartet):
+    """Namen exakt so, wie marktguru sie liefert."""
+    assert normalize_retailer(name) == erwartet
+
+
+def test_dm_wird_trotz_kurznamen_erkannt():
+    """`dm` ist zu kurz für Substring-Suche, war deshalb ganz ausgefallen.
+
+    Die Exact-Sperre galt für den ganzen Schlüssel statt nur fürs kurze
+    Muster – dadurch wurde "dm-drogerie markt" nie zugeordnet.
+    """
+    assert normalize_retailer("dm") == "dm"
+    assert normalize_retailer("dm-drogerie markt") == "dm"
+    assert normalize_retailer("dm Drogerie Markt") == "dm"
+
+
+@pytest.mark.parametrize("name", ["real", "combi", "HIT Markt"])
+def test_kurze_namen_bleiben_exakt(name):
+    assert normalize_retailer(name) != ""
+
+
+def test_kurzer_name_matcht_nicht_als_substring():
+    """`real` darf nicht in `Areal` anschlagen."""
+    assert normalize_retailer("Areal Markt") == ""
+
+
+@pytest.mark.parametrize("name", ["XXXLutz", "IKEA", "Media Markt", "POCO"])
+def test_moebel_und_elektronik_bewusst_ohne_zuordnung(name):
+    """Nicht vergessen, sondern absichtlich draußen.
+
+    Ihre OSM-Kategorien (furniture, electronics) schleppen dutzende
+    Einzelhändler ohne Prospekt mit. Angebote dieser Ketten erscheinen
+    weiterhin, nur ohne Filiale und Entfernung.
+    """
+    assert normalize_retailer(name) == ""
+
+
 def test_retailer_label():
     assert retailer_label("netto-discount") == "Netto Marken-Discount"
     assert retailer_label("aldi-sued") == "ALDI SÜD"
