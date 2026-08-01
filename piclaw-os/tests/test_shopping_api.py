@@ -220,6 +220,109 @@ def test_test_route_ohne_query_ist_400(client):
     assert client.post("/api/shopping/test", json={}).status_code == 400
 
 
+# ── Wohnort ──────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def cfg_datei(tmp_path, monkeypatch):
+    import piclaw.config as config_mod
+
+    pfad = tmp_path / "config.toml"
+    pfad.write_text('agent_name = "PiClaw"\n\n[api]\nport = 7842\n', encoding="utf-8")
+    monkeypatch.setattr(config_mod, "CONFIG_FILE", pfad)
+    return pfad
+
+
+def test_home_get_liefert_leere_adresse(client, cfg_datei):
+    d = client.get("/api/shopping/home").json()
+
+    assert d["configured"] is False
+    assert d["street"] == ""
+    assert d["coords_override"] is False
+
+
+def test_home_setzen_und_wieder_lesen(client, cfg_datei, monkeypatch):
+    from piclaw.shopping import location
+
+    async def _fake_resolve(session, cfg=None, db=None, force=False):
+        return location.Home(lat=53.55, lon=9.99, precision="exact",
+                             zip_code="20095", source="address")
+
+    monkeypatch.setattr(location, "resolve_home", _fake_resolve)
+
+    r = client.post("/api/shopping/home", json={
+        "street": "Musterweg", "house_number": "12a",
+        "zip_code": "20095", "city": "Hamburg", "radius_km": 8,
+    })
+
+    assert r.status_code == 200
+    d = r.json()
+    assert d["saved"] is True
+    assert d["exact"] is True
+    assert d["warning"] == ""
+
+    gelesen = client.get("/api/shopping/home").json()
+    assert gelesen["street"] == "Musterweg"
+    assert gelesen["house_number"] == "12a"
+    assert gelesen["radius_km"] == 8
+    assert gelesen["configured"] is True
+
+
+def test_home_meldet_ungenaue_aufloesung(client, cfg_datei, monkeypatch):
+    """Ein PLZ-Zentroid darf nicht als Erfolg durchgehen."""
+    from piclaw.shopping import location
+
+    async def _fake_resolve(session, cfg=None, db=None, force=False):
+        return location.Home(lat=53.55, lon=9.99, precision="postcode",
+                             zip_code="20095", source="address")
+
+    monkeypatch.setattr(location, "resolve_home", _fake_resolve)
+
+    d = client.post("/api/shopping/home",
+                    json={"zip_code": "20095", "city": "Hamburg"}).json()
+
+    assert d["saved"] is True
+    assert d["exact"] is False
+    assert "Haustür" in d["warning"] or "PLZ" in d["warning"]
+
+
+def test_home_meldet_unauffindbare_adresse(client, cfg_datei, monkeypatch):
+    from piclaw.shopping import location
+
+    async def _fake_resolve(session, cfg=None, db=None, force=False):
+        return None
+
+    monkeypatch.setattr(location, "resolve_home", _fake_resolve)
+
+    d = client.post("/api/shopping/home",
+                    json={"street": "Gibtsnicht", "city": "Nirgendwo"}).json()
+
+    assert d["saved"] is True
+    assert d["resolved"] is False
+
+
+def test_home_ohne_angaben_ist_400(client, cfg_datei):
+    assert client.post("/api/shopping/home", json={}).status_code == 400
+    assert client.post("/api/shopping/home",
+                       json={"street": "  "}).status_code == 400
+
+
+def test_home_ungueltiger_radius_ist_400(client, cfg_datei):
+    r = client.post("/api/shopping/home",
+                    json={"zip_code": "20095", "radius_km": "weit"})
+
+    assert r.status_code == 400
+
+
+def test_home_meldet_feste_koordinaten(client, cfg_datei):
+    """Sie haben Vorrang – die UI muss davor warnen."""
+    cfg_datei.write_text(
+        '[shopping]\nhome_street = "X"\nhome_latitude = 52.5\n'
+        'home_longitude = 13.4\n', encoding="utf-8")
+
+    assert client.get("/api/shopping/home").json()["coords_override"] is True
+
+
 def test_test_route_fuer_bestehenden_artikel(client, monkeypatch):
     from piclaw.shopping.providers.base import Offer
 

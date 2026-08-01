@@ -109,6 +109,100 @@ def address_parts(cfg=None) -> tuple[str, str, str, str, str]:
     )
 
 
+_ADDRESS_KEYS = (
+    "home_street", "home_house_number", "home_zip", "home_city", "home_country",
+)
+
+
+def _toml_escape(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def write_home_address(
+    street: str = "", house_number: str = "", zip_code: str = "",
+    city: str = "", country: str = "de", radius_km: float | None = None,
+) -> None:
+    """Schreibt die Adresse in die [shopping]-Sektion der config.toml.
+
+    Bewusst NICHT über config.save(): das schreibt die ganze Datei neu, und
+    config.load() injiziert vorher die entschlüsselten Werte aus secrets.enc
+    in das Objekt. Auf einer Installation mit `@enc:`-Platzhaltern in der
+    config.toml würden diese Platzhalter dadurch durch Klartext-Secrets
+    ersetzt. Hier wird deshalb nur die eine Sektion angefasst; alle übrigen
+    Zeilen der Datei bleiben Byte für Byte erhalten.
+
+    Vorhandene weitere Keys in [shopping] (radius_km, providers, Schwellen)
+    überleben ebenfalls – es werden nur die Adresszeilen ersetzt.
+    """
+    from piclaw.config import CONFIG_FILE
+    from piclaw.fileutils import atomic_write_text, with_file_lock
+
+    neu: dict[str, str] = {
+        "home_street": street.strip(),
+        "home_house_number": house_number.strip(),
+        "home_zip": zip_code.strip(),
+        "home_city": city.strip(),
+        "home_country": (country or "de").strip().lower(),
+    }
+    # Explizite Koordinaten würden die neue Adresse aushebeln – rauswerfen.
+    entfernen = {"home_latitude", "home_longitude"}
+    if radius_km is not None:
+        neu["radius_km"] = radius_km
+
+    def _rendern(key: str, value) -> str:
+        if isinstance(value, (int, float)):
+            return f"{key} = {value}"
+        return f'{key} = "{_toml_escape(value)}"'
+
+    def _schreiben() -> None:
+        text = CONFIG_FILE.read_text(encoding="utf-8") if CONFIG_FILE.exists() else ""
+        zeilen = text.splitlines()
+
+        out: list[str] = []
+        in_shopping = False
+        gesehen = False
+        geschrieben = False
+
+        for zeile in zeilen:
+            stripped = zeile.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                if in_shopping and not geschrieben:
+                    out.extend(_rendern(k, v) for k, v in neu.items())
+                    geschrieben = True
+                in_shopping = stripped == "[shopping]"
+                gesehen = gesehen or in_shopping
+                out.append(zeile)
+                continue
+            if in_shopping:
+                key = stripped.split("=", 1)[0].strip() if "=" in stripped else ""
+                if key in neu or key in entfernen:
+                    continue  # wird ersetzt bzw. verworfen
+                if not geschrieben and stripped and not stripped.startswith("#"):
+                    out.extend(_rendern(k, v) for k, v in neu.items())
+                    geschrieben = True
+            out.append(zeile)
+
+        if in_shopping and not geschrieben:
+            out.extend(_rendern(k, v) for k, v in neu.items())
+        elif not gesehen:
+            if out and out[-1].strip():
+                out.append("")
+            out.append("[shopping]")
+            out.extend(_rendern(k, v) for k, v in neu.items())
+
+        atomic_write_text(CONFIG_FILE, "\n".join(out) + "\n")
+
+    try:
+        with with_file_lock(CONFIG_FILE):
+            _schreiben()
+    except TimeoutError as exc:
+        log.error("config.toml gesperrt: %s", exc)
+        raise
+    # Bewusst ohne die Adresse im Log – das Repo ist öffentlich und Logzeilen
+    # landen in Support-Ausschnitten.
+    log.info("Heimatadresse in config.toml aktualisiert")
+
+
 async def resolve_home(
     session: aiohttp.ClientSession,
     cfg=None,

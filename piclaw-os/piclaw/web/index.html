@@ -578,7 +578,31 @@ Frag mich alles über diesen Raspberry Pi – Hardware, Services, WLAN, GPIO, Su
       <span id="shopping-sample-status" style="font-size:11px;color:var(--text2)"></span>
     </div>
 
-    <div id="shopping-location" style="font-size:12px;color:var(--text2);margin-bottom:16px"></div>
+    <div id="shopping-location" style="font-size:12px;color:var(--text2);margin-bottom:8px"></div>
+
+    <!-- Wohnort. Die Umkreissuche haengt an der Hausnummer, nicht an der PLZ:
+         ein PLZ-Zentroid liegt in Grossstaedten Kilometer daneben. Deshalb
+         wird die Genauigkeit nach dem Speichern immer zurueckgemeldet. -->
+    <details id="shopping-home-box" style="margin-bottom:20px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--accent)">
+        📍 Wohnort festlegen</summary>
+      <div class="card" style="padding:16px;margin-top:10px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="home-street" placeholder="Straße" style="flex:3 1 200px">
+          <input id="home-nr" placeholder="Nr." style="flex:1 1 70px">
+          <input id="home-zip" placeholder="PLZ" style="flex:1 1 90px">
+          <input id="home-city" placeholder="Ort" style="flex:2 1 150px">
+          <input id="home-radius" type="number" min="1" max="50" step="1"
+                 placeholder="km" title="Umkreis in km" style="flex:1 1 80px">
+          <button class="btn btn-primary" onclick="shoppingHomeSave()"
+                  id="home-save-btn">Speichern</button>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-top:8px">
+          Mit Hausnummer, sonst liegt der Umkreis-Mittelpunkt daneben.
+        </div>
+        <div id="home-result" style="margin-top:10px;font-size:12px"></div>
+      </div>
+    </details>
 
     <!-- Artikel anlegen. Der Testen-Knopf prüft den Suchbegriff live,
          bevor der Artikel wochenlang stumm auf der Liste steht. -->
@@ -1353,6 +1377,7 @@ async function loadShopping(){
   }catch(e){
     if(box) box.innerHTML = `<p style="color:var(--red);font-size:12px">❌ ${esc(e.message)}</p>`;
   }
+  loadShoppingHome();
   loadShoppingStores();
 }
 
@@ -1551,6 +1576,68 @@ async function shoppingSample(){
   }finally{ if(btn) btn.disabled = false; }
 }
 
+async function loadShoppingHome(){
+  try{
+    const r = await authFetch('/api/shopping/home');
+    const d = await r.json();
+    if(d.error) return;
+    const set=(id,v)=>{const el=document.getElementById(id); if(el&&v!=null) el.value=v;};
+    set('home-street', d.street); set('home-nr', d.house_number);
+    set('home-zip', d.zip_code);  set('home-city', d.city);
+    set('home-radius', d.radius_km);
+    // Ohne Adresse das Formular gleich aufklappen – sonst sucht man es.
+    const box = document.getElementById('shopping-home-box');
+    if(box && !d.configured) box.open = true;
+    if(d.coords_override){
+      const res = document.getElementById('home-result');
+      if(res) res.innerHTML = '<span style="color:var(--yellow)">⚠️ In der config.toml '
+        + 'sind feste Koordinaten gesetzt (home_latitude/home_longitude). '
+        + 'Die haben Vorrang – eine hier gespeicherte Adresse bleibt wirkungslos, '
+        + 'bis sie entfernt sind.</span>';
+    }
+  }catch(e){ console.debug('Home:',e); }
+}
+
+async function shoppingHomeSave(){
+  const body = {
+    street:       document.getElementById('home-street').value.trim(),
+    house_number: document.getElementById('home-nr').value.trim(),
+    zip_code:     document.getElementById('home-zip').value.trim(),
+    city:         document.getElementById('home-city').value.trim(),
+    radius_km:    document.getElementById('home-radius').value || null,
+  };
+  const btn = document.getElementById('home-save-btn');
+  const res = document.getElementById('home-result');
+  if(btn) btn.disabled = true;
+  if(res) res.innerHTML = '<span style="color:var(--text2)">📍 Adresse wird geprüft…</span>';
+  try{
+    const r = await authFetch('/api/shopping/home', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+
+    if(d.exact){
+      res.innerHTML = '<span style="color:var(--green)">✅ Gespeichert, Hausnummer gefunden.'
+        + ' Die Entfernungen stimmen.</span>';
+    }else if(d.resolved){
+      // Kein Erfolg im eigentlichen Sinn: der Umkreis liegt jetzt um einen
+      // Strassen- oder Ortsmittelpunkt.
+      res.innerHTML = `<span style="color:var(--yellow)">⚠️ Gespeichert, aber nur ungenau `
+        + `aufgelöst (${esc(d.precision||'')}).<br>${esc(d.warning||'')}<br>`
+        + 'Notfalls <code>home_latitude</code>/<code>home_longitude</code> in der '
+        + 'config.toml setzen – die haben Vorrang.</span>';
+    }else{
+      res.innerHTML = `<span style="color:var(--red)">❌ ${esc(d.warning||'Nicht gefunden')}</span>`;
+    }
+    showToast('Wohnort gespeichert','ok');
+    loadShopping();
+  }catch(e){
+    if(res) res.innerHTML = `<span style="color:var(--red)">❌ ${esc(e.message)}</span>`;
+  }finally{ if(btn) btn.disabled = false; }
+}
+
 async function loadShoppingStores(){
   const box = document.getElementById('shopping-stores');
   const info = document.getElementById('shopping-location');
@@ -1560,8 +1647,8 @@ async function loadShoppingStores(){
     if(info){
       if(d.configured === false){
         info.innerHTML = '📍 <span style="color:var(--yellow)">Kein Wohnort hinterlegt.</span> '
-          + 'Adresse in <code>[shopping]</code> der config.toml eintragen oder '
-          + 'den Bot fragen: „setz meinen Wohnort auf …"';
+          + 'Unten unter „Wohnort festlegen" eintragen – ohne Adresse gibt es '
+          + 'keine Umkreissuche.';
       }else if(d.error){
         info.innerHTML = `<span style="color:var(--red)">❌ ${esc(d.error)}</span>`;
       }else{

@@ -597,6 +597,97 @@ async def _shopping_probe(query: str, strict: bool = True) -> dict:
         return {"query": query, "error": str(e), "matches": [], "rejected": []}
 
 
+@app.get("/api/shopping/home")
+async def shopping_home_get(_: User = Depends(require_auth)):
+    """Aktuelle Heimatadresse – befuellt das Formular im Dashboard vor."""
+    from piclaw.shopping import location
+
+    try:
+        cfg = load_cfg()
+        street, house_number, zip_code, city, country = location.address_parts(cfg)
+        sc = location._shopping_cfg(cfg)
+        return {
+            "street": street,
+            "house_number": house_number,
+            "zip_code": zip_code,
+            "city": city,
+            "country": country,
+            # Gleiche Quelle wie die Umkreissuche, inkl. Per-User-Override –
+            # sonst zeigt das Formular einen anderen Radius als gesucht wird.
+            "radius_km": location._user_override(
+                "shopping", "radius_km", sc.radius_km
+            ),
+            "configured": bool(street or zip_code or city),
+            # Sind Koordinaten fest gesetzt, haben sie Vorrang – das muss die
+            # UI wissen, sonst wundert sich der Nutzer, warum die Adresse
+            # keine Wirkung hat.
+            "coords_override": getattr(sc, "home_latitude", None) is not None,
+        }
+    except Exception as e:
+        log.exception("shopping_home_get: %s", e)
+        return {"error": str(e), "configured": False}
+
+
+@app.post("/api/shopping/home")
+async def shopping_home_set(request: Request, _: User = Depends(require_admin)):
+    """Setzt die Heimatadresse und meldet zurueck, wie genau sie auflöst.
+
+    require_admin, weil das die globale config.toml aendert.
+
+    Antwortet immer mit der Genauigkeit: ein PLZ-Zentroid als Mittelpunkt
+    macht alle Entfernungen wertlos, und das darf nicht stillschweigend
+    passieren.
+    """
+    import aiohttp
+
+    from piclaw.shopping import location
+
+    body = await request.json()
+    street = (body.get("street") or "").strip()
+    zip_code = (body.get("zip_code") or "").strip()
+    city = (body.get("city") or "").strip()
+    if not (street or zip_code or city):
+        raise HTTPException(400, "Mindestens Straße, PLZ oder Ort angeben")
+
+    radius = body.get("radius_km")
+    try:
+        radius = float(radius) if radius not in (None, "") else None
+    except (TypeError, ValueError):
+        raise HTTPException(400, "radius_km muss eine Zahl sein") from None
+
+    try:
+        location.write_home_address(
+            street=street,
+            house_number=(body.get("house_number") or "").strip(),
+            zip_code=zip_code,
+            city=city,
+            country=(body.get("country") or "de").strip().lower(),
+            radius_km=radius,
+        )
+    except Exception as e:
+        log.exception("Heimatadresse schreiben fehlgeschlagen: %s", e)
+        raise HTTPException(500, f"config.toml nicht schreibbar: {e}") from None
+
+    cfg = load_cfg()
+    async with aiohttp.ClientSession() as session:
+        home = await location.resolve_home(session, cfg=cfg, force=True)
+
+    if home is None:
+        return {
+            "saved": True, "resolved": False, "exact": False,
+            "warning": ("Adresse gespeichert, aber nicht auffindbar. "
+                        "Schreibweise prüfen oder Koordinaten direkt setzen."),
+        }
+    return {
+        "saved": True,
+        "resolved": True,
+        "exact": home.is_exact,
+        "precision": home.precision,
+        "zip_code": home.zip_code,
+        "warning": home.warning,
+    }
+
+
 @app.get("/api/shopping/stores")
 async def shopping_stores_list(refresh: bool = False, _: User = Depends(require_auth)):
     import aiohttp

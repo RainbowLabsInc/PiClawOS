@@ -145,25 +145,22 @@ async def shopping_home(
 ) -> str:
     """Zeigt oder setzt die Hausadresse und meldet die Auflösungsgenauigkeit."""
     try:
-        from piclaw.config import load, save
+        from piclaw.config import load
+
+        if any([street, house_number, zip_code, city, country]):
+            # Nur die [shopping]-Sektion anfassen, nicht die ganze Datei neu
+            # rendern – sonst landen entschlüsselte Secrets im Klartext, wo
+            # `@enc:`-Platzhalter standen. Siehe write_home_address().
+            alt = location._shopping_cfg(None)
+            location.write_home_address(
+                street=street or alt.home_street,
+                house_number=house_number or alt.home_house_number,
+                zip_code=zip_code or alt.home_zip,
+                city=city or alt.home_city,
+                country=country or alt.home_country,
+            )
 
         cfg = load()
-        if any([street, house_number, zip_code, city, country]):
-            if street:
-                cfg.shopping.home_street = street.strip()
-            if house_number:
-                cfg.shopping.home_house_number = house_number.strip()
-            if zip_code:
-                cfg.shopping.home_zip = zip_code.strip()
-            if city:
-                cfg.shopping.home_city = city.strip()
-            if country:
-                cfg.shopping.home_country = country.strip().lower()
-            # Explizite Koordinaten würden die neue Adresse aushebeln.
-            cfg.shopping.home_latitude = None
-            cfg.shopping.home_longitude = None
-            save(cfg)
-
         street_c, nr_c, zip_c, city_c, _ = location.address_parts(cfg)
         if not (street_c or zip_c or city_c):
             return location.NOT_CONFIGURED
