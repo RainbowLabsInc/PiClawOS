@@ -422,6 +422,307 @@ async def subagent_history(name: str, limit: int = 20, user: User = Depends(requ
     }
 
 
+# ── Einkaufsliste ─────────────────────────────────────────────────
+#
+# Nur GET/POST/DELETE – die CORS-Middleware oben laesst PUT/PATCH nicht zu.
+# Sichtbarkeit wie bei Sub-Agenten: fremde Artikel geben 404 statt 403,
+# damit die Existenz nicht durchsickert.
+
+
+def _shopping_scope(user: User) -> str | None:
+    """None = sieht alles (Admin), sonst die eigene User-ID."""
+    return None if user.is_admin else user.id
+
+
+def _shopping_item_or_404(db, item_id: int, user: User):
+    item = db.get_item(item_id)
+    if not item or (not user.is_admin and item.owner_id not in (None, user.id)):
+        raise HTTPException(404, f"Artikel {item_id} nicht gefunden")
+    return item
+
+
+@app.get("/api/shopping/items")
+async def shopping_items(_days: int = 90, user: User = Depends(require_auth)):
+    """Liste inkl. bestem aktuellem Preis und Trend."""
+    try:
+        from piclaw.shopping import analysis
+        from piclaw.shopping.store import get_db
+
+        db = get_db()
+        out = []
+        for item in db.list_items(owner_id=_shopping_scope(user)):
+            history = db.item_history(item.id)
+            best = db.best_current(item.id)
+            verdict = None
+            if best and history:
+                verdict = analysis.evaluate(history[:-1], best["price"])
+            out.append({
+                **item.to_dict(),
+                "best": best,
+                "trend": analysis.trend(history),
+                "points": len(history),
+                "status": verdict.describe() if verdict else "Datenaufbau läuft",
+                "is_drop": bool(verdict and verdict.is_drop),
+            })
+        return {"items": out}
+    except Exception as e:
+        log.exception("shopping_items: %s", e)
+        return {"error": str(e), "items": []}
+
+
+@app.post("/api/shopping/items")
+async def shopping_item_create(request: Request, user: User = Depends(require_auth)):
+    from piclaw.shopping.store import get_db
+
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "Feld 'name' fehlt")
+
+    db = get_db()
+    owner_id = _shopping_scope(user)
+    if db.find_item_by_name(name, owner_id=owner_id):
+        raise HTTPException(409, f"'{name}' steht schon auf der Liste")
+
+    max_price = body.get("max_price")
+    try:
+        max_price = float(max_price) if max_price not in (None, "") else None
+    except (TypeError, ValueError):
+        raise HTTPException(400, "max_price muss eine Zahl sein") from None
+
+    item = db.add_item(
+        name,
+        query=(body.get("query") or "").strip(),
+        qty=(body.get("qty") or "").strip(),
+        max_price=max_price,
+        owner_id=owner_id,
+    )
+    return {"created": True, **item.to_dict()}
+
+
+@app.delete("/api/shopping/items/{item_id}")
+async def shopping_item_remove(item_id: int, user: User = Depends(require_auth)):
+    from piclaw.shopping.store import get_db
+
+    db = get_db()
+    item = _shopping_item_or_404(db, item_id, user)
+    return {"removed": db.remove_item(item.id), "name": item.name}
+
+
+@app.get("/api/shopping/items/{item_id}/history")
+async def shopping_item_history(
+    item_id: int, days: int = 90, user: User = Depends(require_auth)
+):
+    """Preisreihe fuer die Sparkline.
+
+    Format {data:[{ts,value}]} wie /api/metrics/chart/{name}, damit das
+    Dashboard dieselbe Chart-Funktion nutzen kann.
+    """
+    import time
+
+    from piclaw.shopping.store import get_db
+
+    db = get_db()
+    item = _shopping_item_or_404(db, item_id, user)
+    since = int(time.time()) - max(1, days) * 86_400
+    series = db.item_history(item.id, since_ts=since)
+    return {
+        "id": item.id,
+        "name": item.name,
+        "days": days,
+        "data": [{"ts": ts, "value": price} for ts, price in series],
+        "products": [
+            {**p.to_dict(), "points": len(db.history(p.id, since_ts=since))}
+            for p in db.list_products(item.id)
+        ],
+    }
+
+
+@app.post("/api/shopping/test")
+async def shopping_test_query(request: Request, _: User = Depends(require_auth)):
+    """Live-Test eines Suchbegriffs, ohne etwas zu speichern.
+
+    Der Testen-Knopf im Dashboard: zeigt sofort, ob ein Begriff ueberhaupt
+    Treffer liefert. Faengt Tippfehler ab und macht sichtbar, dass
+    zusammengesetzte Woerter oft nichts finden.
+    """
+    body = await request.json()
+    query = (body.get("query") or "").strip()
+    if not query:
+        raise HTTPException(400, "Feld 'query' fehlt")
+    return await _shopping_probe(query)
+
+
+@app.post("/api/shopping/items/{item_id}/test")
+async def shopping_test_item(item_id: int, user: User = Depends(require_auth)):
+    from piclaw.shopping.store import get_db
+
+    db = get_db()
+    item = _shopping_item_or_404(db, item_id, user)
+    return await _shopping_probe(item.search_term, strict=item.strict_matching)
+
+
+async def _shopping_probe(query: str, strict: bool = True) -> dict:
+    import aiohttp
+
+    from piclaw.shopping import location
+    from piclaw.shopping.matching import matches_item, normalize_title
+    from piclaw.shopping.providers import search_all
+
+    try:
+        cfg = location._shopping_cfg(None)
+        async with aiohttp.ClientSession() as session:
+            home, _surroundings = await location.resolve(session)
+            offers = await search_all(
+                session, query,
+                zip_code=home.zip_code if home else "",
+                lat=home.lat if home else None,
+                lon=home.lon if home else None,
+                providers=cfg.providers, active_only=True, limit=20,
+            )
+        matched, rejected = [], []
+        for offer in offers:
+            passt = not strict or matches_item(
+                normalize_title(offer.brand, offer.title), query
+            )
+            (matched if passt else rejected).append(offer.to_dict())
+        return {
+            "query": query,
+            "matches": matched[:8],
+            "rejected": rejected[:5],
+            "total": len(matched),
+        }
+    except Exception as e:
+        log.exception("shopping test '%s': %s", query, e)
+        return {"query": query, "error": str(e), "matches": [], "rejected": []}
+
+
+@app.get("/api/shopping/home")
+async def shopping_home_get(_: User = Depends(require_auth)):
+    """Aktuelle Heimatadresse – befuellt das Formular im Dashboard vor."""
+    from piclaw.shopping import location
+
+    try:
+        cfg = load_cfg()
+        street, house_number, zip_code, city, country = location.address_parts(cfg)
+        sc = location._shopping_cfg(cfg)
+        return {
+            "street": street,
+            "house_number": house_number,
+            "zip_code": zip_code,
+            "city": city,
+            "country": country,
+            # Gleiche Quelle wie die Umkreissuche, inkl. Per-User-Override –
+            # sonst zeigt das Formular einen anderen Radius als gesucht wird.
+            "radius_km": location._user_override(
+                "shopping", "radius_km", sc.radius_km
+            ),
+            "configured": bool(street or zip_code or city),
+            # Sind Koordinaten fest gesetzt, haben sie Vorrang – das muss die
+            # UI wissen, sonst wundert sich der Nutzer, warum die Adresse
+            # keine Wirkung hat.
+            "coords_override": getattr(sc, "home_latitude", None) is not None,
+        }
+    except Exception as e:
+        log.exception("shopping_home_get: %s", e)
+        return {"error": str(e), "configured": False}
+
+
+@app.post("/api/shopping/home")
+async def shopping_home_set(request: Request, _: User = Depends(require_admin)):
+    """Setzt die Heimatadresse und meldet zurueck, wie genau sie auflöst.
+
+    require_admin, weil das die globale config.toml aendert.
+
+    Antwortet immer mit der Genauigkeit: ein PLZ-Zentroid als Mittelpunkt
+    macht alle Entfernungen wertlos, und das darf nicht stillschweigend
+    passieren.
+    """
+    import aiohttp
+
+    from piclaw.shopping import location
+
+    body = await request.json()
+    street = (body.get("street") or "").strip()
+    zip_code = (body.get("zip_code") or "").strip()
+    city = (body.get("city") or "").strip()
+    if not (street or zip_code or city):
+        raise HTTPException(400, "Mindestens Straße, PLZ oder Ort angeben")
+
+    radius = body.get("radius_km")
+    try:
+        radius = float(radius) if radius not in (None, "") else None
+    except (TypeError, ValueError):
+        raise HTTPException(400, "radius_km muss eine Zahl sein") from None
+
+    try:
+        location.write_home_address(
+            street=street,
+            house_number=(body.get("house_number") or "").strip(),
+            zip_code=zip_code,
+            city=city,
+            country=(body.get("country") or "de").strip().lower(),
+            radius_km=radius,
+        )
+    except Exception as e:
+        log.exception("Heimatadresse schreiben fehlgeschlagen: %s", e)
+        raise HTTPException(500, f"config.toml nicht schreibbar: {e}") from None
+
+    cfg = load_cfg()
+    async with aiohttp.ClientSession() as session:
+        home = await location.resolve_home(session, cfg=cfg, force=True)
+
+    if home is None:
+        return {
+            "saved": True, "resolved": False, "exact": False,
+            "warning": ("Adresse gespeichert, aber nicht auffindbar. "
+                        "Schreibweise prüfen oder Koordinaten direkt setzen."),
+        }
+    return {
+        "saved": True,
+        "resolved": True,
+        "exact": home.is_exact,
+        "precision": home.precision,
+        "zip_code": home.zip_code,
+        "warning": home.warning,
+    }
+
+
+@app.get("/api/shopping/stores")
+async def shopping_stores_list(refresh: bool = False, _: User = Depends(require_auth)):
+    import aiohttp
+
+    from piclaw.shopping import location
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            home, surroundings = await location.resolve(session, force=refresh)
+        if home is None:
+            return {"configured": False, "shops": [],
+                    "hint": "Kein Wohnort hinterlegt"}
+        return {
+            "configured": True,
+            "radius_km": surroundings.radius_km,
+            "precision": home.precision,
+            "exact": home.is_exact,
+            "warning": home.warning,
+            "from_cache": surroundings.from_cache,
+            "shops": surroundings.shops,
+        }
+    except Exception as e:
+        log.exception("shopping_stores: %s", e)
+        return {"error": str(e), "shops": []}
+
+
+@app.post("/api/shopping/sample")
+async def shopping_sample_now(_: User = Depends(require_admin)):
+    """Loest den Preis-Sammellauf sofort aus (sonst taeglich 06:00)."""
+    from piclaw.shopping.sampler import run_sample
+
+    create_background_task(run_sample(), name="shopping-sample-api")
+    return {"triggered": True}
+
+
 # ── Soul endpoints ────────────────────────────────────────────────
 
 @app.get("/api/soul")

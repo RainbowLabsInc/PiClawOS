@@ -181,6 +181,7 @@
     <button class="tab"        onclick="showPanel('metrics',this)">📊 Metriken</button>
     <button class="tab"        onclick="showPanel('llm',this)">🧠 LLM</button>
     <button class="tab"        onclick="showPanel('camera',this)">📷 Kamera</button>
+    <button class="tab"        onclick="showPanel('shopping',this)">🛒 Einkauf</button>
     <button class="tab" id="tab-users" style="display:none" onclick="showPanel('users',this)">👥 Users</button>
     <button class="tab"        onclick="showPanel('chat',this)">Chat</button>
   </div>
@@ -565,6 +566,70 @@ Frag mich alles über diesen Raspberry Pi – Hardware, Services, WLAN, GPIO, Su
   </div>
 </div>
 
+<!-- Einkaufsliste -->
+<div class="panel" id="shopping">
+  <div style="padding:20px;overflow-y:auto;width:100%">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <h2 style="font-size:15px;color:var(--accent)">🛒 Einkaufsliste</h2>
+      <button class="btn btn-ghost" onclick="loadShopping()">↻ Refresh</button>
+      <button class="btn btn-ghost" onclick="shoppingSample()" id="shopping-sample-btn"
+              title="Preise sofort erfassen statt auf den täglichen Lauf zu warten">
+        ⏱ Preise jetzt erfassen</button>
+      <span id="shopping-sample-status" style="font-size:11px;color:var(--text2)"></span>
+    </div>
+
+    <div id="shopping-location" style="font-size:12px;color:var(--text2);margin-bottom:8px"></div>
+
+    <!-- Wohnort. Die Umkreissuche haengt an der Hausnummer, nicht an der PLZ:
+         ein PLZ-Zentroid liegt in Grossstaedten Kilometer daneben. Deshalb
+         wird die Genauigkeit nach dem Speichern immer zurueckgemeldet. -->
+    <details id="shopping-home-box" style="margin-bottom:20px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--accent)">
+        📍 Wohnort festlegen</summary>
+      <div class="card" style="padding:16px;margin-top:10px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="home-street" placeholder="Straße" style="flex:3 1 200px">
+          <input id="home-nr" placeholder="Nr." style="flex:1 1 70px">
+          <input id="home-zip" placeholder="PLZ" style="flex:1 1 90px">
+          <input id="home-city" placeholder="Ort" style="flex:2 1 150px">
+          <input id="home-radius" type="number" min="1" max="50" step="1"
+                 placeholder="km" title="Umkreis in km" style="flex:1 1 80px">
+          <button class="btn btn-primary" onclick="shoppingHomeSave()"
+                  id="home-save-btn">Speichern</button>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-top:8px">
+          Mit Hausnummer, sonst liegt der Umkreis-Mittelpunkt daneben.
+        </div>
+        <div id="home-result" style="margin-top:10px;font-size:12px"></div>
+      </div>
+    </details>
+
+    <!-- Artikel anlegen. Der Testen-Knopf prüft den Suchbegriff live,
+         bevor der Artikel wochenlang stumm auf der Liste steht. -->
+    <div class="card" style="padding:16px;margin-bottom:20px">
+      <div class="section-title" style="margin-bottom:10px">Artikel hinzufügen</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+        <input id="shopping-name" placeholder="z.B. Butter" style="flex:2 1 180px"
+               onkeydown="if(event.key==='Enter')shoppingAdd()">
+        <input id="shopping-qty" placeholder="Menge (250g)" style="flex:1 1 120px">
+        <input id="shopping-max" type="number" step="0.01" min="0"
+               placeholder="max. €" style="flex:1 1 100px">
+        <button class="btn btn-ghost" onclick="shoppingTest()" id="shopping-test-btn">🔍 Testen</button>
+        <button class="btn btn-primary" onclick="shoppingAdd()">Hinzufügen</button>
+      </div>
+      <div id="shopping-test-result" style="margin-top:12px;font-size:12px"></div>
+    </div>
+
+    <div id="shopping-items"></div>
+
+    <details style="margin-top:24px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--text2)">
+        🏪 Märkte im Umkreis</summary>
+      <div id="shopping-stores" style="margin-top:12px"></div>
+    </details>
+  </div>
+</div>
+
 <!-- LLM-Backends -->
 <div class="panel" id="llm">
   <div style="padding:20px;overflow-y:auto;width:100%">
@@ -661,6 +726,7 @@ function showPanel(name,tabEl){
   if(name==='metrics') loadMetrics();
   if(name==='llm')     loadLLM();
   if(name==='camera')  loadCameraList();
+  if(name==='shopping')loadShopping();
   if(name==='users')   loadUsers();
   if(name==='memory')refreshMemoryStats();
 }
@@ -1290,6 +1356,317 @@ async function renderMetricChart(metric, canvasId, since, unit, color){
     ctx.fillText(`${minV.toFixed(1)}${unit}`, 4, H-3);
     ctx.fillText(`${maxV.toFixed(1)}${unit}`, 4, 12);
   }catch(e){console.debug('Chart error:',metric,e);}
+}
+
+// ── Einkaufsliste ─────────────────────────────────────────────────
+const shopEuro = v => (v==null ? '—' : Number(v).toFixed(2).replace('.',',')+' €');
+
+// Namen werden hier nachgeschlagen statt durch onclick-Attribute gereicht:
+// esc() maskiert nur & < >, kein Apostroph – ein Artikel wie "Lay's Chips"
+// würde das Attribut sonst zerreißen.
+let shoppingNames = {};
+
+async function loadShopping(){
+  const box = document.getElementById('shopping-items');
+  if(box) box.innerHTML = '<p style="color:var(--text2);font-size:12px">Lade…</p>';
+  try{
+    const r = await authFetch('/api/shopping/items');
+    const d = await r.json();
+    if(d.error) throw new Error(d.detail || d.error);
+    renderShoppingItems(d.items || []);
+  }catch(e){
+    if(box) box.innerHTML = `<p style="color:var(--red);font-size:12px">❌ ${esc(e.message)}</p>`;
+  }
+  loadShoppingHome();
+  loadShoppingStores();
+}
+
+function renderShoppingItems(items){
+  const box = document.getElementById('shopping-items');
+  if(!box) return;
+  if(!items.length){
+    box.innerHTML = '<p style="color:var(--text2);font-size:12px">'
+      + 'Noch keine Artikel. Oben einen hinzufügen.</p>';
+    return;
+  }
+  shoppingNames = Object.fromEntries(items.map(it=>[it.id, it.name]));
+  box.innerHTML = items.map(it=>{
+    const best = it.best;
+    const preis = best
+      ? `<span style="font-size:16px;font-weight:600">${esc(shopEuro(best.price))}</span>`
+        + ` <span style="color:var(--text2)">bei ${esc(best.retailer||'?')}</span>`
+        + `<div style="font-size:11px;color:var(--text2)">${esc(best.title||'')}</div>`
+      : '<span style="color:var(--text2);font-size:12px">noch kein Preis erfasst</span>';
+    const badge = it.is_drop
+      ? '<span class="badge badge-green">📉 günstig</span>'
+      : (it.trend==='up' ? '<span class="badge">↑</span>' : '');
+    const details = [it.qty, it.max_price ? 'max. '+shopEuro(it.max_price) : '']
+      .filter(Boolean).join(' · ');
+    return `<div class="card" style="padding:14px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1 1 200px">
+          <div style="font-weight:600">${esc(it.name)} ${badge}</div>
+          ${details ? `<div style="font-size:11px;color:var(--text2)">${esc(details)}</div>` : ''}
+          <div style="margin-top:6px">${preis}</div>
+        </div>
+        <div style="flex:1 1 220px;min-width:180px">
+          <canvas id="spark-${it.id}" height="60"></canvas>
+          <div style="font-size:11px;color:var(--text2);text-align:right">
+            ${esc(it.status||'')} · ${it.points||0} Messwerte</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:flex-start">
+          <button class="btn btn-ghost" onclick="shoppingTestItem(${it.id},this)">🔍</button>
+          <button class="btn btn-red" onclick="shoppingDel(${it.id})">✕</button>
+        </div>
+      </div>
+      <div id="shopping-item-test-${it.id}" style="font-size:11px;margin-top:8px"></div>
+    </div>`;
+  }).join('');
+  items.forEach(it=>renderSparkline(it.id));
+}
+
+// Sparkline der Preisreihe. Bewusst ein eigener Zeichner statt
+// renderMetricChart: Preise brauchen eine Euro-Beschriftung und dürfen
+// nicht auf 1 Nachkommastelle gerundet werden.
+async function renderSparkline(itemId){
+  try{
+    const r = await authFetch(`/api/shopping/items/${itemId}/history?days=90`);
+    const d = await r.json();
+    const pts = d.data || [];
+    const canvas = document.getElementById(`spark-${itemId}`);
+    if(!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width = canvas.offsetWidth || 220;
+    const H = canvas.height = 60;
+    ctx.clearRect(0,0,W,H);
+
+    // Canvas kann keine CSS-Variablen – feste Hex-Werte.
+    if(pts.length < 2){
+      ctx.fillStyle = '#8890b0'; ctx.font = '11px Arial';
+      ctx.fillText(pts.length ? 'ein Messwert – Verlauf ab morgen' : 'noch keine Daten', 4, H/2);
+      return;
+    }
+    const vals = pts.map(p=>p.value);
+    const minV = Math.min(...vals), maxV = Math.max(...vals);
+    const range = (maxV - minV) || 1;
+    const x = i => (i/(pts.length-1))*(W-4)+2;
+    const y = v => H - ((v-minV)/range*(H-16)+8);
+
+    ctx.beginPath();
+    ctx.strokeStyle = vals[vals.length-1] < vals[0] ? '#10b981' : '#4f8ef7';
+    ctx.lineWidth = 2;
+    pts.forEach((p,i)=> i===0 ? ctx.moveTo(x(i),y(p.value)) : ctx.lineTo(x(i),y(p.value)));
+    ctx.stroke();
+    ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath();
+    ctx.fillStyle = (vals[vals.length-1] < vals[0] ? '#10b981' : '#4f8ef7')+'22';
+    ctx.fill();
+
+    ctx.fillStyle = '#8890b0'; ctx.font = '10px Arial';
+    ctx.fillText(minV.toFixed(2)+'€', 4, H-2);
+    ctx.fillText(maxV.toFixed(2)+'€', 4, 10);
+  }catch(e){console.debug('Sparkline:',itemId,e);}
+}
+
+async function shoppingAdd(){
+  const name = document.getElementById('shopping-name').value.trim();
+  if(!name){ showToast('Kein Name angegeben'); return; }
+  const body = {
+    name,
+    qty: document.getElementById('shopping-qty').value.trim(),
+    max_price: document.getElementById('shopping-max').value || null,
+  };
+  try{
+    const r = await authFetch('/api/shopping/items', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    showToast(`"${d.name}" hinzugefügt`,'ok');
+    ['shopping-name','shopping-qty','shopping-max'].forEach(id=>{
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('shopping-test-result').innerHTML = '';
+    loadShopping();
+  }catch(e){ showToast(e.message); }
+}
+
+async function shoppingDel(id){
+  const name = shoppingNames[id] || 'Artikel';
+  if(!confirm(`"${name}" von der Einkaufsliste entfernen?`)) return;
+  try{
+    const r = await authFetch(`/api/shopping/items/${id}`, {method:'DELETE'});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    showToast(`"${name}" entfernt`,'ok');
+    loadShopping();
+  }catch(e){ showToast(e.message); }
+}
+
+function renderShoppingTest(d, target){
+  const el = typeof target === 'string' ? document.getElementById(target) : target;
+  if(!el) return;
+  if(d.error){ el.innerHTML = `<span style="color:var(--red)">❌ ${esc(d.error)}</span>`; return; }
+  const hits = d.matches || [], out = d.rejected || [];
+  let html = '';
+  if(hits.length){
+    html += `<div style="color:var(--green)">✅ ${hits.length} passende Treffer</div>`
+      + hits.slice(0,5).map(o=>
+        `<div style="color:var(--text2)">${esc(shopEuro(o.price))} — `
+        + `${esc(o.retailer||'?')}: ${esc(o.title||'')}</div>`).join('');
+  }else{
+    html += '<div style="color:var(--yellow)">⚠️ Keine passenden Treffer. '
+      + 'Tippfehler? Zusammengesetzte Wörter finden oft nichts – '
+      + '„Geschirrspül" statt „Spülmaschinentabs".</div>';
+  }
+  if(out.length){
+    html += `<div style="margin-top:6px;color:var(--text2)">`
+      + `Als unpassend aussortiert (${out.length}): `
+      + out.slice(0,3).map(o=>esc(o.title||'')).join(', ') + '</div>';
+  }
+  el.innerHTML = html;
+}
+
+async function shoppingTest(){
+  const query = document.getElementById('shopping-name').value.trim();
+  if(!query){ showToast('Erst einen Namen eingeben'); return; }
+  const btn = document.getElementById('shopping-test-btn');
+  const box = document.getElementById('shopping-test-result');
+  if(btn) btn.disabled = true;
+  if(box) box.innerHTML = '<span style="color:var(--text2)">🔍 Suche…</span>';
+  try{
+    const r = await authFetch('/api/shopping/test', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({query}),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    renderShoppingTest(d, box);
+  }catch(e){
+    if(box) box.innerHTML = `<span style="color:var(--red)">❌ ${esc(e.message)}</span>`;
+  }finally{ if(btn) btn.disabled = false; }
+}
+
+async function shoppingTestItem(id, btn){
+  const box = document.getElementById(`shopping-item-test-${id}`);
+  if(btn) btn.disabled = true;
+  if(box) box.innerHTML = '<span style="color:var(--text2)">🔍 Suche…</span>';
+  try{
+    const r = await authFetch(`/api/shopping/items/${id}/test`, {method:'POST'});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    renderShoppingTest(d, box);
+  }catch(e){
+    if(box) box.innerHTML = `<span style="color:var(--red)">❌ ${esc(e.message)}</span>`;
+  }finally{ if(btn) btn.disabled = false; }
+}
+
+async function shoppingSample(){
+  const btn = document.getElementById('shopping-sample-btn');
+  const status = document.getElementById('shopping-sample-status');
+  if(btn) btn.disabled = true;
+  if(status) status.textContent = '⏱ Sammellauf gestartet…';
+  try{
+    const r = await authFetch('/api/shopping/sample', {method:'POST'});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    if(status) status.textContent = '✅ läuft im Hintergrund – gleich neu laden';
+  }catch(e){
+    if(status) status.textContent = `❌ ${e.message}`;
+  }finally{ if(btn) btn.disabled = false; }
+}
+
+async function loadShoppingHome(){
+  try{
+    const r = await authFetch('/api/shopping/home');
+    const d = await r.json();
+    if(d.error) return;
+    const set=(id,v)=>{const el=document.getElementById(id); if(el&&v!=null) el.value=v;};
+    set('home-street', d.street); set('home-nr', d.house_number);
+    set('home-zip', d.zip_code);  set('home-city', d.city);
+    set('home-radius', d.radius_km);
+    // Ohne Adresse das Formular gleich aufklappen – sonst sucht man es.
+    const box = document.getElementById('shopping-home-box');
+    if(box && !d.configured) box.open = true;
+    if(d.coords_override){
+      const res = document.getElementById('home-result');
+      if(res) res.innerHTML = '<span style="color:var(--yellow)">⚠️ In der config.toml '
+        + 'sind feste Koordinaten gesetzt (home_latitude/home_longitude). '
+        + 'Die haben Vorrang – eine hier gespeicherte Adresse bleibt wirkungslos, '
+        + 'bis sie entfernt sind.</span>';
+    }
+  }catch(e){ console.debug('Home:',e); }
+}
+
+async function shoppingHomeSave(){
+  const body = {
+    street:       document.getElementById('home-street').value.trim(),
+    house_number: document.getElementById('home-nr').value.trim(),
+    zip_code:     document.getElementById('home-zip').value.trim(),
+    city:         document.getElementById('home-city').value.trim(),
+    radius_km:    document.getElementById('home-radius').value || null,
+  };
+  const btn = document.getElementById('home-save-btn');
+  const res = document.getElementById('home-result');
+  if(btn) btn.disabled = true;
+  if(res) res.innerHTML = '<span style="color:var(--text2)">📍 Adresse wird geprüft…</span>';
+  try{
+    const r = await authFetch('/api/shopping/home', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+
+    if(d.exact){
+      res.innerHTML = '<span style="color:var(--green)">✅ Gespeichert, Hausnummer gefunden.'
+        + ' Die Entfernungen stimmen.</span>';
+    }else if(d.resolved){
+      // Kein Erfolg im eigentlichen Sinn: der Umkreis liegt jetzt um einen
+      // Strassen- oder Ortsmittelpunkt.
+      res.innerHTML = `<span style="color:var(--yellow)">⚠️ Gespeichert, aber nur ungenau `
+        + `aufgelöst (${esc(d.precision||'')}).<br>${esc(d.warning||'')}<br>`
+        + 'Notfalls <code>home_latitude</code>/<code>home_longitude</code> in der '
+        + 'config.toml setzen – die haben Vorrang.</span>';
+    }else{
+      res.innerHTML = `<span style="color:var(--red)">❌ ${esc(d.warning||'Nicht gefunden')}</span>`;
+    }
+    showToast('Wohnort gespeichert','ok');
+    loadShopping();
+  }catch(e){
+    if(res) res.innerHTML = `<span style="color:var(--red)">❌ ${esc(e.message)}</span>`;
+  }finally{ if(btn) btn.disabled = false; }
+}
+
+async function loadShoppingStores(){
+  const box = document.getElementById('shopping-stores');
+  const info = document.getElementById('shopping-location');
+  try{
+    const r = await authFetch('/api/shopping/stores');
+    const d = await r.json();
+    if(info){
+      if(d.configured === false){
+        info.innerHTML = '📍 <span style="color:var(--yellow)">Kein Wohnort hinterlegt.</span> '
+          + 'Unten unter „Wohnort festlegen" eintragen – ohne Adresse gibt es '
+          + 'keine Umkreissuche.';
+      }else if(d.error){
+        info.innerHTML = `<span style="color:var(--red)">❌ ${esc(d.error)}</span>`;
+      }else{
+        info.innerHTML = `📍 ${d.shops.length} Märkte im Umkreis von ${esc(String(d.radius_km))} km`
+          + (d.exact ? ' <span style="color:var(--green)">· Adresse exakt</span>'
+                     : ` <span style="color:var(--yellow)">· ${esc(d.warning||d.precision||'')}</span>`);
+      }
+    }
+    if(!box) return;
+    const shops = d.shops || [];
+    box.innerHTML = shops.length
+      ? shops.slice(0,40).map(s=>
+          `<div style="font-size:12px;color:var(--text2)">`
+          + `${esc(s.distance_km.toFixed(1))} km — ${esc(s.retailer||s.name)}`
+          + (s.street ? ` <span style="opacity:.7">${esc(s.street)} ${esc(s.housenumber||'')}</span>` : '')
+          + `</div>`).join('')
+      : '<p style="font-size:12px;color:var(--text2)">Keine Märkte gefunden.</p>';
+  }catch(e){ console.debug('Stores:',e); }
 }
 
 async function renderMultiChart(metrics, canvasId, since){

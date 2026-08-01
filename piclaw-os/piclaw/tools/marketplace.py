@@ -19,6 +19,11 @@ from urllib.parse import quote_plus
 import aiohttp
 
 from piclaw.config import CONFIG_DIR
+from piclaw.tools.geo import (
+    city_to_coords as _city_to_coords,
+    haversine_km as _haversine_km,
+    plz_to_coords as _plz_to_coords,
+)
 
 log = logging.getLogger("piclaw.tools.marketplace")
 
@@ -883,64 +888,14 @@ async def _search_troostwijk(
 
 
 # ── Geocoding-Hilfsfunktionen (Nominatim/OSM) ────────────────────────────────
-
-_GEOCODE_CACHE: dict[str, tuple[float, float] | None] = {}
-
-
-def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Luftlinienentfernung in km zwischen zwei Koordinatenpaaren (Haversine)."""
-    import math
-    R = 6371.0
-    φ1, φ2 = math.radians(lat1), math.radians(lat2)
-    dφ = math.radians(lat2 - lat1)
-    dλ = math.radians(lon2 - lon1)
-    a = math.sin(dφ / 2) ** 2 + math.cos(φ1) * math.cos(φ2) * math.sin(dλ / 2) ** 2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-
-async def _nominatim_query(
-    session: aiohttp.ClientSession, params: dict
-) -> tuple[float, float] | None:
-    """Ruft Nominatim ab und gibt (lat, lon) zurück oder None bei Fehler."""
-    try:
-        async with session.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={**params, "format": "json", "limit": "1"},
-            headers={"User-Agent": "PiClaw/1.0 (contact@piclaw.de)"},
-            timeout=aiohttp.ClientTimeout(total=8),
-        ) as resp:
-            if resp.status != 200:
-                return None
-            data = await resp.json(content_type=None)
-            if data:
-                return float(data[0]["lat"]), float(data[0]["lon"])
-    except Exception as exc:
-        log.debug("Nominatim Fehler: %s", exc)
-    return None
-
-
-async def _plz_to_coords(
-    session: aiohttp.ClientSession, plz: str, country: str
-) -> tuple[float, float] | None:
-    """Geocodiert eine PLZ → (lat, lon). Ergebnis wird prozessweit gecacht."""
-    key = f"plz:{country}:{plz}"
-    if key in _GEOCODE_CACHE:
-        return _GEOCODE_CACHE[key]
-    result = await _nominatim_query(session, {"postalcode": plz, "country": country})
-    _GEOCODE_CACHE[key] = result
-    return result
-
-
-async def _city_to_coords(
-    session: aiohttp.ClientSession, city: str, country_code: str
-) -> tuple[float, float] | None:
-    """Geocodiert einen Stadtnamen → (lat, lon). Ergebnis wird prozessweit gecacht."""
-    key = f"city:{country_code.lower()}:{city.lower()}"
-    if key in _GEOCODE_CACHE:
-        return _GEOCODE_CACHE[key]
-    result = await _nominatim_query(session, {"city": city, "country": country_code.lower()})
-    _GEOCODE_CACHE[key] = result
-    return result
+#
+# Die Implementierung steht seit der Einkaufslisten-Erweiterung in
+# piclaw/tools/geo.py, damit beide Features dieselbe Umkreissuche nutzen.
+# Die Aliase _haversine_km / _plz_to_coords / _city_to_coords werden oben
+# importiert; der Troostwijk-Pfad unten bleibt dadurch unverändert.
+#
+# Neu gegenüber vorher: geo.py drosselt Nominatim auf 1 Aufruf/Sekunde – die
+# Städte-Schleife in _search_troostwijk_auctions feuerte vorher ungebremst.
 
 
 async def _search_troostwijk_auctions(

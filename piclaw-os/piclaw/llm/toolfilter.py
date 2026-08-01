@@ -67,6 +67,8 @@ ACTION_TOOLS = frozenset({
     "service_control", "service_status", "service_list",
     # Pakete
     "parcel_add", "parcel_remove", "parcel_status",
+    # Einkaufsliste
+    "shopping_add", "shopping_remove", "shopping_list", "shopping_home",
     # Netzwerk-Steuerung
     "wifi_connect", "wifi_disconnect", "wake_device",
     # LLM-Verwaltung
@@ -96,6 +98,7 @@ QUERY_TOOLS = frozenset({
     "sensor_read", "sensor_read_all", "sensor_list",
     "service_status", "service_list",
     "parcel_status",
+    "shopping_list", "shopping_offers", "shopping_stores", "shopping_test",
     "llm_list",
     "memory_stats",
     "system_info", "system_report", "pi_info", "thermal_status",
@@ -157,6 +160,17 @@ _OBJECT_GROUPS: list[tuple[str, frozenset[str]]] = [
         frozenset({
             "parcel_add", "parcel_remove", "parcel_status", "parcel_extract",
             "parcel_inbox_import",
+        }),
+    ),
+    (
+        # Steht vor der Marktplatz-/Netzwerkgruppe, weil "Angebot" und
+        # "Supermarkt" sonst dort hängenbleiben könnten.
+        r"(einkauf|einkaufsliste|angebot|prospekt|supermarkt|besorg|"
+        r"lebensmittel|preisverlauf)",
+        frozenset({
+            "shopping_add", "shopping_remove", "shopping_list",
+            "shopping_offers", "shopping_stores", "shopping_home",
+            "shopping_test",
         }),
     ),
     (

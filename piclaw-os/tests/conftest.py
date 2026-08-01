@@ -38,6 +38,7 @@ def patch_config_dir(tmp_path_factory):
     import piclaw.ipc as ipc_mod
     import piclaw.llm.registry as llm_registry_mod
     import piclaw.memory.store as memory_store_mod
+    import piclaw.shopping.store as shopping_store_mod
     import piclaw.soul as soul_mod
     import piclaw.users as users_mod
 
@@ -57,6 +58,7 @@ def patch_config_dir(tmp_path_factory):
         (sensors_mod, "SENSOR_FILE", cfg_dir / "sensors.json"),
         (soul_mod, "SOUL_FILE", cfg_dir / "SOUL.md"),
         (memory_store_mod, "MEMORY_ROOT", cfg_dir / "memory"),
+        (shopping_store_mod, "SHOPPING_DB", cfg_dir / "shopping.db"),
         (ipc_mod, "IPC_DIR", ipc_dir),
         (agents_ipc, "IPC_DIR", ipc_dir),
         (agents_ipc, "JOBS_DB", ipc_dir / "jobs.db"),

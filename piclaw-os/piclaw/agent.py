@@ -288,6 +288,9 @@ Du hast fertig implementierte Tools die du SOFORT aufrufen MUSST:
 - network_scan, check_new_devices, wake_device: Netzwerk-Analyse und Wake-on-LAN.
 - shell_exec: Shell-Befehle ausfuehren.
 - memory_search, memory_write: Erinnerungen verwalten.
+- shopping_add, shopping_remove, shopping_list: Einkaufsliste pflegen.
+- shopping_offers: prueft, was von der Einkaufsliste gerade im Angebot ist.
+- shopping_stores: Supermaerkte im Umkreis des Wohnorts.
 
 REGELN - IMMER BEFOLGEN:
 1. NIEMALS erklaeren was du tun wuerdest - sofort das passende Tool aufrufen.
@@ -296,6 +299,8 @@ REGELN - IMMER BEFOLGEN:
 4. Bei Trackingnummern oder Paketfragen: parcel_add oder parcel_status SOFORT aufrufen.
 5. FALSCH: "Ich empfehle dir auf kleinanzeigen.de zu suchen..."
 6. RICHTIG: [ruft marketplace_search auf und zeigt Ergebnisse]
+7. Bei "setz X auf die Einkaufsliste" / "ich brauche X": shopping_add SOFORT aufrufen.
+8. Bei "was ist im Angebot" / "gibt es Angebote": shopping_offers SOFORT aufrufen.
 
 ## Memory-Anweisungen
 
@@ -375,6 +380,11 @@ class Agent:
         from piclaw.tools import parcel_tracking as parcel_mod
 
         _reg(parcel_mod.TOOL_DEFS, parcel_mod.HANDLERS)
+
+        # Einkaufsliste mit Angebots- und Preisbeobachtung
+        from piclaw.shopping import tools as shopping_mod
+
+        _reg(shopping_mod.TOOL_DEFS, shopping_mod.build_handlers())
 
         # Home Assistant tools (nur wenn konfiguriert)
         self._ha_client = ha_mod.get_client()
@@ -2106,6 +2116,25 @@ class Agent:
                 )
                 self.sa_registry.add(_cleanup_agent)
                 log.info("Inbox_Cleanup_Pakete Sub-Agent automatisch angelegt (24h Intervall)")
+
+            # Preis-Sammler der Einkaufsliste. Laeuft STILL (notify=False):
+            # er baut nur die Preisreihe auf, aus der Dashboard-Sparkline und
+            # spaeter die Preisrutsch-Meldungen entstehen. Ohne taeglichen
+            # Lauf gibt es keine Historie und der Graph bleibt leer.
+            if not self.sa_registry.get("Sammler_Preise"):
+                from piclaw.agents.sa_registry import SubAgentDef
+                _price_agent = SubAgentDef(
+                    name="Sammler_Preise",
+                    description="Erfasst taeglich die Preise der Einkaufsliste",
+                    mission="Sammelt Angebotspreise fuer die Preisbeobachtung",
+                    schedule="cron:0 6 * * *",
+                    tools=[],
+                    notify=False,  # still - meldet wird erst im Push-Monitor
+                    direct_tool="shopping_price_sample",
+                    created_by="auto-boot",
+                )
+                self.sa_registry.add(_price_agent)
+                log.info("Sammler_Preise Sub-Agent automatisch angelegt (taeglich 06:00)")
 
             create_background_task(self.sa_runner.start_all_scheduled(), name="sa-boot")
             log.info("Sub-agent scheduler started.")

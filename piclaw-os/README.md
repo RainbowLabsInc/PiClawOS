@@ -25,7 +25,8 @@ PiClaw OS verwandelt einen Raspberry Pi 5 in einen autonomen KI-Agenten namens *
 | 📡 **Messaging Hub** | Telegram, Discord, Threema, WhatsApp, MQTT |
 | 🏠 **Home Assistant** | REST + WebSocket, 11 Tools, Push-Events in Echtzeit, HA-Shortcut (0 Token) |
 | 🧠 **Hybrid Memory** | BM25 + Vektor-Suche (QMD), persistente Fakten über Gespräche hinweg |
-| 🌐 **Web-Dashboard** | 8 Tabs: Dashboard · Memory · Sub-Agenten · Soul · Hardware · Metriken · Kamera · Chat |
+| 🌐 **Web-Dashboard** | 9 Tabs: Dashboard · Memory · Sub-Agenten · Soul · Hardware · Metriken · Kamera · Einkauf · Chat |
+| 🛒 **Einkaufsliste** | Angebote der Supermärkte im Umkreis, Preisverlauf je Artikel, Alarm bei Preisrutsch |
 | 📷 **Kamera** | Pi Camera v2/v3 + USB-Webcams, KI-Bildbeschreibung |
 | 🔍 **Netzwerk-Monitoring** | Neue Geräte im LAN erkennen und per Telegram melden (LLM-frei) |
 | 📦 **Paket-Tracking** | DHL, Hermes, DPD, GLS, UPS – Carrier-Auto-Erkennung, Parcello-Prognose, Telegram-Alerts |
@@ -109,7 +110,7 @@ Dameon sendet **von sich aus** Nachrichten, wenn:
 
 ### 3. Web-Dashboard
 
-Öffne `http://piclaw.local:7842` im Browser. Das Dashboard hat 8 Tabs:
+Öffne `http://piclaw.local:7842` im Browser. Das Dashboard hat 9 Tabs:
 
 | Tab | Funktion |
 |---|---|
@@ -121,6 +122,7 @@ Dameon sendet **von sich aus** Nachrichten, wenn:
 | **Hardware** | Sensoren, GPIO, Kamera, Netzwerk |
 | **Metriken** | CPU/RAM-Verlauf, Temperatur-Graphen |
 | **Kamera** | Livebild, Snapshot mit KI-Beschreibung |
+| **Einkauf** | Einkaufsliste, Angebote im Umkreis, Preisverlauf je Artikel |
 
 ### 4. Natürliche Sprache – Beispiele
 
@@ -364,6 +366,52 @@ Konfiguration in `piclaw setup` oder direkt in `config.toml`:
 url   = "http://homeassistant.local:8123"
 token = "ey..."
 ```
+
+---
+
+## 🛒 Einkaufsliste & Preisbeobachtung
+
+```
+> Setz Butter und Kaffee auf die Einkaufsliste
+> Was von meiner Liste ist gerade im Angebot?
+> Welche Supermärkte sind bei mir in der Nähe?
+```
+
+**Zwei Angebotsquellen** laufen parallel: marktguru als Aggregator (REWE, EDEKA,
+Lidl, ALDI, PENNY, Netto, Kaufland, dm, Rossmann …) und Lidl direkt. Fällt eine
+aus, liefert die andere weiter.
+
+**Umkreis über die Hausadresse, nicht über die PLZ.** Die Adresse wird via
+Nominatim aufgelöst, die Märkte via OpenStreetMap Overpass gesucht – so stimmen
+die Entfernungen auch in Großstädten und Verbandsgemeinden. Löst die Adresse nur
+auf Straßen- oder Ortsebene auf, wird das ausgewiesen statt stillschweigend
+hingenommen.
+
+**Preisbeobachtung:** Ein stiller Sub-Agent (`Sammler_Preise`, täglich 06:00)
+erfasst je Produkt einen Preis pro Tag. Fällt ein Preis deutlich unter den
+Median der letzten vier Wochen, gilt das als Preisrutsch – auch ohne dass der
+Händler es als Aktion kennzeichnet. Im Dashboard zeigt jeder Artikel seinen
+Verlauf als Sparkline.
+
+**Tools:** `shopping_add`, `shopping_remove`, `shopping_list`, `shopping_offers`,
+`shopping_stores`, `shopping_home`, `shopping_test`
+
+Konfiguration in `config.toml`:
+```toml
+[shopping]
+home_street       = "Musterweg"
+home_house_number = "12a"
+home_zip          = "20095"
+home_city         = "Hamburg"
+radius_km         = 10
+providers         = ["marktguru", "lidl"]
+price_drop_pct    = 0.10   # ab wieviel Rabatt gegen den Median ein Alarm gilt
+baseline_days     = 28     # Fenster für die Vergleichsbasis
+min_samples       = 5      # darunter kein Alarm
+```
+
+> Kennt OpenStreetMap die Hausnummer nicht (Neubau, Randlage), lassen sich
+> `home_latitude` / `home_longitude` direkt setzen; sie haben Vorrang.
 
 ---
 
