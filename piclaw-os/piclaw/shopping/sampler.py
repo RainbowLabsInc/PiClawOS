@@ -108,8 +108,10 @@ async def run_sample(
             # Thematische Ausreißer draußen halten: die Provider-Suche nach
             # "Butter" liefert auch "Buttermilch". Ohne diesen Filter bekäme
             # jeder Ausreißer eine eigene Preisreihe und würde als
-            # günstigster Preis des Artikels angezeigt.
-            if not matches_item(title_norm, term):
+            # günstigster Preis des Artikels angezeigt. Bei einem selbst
+            # gesetzten Suchbegriff entfällt der Filter – siehe
+            # Item.strict_matching.
+            if item.strict_matching and not matches_item(title_norm, term):
                 rejected += 1
                 continue
             key = (retailer, title_norm)

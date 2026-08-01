@@ -36,7 +36,8 @@ def test_preisrutsch_wird_erkannt():
     assert verdict.baseline == pytest.approx(1.10)
     assert verdict.drop_pct == pytest.approx(0.1818, abs=0.001)
     assert verdict.is_all_time_low
-    assert "unter der" in verdict.reason
+    assert "unter den üblichen" in verdict.reason
+    assert "1,10" in verdict.reason  # deutsche Schreibweise, kein Punkt
 
 
 def test_gleicher_preis_loest_nichts_aus():
@@ -209,7 +210,7 @@ def test_describe_bei_drop_nennt_prozent_und_baseline():
 
     text = verdict.describe()
     assert "50%" in text
-    assert "2.00" in text
+    assert "2,00" in text
     assert "Allzeittief" in text
 
 

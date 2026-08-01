@@ -154,11 +154,20 @@ async def resolve_home(
             session, street, house_number, zip_code, city, country
         )
         if point:
+            # Nominatim benennt in addresstype das Objekt, nicht die
+            # Genauigkeit: "Rathausmarkt 1" kommt als 'office' zurueck, obwohl
+            # die Hausnummer traf. Die harte Aussage steckt in
+            # GeoPoint.is_exact – hier auf 'exact' normalisieren, sonst ginge
+            # sie beim Speichern verloren und die UI meldete faelschlich eine
+            # ungenaue Adresse. Bei ungenauen Treffern bleibt die Rohklasse
+            # erhalten, weil sie dort die nuetzliche Information ist
+            # ('road' vs. 'postcode').
+            precision = "exact" if point.is_exact else point.precision
             home = Home(
-                lat=point.lat, lon=point.lon, precision=point.precision,
+                lat=point.lat, lon=point.lon, precision=precision,
                 zip_code=point.postcode or zip_code, source="address", addr_hash=ahash,
             )
-            db.save_home(ahash, home.lat, home.lon, point.precision, home.zip_code)
+            db.save_home(ahash, home.lat, home.lon, precision, home.zip_code)
             # Bewusst OHNE Adresse im Log – das Repo ist public und Logs
             # landen in Support-Ausschnitten.
             log.info("Heimatadresse aufgelöst (precision=%s, exakt=%s)",

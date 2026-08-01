@@ -46,12 +46,15 @@ def _price(value) -> str:
     return f"{value:.2f} €".replace(".", ",") if value is not None else "—"
 
 
-def _relevant(offers: list, term: str) -> list:
+def _relevant(offers: list, term: str, strict: bool = True) -> list:
     """Filtert thematische Ausreißer der Provider-Suche.
 
     Ohne das erscheint unter »Butter« auch »Buttermilch« – siehe
-    matching.matches_item.
+    matching.matches_item. Bei einem selbst gesetzten Suchbegriff wird nicht
+    gefiltert (Item.strict_matching).
     """
+    if not strict:
+        return list(offers)
     return [
         o for o in offers
         if matches_item(normalize_title(o.brand, o.title), term)
@@ -270,7 +273,7 @@ async def shopping_offers(item: str = "") -> str:
                     lat=home.lat, lon=home.lon, providers=sc.providers,
                     retailer_keys=retailer_keys, active_only=True, limit=25,
                 )
-                offers = _relevant(offers, term)
+                offers = _relevant(offers, term, entry.strict_matching)
                 if entry.max_price:
                     offers = [o for o in offers
                               if o.price is not None and o.price <= entry.max_price]

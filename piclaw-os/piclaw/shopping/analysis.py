@@ -38,6 +38,11 @@ DEFAULT_MIN_SAMPLES = 5
 DEFAULT_MIN_SPAN_DAYS = 7
 
 
+def _euro(value: float | None) -> str:
+    """Deutsche Preisschreibweise – Komma, nicht Punkt."""
+    return "—" if value is None else f"{value:.2f} €".replace(".", ",")
+
+
 @dataclass
 class PriceVerdict:
     """Ergebnis der Bewertung eines Preises gegen seine Historie."""
@@ -59,10 +64,11 @@ class PriceVerdict:
         """Kurztext für Dashboard und Telegram."""
         if not self.has_baseline:
             return "Datenaufbau läuft"
+        basis = _euro(self.baseline)
         if self.is_drop:
-            txt = f"−{self.drop_pct * 100:.0f}% gegenüber üblich {self.baseline:.2f} €"
+            txt = f"−{self.drop_pct * 100:.0f}% gegenüber üblich {basis}"
             return txt + " · Allzeittief" if self.is_all_time_low else txt
-        return f"üblich {self.baseline:.2f} €"
+        return f"üblich {basis}"
 
 
 def evaluate(
@@ -109,11 +115,11 @@ def evaluate(
     if price <= baseline * (1 - drop_pct):
         verdict.is_drop = True
         verdict.reason = (
-            f"{price:.2f} € liegt {verdict.drop_pct * 100:.0f}% unter der "
-            f"üblichen {baseline:.2f} €"
+            f"{_euro(price)} liegt {verdict.drop_pct * 100:.0f}% unter den "
+            f"üblichen {_euro(baseline)}"
         )
     else:
-        verdict.reason = f"kein auffälliger Rückgang (üblich {baseline:.2f} €)"
+        verdict.reason = f"kein auffälliger Rückgang (üblich {_euro(baseline)})"
     return verdict
 
 

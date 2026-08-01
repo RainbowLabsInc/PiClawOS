@@ -63,6 +63,19 @@ class Item:
     def search_term(self) -> str:
         return (self.query or self.name).strip()
 
+    @property
+    def strict_matching(self) -> bool:
+        """Ob Treffer zusätzlich lokal gefiltert werden sollen.
+
+        Beim Artikelnamen ja: die Provider-Suche nach "Butter" liefert auch
+        "Buttermilch", und das verdirbt die Preisreihe. Hat der Nutzer aber
+        einen eigenen Suchbegriff hinterlegt, hat er sich bewusst festgelegt –
+        dann würde die Kompositum-Regel ihn überstimmen ("geschirrspül" findet
+        "Geschirrspültabs"). `query` ist genau der Notausgang für die Fälle,
+        die die Heuristik nicht trifft.
+        """
+        return not self.query.strip()
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,

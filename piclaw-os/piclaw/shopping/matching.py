@@ -119,12 +119,19 @@ _QUANTITY_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Füllwörter aus marktguru-Beschreibungen.
+# Füllwörter aus marktguru-Beschreibungen. Enthält auch Gebindewörter samt
+# der üblichen Abkürzungen ("130-g-Btl.", "500-g Pckg.", "400-g-Becher"):
+# "Cola Flasche" und "Cola" sind dasselbe Produkt, und ein Wechsel des
+# Gebindes darf die Preisreihe nicht abreißen lassen.
 _NOISE_WORDS = frozenset({
     "je", "ca", "versch", "verschiedene", "sorten", "gekuehlt", "gekuhlt",
     "tiefgekuehlt", "angebot", "aktion", "neu", "und", "oder", "auch",
     "pro", "ab", "nur", "im", "in", "der", "die", "das", "mit", "ohne",
-    "stueck", "packung", "xxl",
+    "stueck", "stk", "xxl", "max",
+    # Gebinde
+    "packung", "packg", "pckg", "pkg", "beutel", "btl", "dose", "glas",
+    "flasche", "fl", "becher", "topf", "schale", "tafel", "tuete", "tute",
+    "karton", "kiste", "kasten", "netz", "bund",
 })
 
 
