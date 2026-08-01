@@ -210,6 +210,41 @@ class LocationConfig:
 
 
 @dataclass
+class ShoppingConfig:
+    """Einkaufsliste mit Angebots- und Preisbeobachtung.
+
+    Der Umkreis wird um die **Hausadresse** gelegt, nicht um die PLZ: ein
+    PLZ-Zentroid liegt in Großstädten mehrere Kilometer daneben und deckt in
+    Verbandsgemeinden mehrere Dörfer ab – der Radius würde die falschen Märkte
+    einschließen. Die PLZ wird nur an die Angebots-Provider durchgereicht, die
+    keinen genaueren Ortsparameter kennen.
+
+    home_latitude/home_longitude sind der Notnagel, wenn OpenStreetMap die
+    Hausnummer nicht kennt (Neubau, Randlage). Gesetzt haben sie Vorrang vor
+    der Adressauflösung.
+    """
+
+    home_street: str = ""
+    home_house_number: str = ""
+    home_zip: str = ""
+    home_city: str = ""
+    home_country: str = "de"
+    home_latitude: float | None = None
+    home_longitude: float | None = None
+
+    radius_km: float = 10.0
+    providers: list[str] = field(default_factory=lambda: ["marktguru", "lidl"])
+    store_cache_days: int = 30
+
+    # Preisbeobachtung – siehe piclaw/shopping/analysis.py
+    price_drop_pct: float = 0.10   # ab wieviel Rabatt gegen den Median ein Alert gilt
+    baseline_days: int = 28        # Fenster für die Vergleichsbasis
+    min_samples: int = 5           # darunter kein Alert (sonst feuert Woche 1 alles)
+    min_span_days: int = 7         # Historie muss mindestens so viele Tage umfassen
+    history_days: int = 400        # Retention der Preispunkte
+
+
+@dataclass
 class PiClawConfig:
     agent_name: str = "PiClaw"
     log_level: str = "INFO"
@@ -226,6 +261,7 @@ class PiClawConfig:
     whatsapp: WhatsAppConfig = field(default_factory=WhatsAppConfig)
     agentmail: AgentMailConfig = field(default_factory=AgentMailConfig)
     location: LocationConfig = field(default_factory=LocationConfig)
+    shopping: ShoppingConfig = field(default_factory=ShoppingConfig)
 
 
 def ensure_dirs():
@@ -263,6 +299,7 @@ def load() -> PiClawConfig:
     cfg.whatsapp = _load_section(WhatsAppConfig, raw, "whatsapp")
     cfg.agentmail = _load_section(AgentMailConfig, raw, "agentmail")
     cfg.location  = _load_section(LocationConfig,  raw, "location")
+    cfg.shopping  = _load_section(ShoppingConfig,  raw, "shopping")
     cfg.agent_name = raw.get("agent_name", cfg.agent_name)
     cfg.log_level = raw.get("log_level", cfg.log_level)
 
@@ -309,6 +346,7 @@ def save(cfg: PiClawConfig):
         "whatsapp": asdict(cfg.whatsapp),
         "agentmail": asdict(cfg.agentmail),
         "location":  asdict(cfg.location),
+        "shopping":  asdict(cfg.shopping),
     })
     # Read-Preserve-Write unter File-Lock: config.toml wird von API
     # (Token-Persistenz), Wizard und CLI geschrieben; atomar, damit ein

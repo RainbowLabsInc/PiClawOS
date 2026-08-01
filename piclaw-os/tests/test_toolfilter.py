@@ -30,6 +30,8 @@ ALL_TOOLS = [td(n) for n in [
     "sensor_read", "sensor_read_all", "sensor_list", "sensor_add", "sensor_remove",
     "service_control", "service_status", "service_list",
     "parcel_add", "parcel_remove", "parcel_status",
+    "shopping_add", "shopping_remove", "shopping_list", "shopping_offers",
+    "shopping_stores", "shopping_home", "shopping_test",
     "llm_list", "llm_add", "llm_remove", "llm_update", "llm_test", "llm_discover",
     "memory_search", "memory_write", "memory_log", "memory_stats",
     "system_info", "system_report", "system_update", "pi_info", "thermal_status",
