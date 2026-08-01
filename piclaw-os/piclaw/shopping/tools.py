@@ -328,6 +328,70 @@ async def shopping_offers(item: str = "") -> str:
         return f"❌ Angebotsabgleich fehlgeschlagen: {exc}"
 
 
+async def shopping_basket() -> str:
+    """Vergleicht, in welchem Laden der ganze Einkauf am günstigsten ist."""
+    try:
+        from piclaw.shopping import basket
+
+        db = get_db()
+        items = [i for i in db.list_items(owner_id=_current_user_id()) if not i.muted]
+        if not items:
+            return "🛒 Die Einkaufsliste ist leer."
+
+        async with aiohttp.ClientSession() as session:
+            home, surroundings = await location.resolve(session)
+            if home is None:
+                return location.NOT_CONFIGURED
+            ergebnis = await basket.compare(session, items, home, surroundings)
+
+        if ergebnis.error:
+            return f"🛒 Warenkorb: {ergebnis.error}."
+
+        # Nenner sind die Artikel mit Angebot – ein Laden, der alles Verfügbare
+        # führt, soll nicht als "3 von 4" dastehen.
+        n = ergebnis.comparable
+        kopf = f"🛒 *Warenkorb* ({n} von {ergebnis.item_count} Artikeln im Angebot)"
+        lines = [kopf, ""]
+        for laden in ergebnis.stores[:6]:
+            entfernung = (f" · {laden.distance_km:.1f} km"
+                          if laden.distance_km is not None else "")
+            fehlt = ""
+            if laden.missing:
+                sichtbar = ", ".join(laden.missing[:3])
+                rest = f" +{len(laden.missing) - 3}" if len(laden.missing) > 3 else ""
+                fehlt = f"\n    ohne: {sichtbar}{rest}"
+            lines.append(
+                f"• *{_price(laden.total)}* — {laden.retailer} "
+                f"({laden.covered}/{n}){entfernung}{fehlt}"
+            )
+
+        bester = ergebnis.best_single
+        if bester and ergebnis.optimum_stores > 1:
+            lines.append("")
+            lines.append(
+                f"Alles einzeln beim Günstigsten: {_price(ergebnis.optimum_total)} "
+                f"({ergebnis.optimum_stores} Läden)"
+            )
+            if ergebnis.savings > 0:
+                lines.append(
+                    f"→ spart {_price(ergebnis.savings)} gegenüber "
+                    f"{bester.retailer}"
+                )
+            elif bester.covered == n:
+                lines.append(f"→ {bester.retailer} allein ist genauso günstig")
+
+        if ergebnis.hinweis:
+            lines.append("")
+            lines.append(f"⚠️ {ergebnis.hinweis}")
+        if ergebnis.ohne_angebot:
+            lines.append("")
+            lines.append("_Ohne Angebot: " + ", ".join(ergebnis.ohne_angebot) + "_")
+        return "\n".join(lines)
+    except Exception as exc:
+        log.exception("shopping_basket: %s", exc)
+        return f"❌ Warenkorb-Vergleich fehlgeschlagen: {exc}"
+
+
 async def shopping_test(query: str = "") -> str:
     """Prüft einen Suchbegriff live, ohne etwas zu speichern.
 
@@ -440,6 +504,16 @@ TOOL_DEFS: list[ToolDefinition] = [
         },
     ),
     ToolDefinition(
+        name="shopping_basket",
+        description=(
+            "Vergleicht, in welchem einzelnen Supermarkt der gesamte Einkauf "
+            "am günstigsten ist, inklusive Abdeckung und fehlender Artikel. "
+            "Nutze das bei 'wo kaufe ich am günstigsten ein', 'welcher Laden "
+            "ist am billigsten', 'wo lohnt sich der Einkauf'."
+        ),
+        parameters={"type": "object", "properties": {}},
+    ),
+    ToolDefinition(
         name="shopping_stores",
         description=(
             "Zeigt Supermärkte und Drogerien im Umkreis des Wohnorts, sortiert "
@@ -516,6 +590,9 @@ def build_handlers() -> dict:
             country=kw.get("country", ""),
         )
 
+    async def _basket(**_kw):
+        return await shopping_basket()
+
     async def _test(**kw):
         return await shopping_test(query=kw.get("query", ""))
 
@@ -530,6 +607,7 @@ def build_handlers() -> dict:
         "shopping_remove": _remove,
         "shopping_list": _list,
         "shopping_offers": _offers,
+        "shopping_basket": _basket,
         "shopping_stores": _stores,
         "shopping_home": _home,
         "shopping_test": _test,
