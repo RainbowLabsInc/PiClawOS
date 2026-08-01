@@ -528,12 +528,20 @@ async def shopping_item_history(
     db = get_db()
     item = _shopping_item_or_404(db, item_id, user)
     since = int(time.time()) - max(1, days) * 86_400
-    series = db.item_history(item.id, since_ts=since)
+    series = db.item_history_detailed(item.id, since_ts=since)
     return {
         "id": item.id,
         "name": item.name,
         "days": days,
-        "data": [{"ts": ts, "value": price} for ts, price in series],
+        # value/ts wie bei /api/metrics/chart, damit die Chart-Funktion passt;
+        # retailer/title beantworten zusaetzlich "wo war es an dem Tag am
+        # guenstigsten".
+        "data": [
+            {"ts": p["ts"], "value": p["price"], "retailer": p["retailer"],
+             "title": p["title"], "unit_price_text": p["unit_price_text"]}
+            for p in series
+        ],
+        "retailers": db.retailer_summary(item.id, since_ts=since),
         "products": [
             {**p.to_dict(), "points": len(db.history(p.id, since_ts=since))}
             for p in db.list_products(item.id)
@@ -715,6 +723,36 @@ async def shopping_stores_list(refresh: bool = False, _: User = Depends(require_
     except Exception as e:
         log.exception("shopping_stores: %s", e)
         return {"error": str(e), "shops": []}
+
+
+@app.post("/api/shopping/basket")
+async def shopping_basket_compare(user: User = Depends(require_auth)):
+    """In welchem einzelnen Laden ist der ganze Einkauf am guenstigsten?
+
+    Sucht live ueber alle Artikel – das dauert einige Sekunden und laeuft
+    deshalb bewusst auf Knopfdruck, nicht beim Laden der Seite.
+    """
+    import aiohttp
+
+    from piclaw.shopping import basket, location
+    from piclaw.shopping.store import get_db
+
+    try:
+        db = get_db()
+        items = [i for i in db.list_items(owner_id=_shopping_scope(user))
+                 if not i.muted]
+        if not items:
+            return {"error": "Die Einkaufsliste ist leer.", "stores": []}
+
+        async with aiohttp.ClientSession() as session:
+            home, surroundings = await location.resolve(session)
+            if home is None:
+                return {"error": "Kein Wohnort hinterlegt.", "stores": []}
+            ergebnis = await basket.compare(session, items, home, surroundings)
+        return ergebnis.to_dict()
+    except Exception as e:
+        log.exception("shopping_basket: %s", e)
+        return {"error": str(e), "stores": []}
 
 
 @app.post("/api/shopping/sample")

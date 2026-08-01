@@ -575,8 +575,13 @@ Frag mich alles über diesen Raspberry Pi – Hardware, Services, WLAN, GPIO, Su
       <button class="btn btn-ghost" onclick="shoppingSample()" id="shopping-sample-btn"
               title="Preise sofort erfassen statt auf den täglichen Lauf zu warten">
         ⏱ Preise jetzt erfassen</button>
+      <button class="btn btn-primary" onclick="shoppingBasket()" id="shopping-basket-btn"
+              title="In welchem Laden ist der ganze Einkauf am günstigsten?">
+        🧮 Warenkorb vergleichen</button>
       <span id="shopping-sample-status" style="font-size:11px;color:var(--text2)"></span>
     </div>
+
+    <div id="shopping-basket" style="margin-bottom:20px"></div>
 
     <div id="shopping-location" style="font-size:12px;color:var(--text2);margin-bottom:8px"></div>
 
@@ -1422,6 +1427,8 @@ function renderShoppingItems(items){
         </div>
         <div style="flex:1 1 220px;min-width:180px">
           <canvas id="spark-${it.id}" height="60"></canvas>
+          <div id="spark-info-${it.id}" style="font-size:11px;color:var(--text2);
+               text-align:right;min-height:14px"></div>
           <div style="font-size:11px;color:var(--text2);text-align:right">
             ${esc(it.status||'')} · ${it.points||0} Messwerte</div>
         </div>
@@ -1475,7 +1482,34 @@ async function renderSparkline(itemId){
     ctx.fillStyle = '#8890b0'; ctx.font = '10px Arial';
     ctx.fillText(minV.toFixed(2)+'€', 4, H-2);
     ctx.fillText(maxV.toFixed(2)+'€', 4, 10);
+
+    // Tooltip: an welchem Tag war es wo am günstigsten?
+    const info = document.getElementById(`spark-info-${itemId}`);
+    canvas.style.cursor = 'crosshair';
+    canvas.onmousemove = ev => {
+      const rect = canvas.getBoundingClientRect();
+      const rel = (ev.clientX - rect.left) / rect.width;
+      const i = Math.max(0, Math.min(pts.length-1, Math.round(rel*(pts.length-1))));
+      const p = pts[i];
+      const tag = new Date(p.ts*1000).toLocaleDateString('de-DE',
+                    {day:'2-digit',month:'2-digit'});
+      if(info) info.textContent = `${tag}: ${shopEuro(p.value)}`
+        + (p.retailer ? ` bei ${p.retailer}` : '')
+        + (p.unit_price_text ? ` (${p.unit_price_text})` : '');
+    };
+    canvas.onmouseleave = () => { if(info) info.textContent = _sparkFuss(d); };
+    if(info) info.textContent = _sparkFuss(d);
   }catch(e){console.debug('Sparkline:',itemId,e);}
+}
+
+// Fußzeile unter der Sparkline: wer war am häufigsten der Günstigste?
+function _sparkFuss(d){
+  const r = (d.retailers||[])[0];
+  if(!r) return '';
+  const tage = (d.data||[]).length;
+  return r.days === tage
+    ? `durchgehend am günstigsten bei ${r.retailer}`
+    : `am häufigsten günstigsten bei ${r.retailer} (${r.days}/${tage} Tage)`;
 }
 
 async function shoppingAdd(){
@@ -1586,6 +1620,75 @@ async function shoppingSample(){
   }catch(e){
     if(status) status.textContent = `❌ ${e.message}`;
   }finally{ if(btn) btn.disabled = false; }
+}
+
+async function shoppingBasket(){
+  const btn = document.getElementById('shopping-basket-btn');
+  const box = document.getElementById('shopping-basket');
+  if(btn) btn.disabled = true;
+  if(box) box.innerHTML = '<div class="card" style="padding:14px;color:var(--text2);'
+    + 'font-size:12px">🧮 Vergleiche alle Läden… (sucht live, dauert einen Moment)</div>';
+  try{
+    const r = await authFetch('/api/shopping/basket', {method:'POST'});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    if(d.error){ box.innerHTML = `<div class="card" style="padding:14px;color:var(--yellow);`
+      + `font-size:12px">${esc(d.error)}</div>`; return; }
+    renderBasket(d);
+  }catch(e){
+    if(box) box.innerHTML = `<div class="card" style="padding:14px;color:var(--red);`
+      + `font-size:12px">❌ ${esc(e.message)}</div>`;
+  }finally{ if(btn) btn.disabled = false; }
+}
+
+function renderBasket(d){
+  const box = document.getElementById('shopping-basket');
+  if(!box) return;
+  // Nenner sind die Artikel, die es überhaupt irgendwo gibt – sonst steht ein
+  // Laden, der alles Verfügbare führt, als "3 von 4" da.
+  const n = d.comparable || 0;
+  const best = d.best_single;
+
+  // Abdeckung zuerst: ein Laden mit 3 von 5 Artikeln ist nicht "billiger".
+  const zeilen = (d.stores||[]).slice(0,8).map(s=>{
+    const voll = s.covered === n;
+    const km = s.distance_km != null ? `${s.distance_km.toFixed(1)} km` : '—';
+    const fehlt = s.missing && s.missing.length
+      ? `<div style="font-size:11px;color:var(--text2)">ohne: ${esc(s.missing.join(', '))}</div>` : '';
+    const marke = (best && s.retailer_key === best.retailer_key)
+      ? ' <span class="badge badge-green">bester Einzel-Einkauf</span>' : '';
+    return `<tr>
+      <td style="padding:5px 10px 5px 0;font-weight:600;white-space:nowrap">${esc(shopEuro(s.total))}</td>
+      <td style="padding:5px 10px 5px 0">${esc(s.retailer)}${marke}${fehlt}</td>
+      <td style="padding:5px 10px 5px 0;color:${voll?'var(--text2)':'var(--yellow)'}">
+        ${s.covered}/${n}</td>
+      <td style="padding:5px 0;color:var(--text2);white-space:nowrap">${esc(km)}</td>
+    </tr>`;
+  }).join('');
+
+  let fazit = '';
+  if(d.optimum_stores > 1){
+    const spart = d.savings > 0
+      ? `<span style="color:var(--green)">spart ${esc(shopEuro(d.savings))}</span>`
+        + ` gegenüber ${esc(best ? best.retailer : '')}`
+      : (best && best.covered === n
+          ? `<span style="color:var(--text2)">${esc(best.retailer)} allein ist genauso günstig</span>`
+          : '<span style="color:var(--text2)">nicht direkt vergleichbar (andere Abdeckung)</span>');
+    fazit = `<div style="margin-top:12px;font-size:12px">`
+      + `Alles einzeln beim Günstigsten: <b>${esc(shopEuro(d.optimum_total))}</b>`
+      + ` <span style="color:var(--text2)">(${d.optimum_stores} Läden)</span> — ${spart}</div>`;
+  }
+  const hinweis = d.hinweis
+    ? `<div style="margin-top:8px;font-size:11px;color:var(--yellow)">⚠️ ${esc(d.hinweis)}</div>` : '';
+  const fehlend = (d.ohne_angebot||[]).length
+    ? `<div style="margin-top:8px;font-size:11px;color:var(--text2)">`
+      + `Ohne Angebot: ${esc(d.ohne_angebot.join(', '))}</div>` : '';
+
+  box.innerHTML = `<div class="card" style="padding:16px">
+    <div class="section-title" style="margin-bottom:8px">🧮 Warenkorb
+      (${n} von ${d.item_count} Artikeln im Angebot)</div>
+    <table style="width:100%;font-size:12px;border-collapse:collapse">${zeilen}</table>
+    ${fazit}${hinweis}${fehlend}</div>`;
 }
 
 async function loadShoppingHome(){

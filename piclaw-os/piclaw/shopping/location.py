@@ -12,6 +12,7 @@ muss der Nutzer sehen statt es an unplausiblen Kilometerangaben zu erraten.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 
@@ -325,6 +326,21 @@ def _reduce(shops: list) -> list:
     return behalten
 
 
+# Verhindert, dass parallele Aufrufe (Dashboard lädt Läden, während der
+# Warenkorb-Vergleich läuft) beide dieselbe Overpass-Query abfeuern. Der
+# zweite wartet und findet den frisch geschriebenen Cache vor. Ohne das
+# scheitert unter Last einer der beiden mit 504 – und liefert dann still
+# eine leere Ladenliste, also weder Entfernungen noch Ketten-Filter.
+_umkreis_locks: dict[str, asyncio.Lock] = {}
+
+
+def _umkreis_lock(key: str) -> asyncio.Lock:
+    lock = _umkreis_locks.get(key)
+    if lock is None:
+        lock = _umkreis_locks[key] = asyncio.Lock()
+    return lock
+
+
 async def resolve_surroundings(
     session: aiohttp.ClientSession,
     home: Home,
@@ -338,6 +354,15 @@ async def resolve_surroundings(
     radius = float(_user_override("shopping", "radius_km", sc.radius_km) or 10.0)
     radius_key = int(round(radius))
 
+    async with _umkreis_lock(f"{home.addr_hash}:{radius_key}"):
+        return await _resolve_surroundings_locked(
+            session, home, db, sc, radius, radius_key, force
+        )
+
+
+async def _resolve_surroundings_locked(
+    session, home, db, sc, radius, radius_key, force,
+) -> Surroundings:
     if not force:
         cached = db.get_stores(home.addr_hash, radius_key, sc.store_cache_days)
         if cached is not None:

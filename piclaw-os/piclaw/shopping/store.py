@@ -485,19 +485,68 @@ class ShoppingDB:
         Das ist die Reihe für die Sparkline im Dashboard: "was hätte mich
         dieser Artikel an dem Tag mindestens gekostet".
         """
+        return [(p["ts"], p["price"]) for p in self.item_history_detailed(
+            item_id, since_ts)]
+
+    def item_history_detailed(
+        self, item_id: int, since_ts: int | None = None
+    ) -> list[dict]:
+        """Wie item_history, aber mit Händler und Produkt des Tagesbestpreises.
+
+        Beantwortet "wo war der Artikel an dem Tag am günstigsten". Die
+        Gruppierung passiert bewusst in Python statt per Window-Function:
+        die Datenmenge ist winzig (ein Punkt je Produkt und Tag), und so
+        hängt nichts an der SQLite-Version auf dem Pi.
+        """
         sql = (
-            "SELECT (ts / ?) * ? AS day_ts, MIN(price) AS price"
+            "SELECT p.ts, p.price, pr.retailer, pr.title,"
+            "       pr.unit_size, pr.unit_label, pr.id AS product_id"
             " FROM price_points p JOIN products pr ON pr.id = p.product_id"
             " WHERE pr.item_id = ?"
         )
-        params: list = [_SECS_PER_DAY, _SECS_PER_DAY, item_id]
+        params: list = [item_id]
         if since_ts is not None:
             sql += " AND p.ts >= ?"
             params.append(since_ts)
-        sql += " GROUP BY day_ts ORDER BY day_ts"
+        sql += " ORDER BY p.ts"
         with self._conn() as con:
             rows = con.execute(sql, params).fetchall()
-        return [(int(r["day_ts"]), float(r["price"])) for r in rows]
+
+        from piclaw.shopping.units import format_unit_price
+
+        je_tag: dict[int, dict] = {}
+        for row in rows:
+            tag = (int(row["ts"]) // _SECS_PER_DAY) * _SECS_PER_DAY
+            preis = float(row["price"])
+            bisher = je_tag.get(tag)
+            if bisher is not None and bisher["price"] <= preis:
+                continue
+            groesse = row["unit_size"]
+            groesse = float(groesse) if groesse is not None else None
+            je_tag[tag] = {
+                "ts": tag,
+                "price": preis,
+                "retailer": row["retailer"],
+                "title": row["title"],
+                "product_id": int(row["product_id"]),
+                "unit_price_text": format_unit_price(
+                    preis, groesse, row["unit_label"] or ""
+                ),
+            }
+        return [je_tag[t] for t in sorted(je_tag)]
+
+    def retailer_summary(self, item_id: int, since_ts: int | None = None) -> list[dict]:
+        """Wie oft war welcher Händler der günstigste des Tages?"""
+        from collections import Counter
+
+        zaehler = Counter(
+            p["retailer"] for p in self.item_history_detailed(item_id, since_ts)
+        )
+        gesamt = sum(zaehler.values())
+        return [
+            {"retailer": name, "days": n, "share": n / gesamt if gesamt else 0.0}
+            for name, n in zaehler.most_common()
+        ]
 
     def best_current(self, item_id: int, max_age_s: int = 3 * _SECS_PER_DAY) -> dict | None:
         """Günstigster zuletzt gesehener Preis eines Artikels."""

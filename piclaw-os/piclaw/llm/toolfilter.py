@@ -99,6 +99,7 @@ QUERY_TOOLS = frozenset({
     "service_status", "service_list",
     "parcel_status",
     "shopping_list", "shopping_offers", "shopping_stores", "shopping_test",
+    "shopping_basket",
     "llm_list",
     "memory_stats",
     "system_info", "system_report", "pi_info", "thermal_status",
@@ -166,10 +167,10 @@ _OBJECT_GROUPS: list[tuple[str, frozenset[str]]] = [
         # Steht vor der Marktplatz-/Netzwerkgruppe, weil "Angebot" und
         # "Supermarkt" sonst dort hängenbleiben könnten.
         r"(einkauf|einkaufsliste|angebot|prospekt|supermarkt|besorg|"
-        r"lebensmittel|preisverlauf)",
+        r"lebensmittel|preisverlauf|warenkorb)",
         frozenset({
             "shopping_add", "shopping_remove", "shopping_list",
-            "shopping_offers", "shopping_stores", "shopping_home",
+            "shopping_offers", "shopping_stores", "shopping_home", "shopping_basket",
             "shopping_test",
         }),
     ),
