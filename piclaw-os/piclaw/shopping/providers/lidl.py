@@ -23,6 +23,11 @@ import aiohttp
 
 from piclaw.shopping.matching import normalize_retailer, normalize_title
 from piclaw.shopping.providers.base import Offer
+from piclaw.shopping.units import (
+    refine_size,
+    size_from_price_per_unit,
+    size_from_quantity,
+)
 
 log = logging.getLogger("piclaw.shopping.providers.lidl")
 
@@ -87,13 +92,25 @@ def parse_offer(raw: dict) -> Offer | None:
     if ppu and ppu not in unit_parts:
         unit_parts.append(ppu)
 
+    # Lidl gibt den Grundpreis als Text ("1 kg = 6.60/9.00"). Steht keiner da
+    # ("Je Topf"), wird die Menge aus der Verpackungsangabe gelesen.
+    unit_text = " · ".join(unit_parts)
+    unit_size, unit_label = size_from_price_per_unit(price, unit_text)
+    text_size, text_label = size_from_quantity(unit_text)
+    if unit_size is None:
+        unit_size, unit_label = text_size, text_label
+    elif text_label == unit_label:
+        unit_size = refine_size(unit_size, text_size)
+
     return Offer(
         title=title,
         retailer=RETAILER,
         retailer_key=normalize_retailer(RETAILER),
         price=price,
         old_price=old_price,
-        unit=" · ".join(unit_parts),
+        unit=unit_text,
+        unit_size=unit_size,
+        unit_label=unit_label,
         brand=brand,
         valid_from=str(raw.get("startValidityDateUTC") or raw.get("startValidityDate") or ""),
         valid_to=str(raw.get("endValidityDateUTC") or raw.get("endValidityDate") or ""),

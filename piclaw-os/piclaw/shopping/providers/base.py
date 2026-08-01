@@ -35,6 +35,10 @@ class Offer:
     price: float | None = None
     old_price: float | None = None
     unit: str = ""              # Mengen-/Grundpreisangabe als Text
+    # Packungsgröße in einer Basiseinheit (kg, l, Stk). Daraus errechnet sich
+    # der Grundpreis – siehe piclaw/shopping/units.py.
+    unit_size: float | None = None
+    unit_label: str = ""
     brand: str = ""
     valid_from: str = ""
     valid_to: str = ""
@@ -65,6 +69,19 @@ class Offer:
             return 0.0
         return max(0.0, (self.old_price - self.price) / self.old_price)
 
+    @property
+    def unit_price(self) -> float | None:
+        """Grundpreis in €/kg, €/l oder €/Stück. None wenn unbekannt."""
+        from piclaw.shopping.units import unit_price
+
+        return unit_price(self.price, self.unit_size)
+
+    @property
+    def unit_price_text(self) -> str:
+        from piclaw.shopping.units import format_unit_price
+
+        return format_unit_price(self.price, self.unit_size, self.unit_label)
+
     def to_dict(self) -> dict:
         return {
             "title": self.title,
@@ -73,6 +90,10 @@ class Offer:
             "price": self.price,
             "old_price": self.old_price,
             "unit": self.unit,
+            "unit_size": self.unit_size,
+            "unit_label": self.unit_label,
+            "unit_price": self.unit_price,
+            "unit_price_text": self.unit_price_text,
             "brand": self.brand,
             "valid_from": self.valid_from,
             "valid_to": self.valid_to,

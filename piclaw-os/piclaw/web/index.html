@@ -1391,11 +1391,22 @@ function renderShoppingItems(items){
   }
   shoppingNames = Object.fromEntries(items.map(it=>[it.id, it.name]));
   box.innerHTML = items.map(it=>{
-    const best = it.best;
+    const best = it.best, bestU = it.best_unit;
+    // Grundpreis dazu: 1,79 € für 250 g ist teurer als 2,49 € für 400 g.
+    const grund = best && best.unit_price_text
+      ? ` <span style="color:var(--text2)">· ${esc(best.unit_price_text)}</span>` : '';
+    // Ist ein anderes Produkt pro kg günstiger, ist das die eigentliche Info.
+    const hinweis = (bestU && best && bestU.product_id !== best.product_id
+                     && bestU.unit_price_text)
+      ? `<div style="font-size:11px;color:var(--green)">💡 pro ${esc(bestU.unit_label)}`
+        + ` günstiger: ${esc(bestU.unit_price_text)} — ${esc(bestU.retailer||'')}`
+        + ` (${esc(shopEuro(bestU.price))}${bestU.size_text ? ' / '+esc(bestU.size_text) : ''})</div>`
+      : '';
     const preis = best
-      ? `<span style="font-size:16px;font-weight:600">${esc(shopEuro(best.price))}</span>`
+      ? `<span style="font-size:16px;font-weight:600">${esc(shopEuro(best.price))}</span>${grund}`
         + ` <span style="color:var(--text2)">bei ${esc(best.retailer||'?')}</span>`
-        + `<div style="font-size:11px;color:var(--text2)">${esc(best.title||'')}</div>`
+        + `<div style="font-size:11px;color:var(--text2)">${esc(best.title||'')}`
+        + `${best.size_text ? ' · '+esc(best.size_text) : ''}</div>${hinweis}`
       : '<span style="color:var(--text2);font-size:12px">noch kein Preis erfasst</span>';
     const badge = it.is_drop
       ? '<span class="badge badge-green">📉 günstig</span>'
@@ -1512,8 +1523,9 @@ function renderShoppingTest(d, target){
   if(hits.length){
     html += `<div style="color:var(--green)">✅ ${hits.length} passende Treffer</div>`
       + hits.slice(0,5).map(o=>
-        `<div style="color:var(--text2)">${esc(shopEuro(o.price))} — `
-        + `${esc(o.retailer||'?')}: ${esc(o.title||'')}</div>`).join('');
+        `<div style="color:var(--text2)">${esc(shopEuro(o.price))}`
+        + (o.unit_price_text ? ` <span style="opacity:.8">(${esc(o.unit_price_text)})</span>` : '')
+        + ` — ${esc(o.retailer||'?')}: ${esc(o.title||'')}</div>`).join('');
   }else{
     html += '<div style="color:var(--yellow)">⚠️ Keine passenden Treffer. '
       + 'Tippfehler? Zusammengesetzte Wörter finden oft nichts – '

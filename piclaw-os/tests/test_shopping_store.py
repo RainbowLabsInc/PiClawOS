@@ -183,6 +183,95 @@ def test_best_current_ignoriert_alte_preise(db):
     assert db.best_current(item.id, max_age_s=40 * DAY)["price"] == 0.99
 
 
+def test_grundpreis_wird_aus_groesse_und_preis_berechnet(db):
+    item = db.add_item("Butter")
+    pid = db.upsert_product(item.id, "lidl", "Kerrygold", "kerrygold",
+                            unit_size=0.25, unit_label="kg")
+    db.record_price(pid, 1.79)
+
+    best = db.best_current(item.id)
+    assert best["unit_price"] == pytest.approx(7.16, abs=0.01)
+    assert best["unit_price_text"] == "7,16 €/kg"
+    assert best["size_text"] == "250 g"
+
+
+def test_gefallener_preis_ergibt_neuen_grundpreis(db):
+    """Gespeichert wird die Größe, nicht der Grundpreis – der folgt dem Preis."""
+    item = db.add_item("Butter")
+    pid = db.upsert_product(item.id, "lidl", "Kerrygold", "kerrygold",
+                            unit_size=0.25, unit_label="kg")
+    db.record_price(pid, 0.99)
+
+    assert db.best_current(item.id)["unit_price"] == pytest.approx(3.96, abs=0.01)
+
+
+def test_bester_grundpreis_kann_anderes_produkt_sein(db):
+    """Der Kern des Features: der Absolutpreis führt hier in die Irre."""
+    item = db.add_item("Butter")
+    klein = db.upsert_product(item.id, "lidl", "250g Butter", "klein",
+                              unit_size=0.25, unit_label="kg")
+    gross = db.upsert_product(item.id, "rewe", "400g Butter", "gross",
+                              unit_size=0.40, unit_label="kg")
+    db.record_price(klein, 1.79)   # 7,16 €/kg
+    db.record_price(gross, 2.49)   # 6,23 €/kg
+
+    assert db.best_current(item.id)["product_id"] == klein        # billiger absolut
+    assert db.best_unit_price(item.id)["product_id"] == gross     # billiger pro kg
+
+
+def test_produkte_ohne_groesse_fallen_beim_grundpreis_raus(db):
+    item = db.add_item("Butter")
+    ohne = db.upsert_product(item.id, "lidl", "Butter", "butter")
+    db.record_price(ohne, 0.99)
+
+    assert db.best_current(item.id) is not None
+    assert db.best_unit_price(item.id) is None
+    assert db.best_current(item.id)["unit_price"] is None
+    assert db.best_current(item.id)["unit_price_text"] == ""
+
+
+def test_bekannte_groesse_wird_nicht_geleert(db):
+    """Liefert eine Quelle die Größe später nicht mit, bleibt sie erhalten."""
+    item = db.add_item("Butter")
+    pid = db.upsert_product(item.id, "lidl", "Butter", "butter",
+                            unit_size=0.25, unit_label="kg")
+
+    db.upsert_product(item.id, "lidl", "Butter", "butter")
+
+    produkt = db.list_products(item.id)[0]
+    assert produkt.id == pid
+    assert produkt.unit_size == pytest.approx(0.25)
+    assert produkt.unit_label == "kg"
+
+
+def test_migration_ergaenzt_spalten_in_bestandsdatenbank(tmp_path):
+    """Eine DB ohne die Grundpreis-Spalten darf nicht neu aufgebaut werden."""
+    import sqlite3
+
+    pfad = tmp_path / "alt.db"
+    con = sqlite3.connect(pfad)
+    con.executescript("""
+        CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT,
+            query TEXT DEFAULT '', qty TEXT DEFAULT '', max_price REAL,
+            owner_id TEXT, muted INTEGER DEFAULT 0, created_at INTEGER);
+        CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER, retailer TEXT, title TEXT, title_norm TEXT,
+            unit TEXT DEFAULT '', first_seen INTEGER, last_seen INTEGER,
+            UNIQUE(item_id, retailer, title_norm));
+        INSERT INTO items VALUES (1,'Butter','','',NULL,NULL,0,1);
+        INSERT INTO products VALUES (1,1,'lidl','Butter','butter','',1,1);
+    """)
+    con.commit()
+    con.close()
+
+    db = ShoppingDB(pfad)
+
+    produkte = db.list_products(1)
+    assert len(produkte) == 1              # Bestand erhalten
+    assert produkte[0].unit_size is None
+    assert ShoppingDB(pfad).list_products(1)  # zweiter Lauf bricht nicht
+
+
 def test_best_current_nennt_haendler_und_titel(db):
     item = db.add_item("Butter")
     pid = db.upsert_product(item.id, "lidl", "Milbona Weidebutter", "milbona weidebutter")
