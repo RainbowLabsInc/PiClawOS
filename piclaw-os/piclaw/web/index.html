@@ -1684,16 +1684,25 @@ function renderBasket(d){
 
   // Abdeckung zuerst: ein Laden mit 3 von 5 Artikeln ist nicht "billiger".
   const zeilen = (d.stores||[]).slice(0,8).map(s=>{
-    const voll = s.covered === n;
     const km = s.distance_km != null ? `${s.distance_km.toFixed(1)} km` : '—';
+    // Ohne diesen Hinweis wirkt die Summe wie reine Aktionsware – dabei
+    // steckt der regulär mitgekaufte Rest mit drin.
+    let geschaetzt = '';
+    if(s.estimated_count){
+      const namen = (s.estimated_items||[]).map(t=>t.item_name).join(', ');
+      geschaetzt = `<div style="font-size:11px;color:var(--text2)">`
+        + `inkl. ${s.estimated_count} Artikel zum geschätzten Normalpreis`
+        + (namen ? ` (${esc(namen)})` : '') + `</div>`;
+    }
     const fehlt = s.missing && s.missing.length
-      ? `<div style="font-size:11px;color:var(--text2)">ohne: ${esc(s.missing.join(', '))}</div>` : '';
+      ? `<div style="font-size:11px;color:var(--yellow)">⚠️ nicht kalkulierbar: `
+        + `${esc(s.missing.join(', '))}</div>` : '';
     const marke = (best && s.retailer_key === best.retailer_key)
       ? ' <span class="badge badge-green">bester Einzel-Einkauf</span>' : '';
     return `<tr>
-      <td style="padding:5px 10px 5px 0;font-weight:600;white-space:nowrap">${esc(shopEuro(s.total))}</td>
-      <td style="padding:5px 10px 5px 0">${esc(s.retailer)}${marke}${fehlt}</td>
-      <td style="padding:5px 10px 5px 0;color:${voll?'var(--text2)':'var(--yellow)'}">
+      <td style="padding:5px 10px 5px 0;font-weight:600;white-space:nowrap">${esc(shopEuro(s.total_full))}</td>
+      <td style="padding:5px 10px 5px 0">${esc(s.retailer)}${marke}${geschaetzt}${fehlt}</td>
+      <td style="padding:5px 10px 5px 0;color:${s.complete?'var(--text2)':'var(--yellow)'}">
         ${s.covered}/${n}</td>
       <td style="padding:5px 0;color:var(--text2);white-space:nowrap">${esc(km)}</td>
     </tr>`;

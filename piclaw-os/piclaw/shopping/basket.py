@@ -44,6 +44,9 @@ class Treffer:
     title: str
     unit_price: float | None = None
     unit_price_text: str = ""
+    # Gesetzt, wenn der Artikel dort NICHT im Angebot ist und der Preis
+    # geschätzt wurde: "streichpreis" | "historie". Leer = echtes Angebot.
+    estimated: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -53,6 +56,7 @@ class Treffer:
             "title": self.title,
             "unit_price": self.unit_price,
             "unit_price_text": self.unit_price_text,
+            "estimated": self.estimated,
         }
 
 
@@ -63,28 +67,53 @@ class StoreBasket:
     retailer_key: str
     retailer: str
     treffer: list[Treffer] = field(default_factory=list)
+    # Artikel, die dort nicht im Angebot sind, aber zum geschätzten
+    # Normalpreis mitgekauft würden.
+    geschaetzt: list[Treffer] = field(default_factory=list)
+    # Artikel, für die es weder Angebot noch Schätzung gibt.
     missing: list[str] = field(default_factory=list)
     distance_km: float | None = None
     address: str = ""
 
     @property
     def total(self) -> float:
+        """Nur die Aktionsware – was im Prospekt steht."""
         return round(sum(t.price for t in self.treffer), 2)
+
+    @property
+    def total_full(self) -> float:
+        """Der ganze Einkauf: Aktionsware plus geschätzte Normalpreise.
+
+        Das ist die Zahl, nach der verglichen wird. Der reine
+        Aktionsware-Preis führt in die Irre: ein Laden mit vier günstigen
+        Aktionsartikeln und einem teuren Regalartikel kann teurer sein als
+        einer, bei dem alles im Angebot ist.
+        """
+        return round(self.total + sum(t.price for t in self.geschaetzt), 2)
 
     @property
     def covered(self) -> int:
         return len(self.treffer)
+
+    @property
+    def complete(self) -> bool:
+        """Ob der ganze Korb dort kalkulierbar ist."""
+        return not self.missing
 
     def to_dict(self) -> dict:
         return {
             "retailer_key": self.retailer_key,
             "retailer": self.retailer,
             "total": self.total,
+            "total_full": self.total_full,
             "covered": self.covered,
+            "estimated_count": len(self.geschaetzt),
+            "complete": self.complete,
             "missing": self.missing,
             "distance_km": self.distance_km,
             "address": self.address,
             "items": [t.to_dict() for t in self.treffer],
+            "estimated_items": [t.to_dict() for t in self.geschaetzt],
         }
 
 
@@ -118,22 +147,24 @@ class BasketResult:
 
     @property
     def best_single(self) -> StoreBasket | None:
-        """Bester Laden für einen Einkauf: erst Abdeckung, dann Preis."""
+        """Bester Laden für den ganzen Einkauf.
+
+        Verglichen wird `total_full` – Aktionsware plus geschätzte
+        Normalpreise. Läden, bei denen ein Artikel gar nicht kalkulierbar
+        ist, kommen nur zum Zug, wenn es keine vollständigen gibt.
+        """
         if not self.stores:
             return None
-        return max(self.stores, key=lambda s: (s.covered, -s.total))
+        vollstaendig = [s for s in self.stores if s.complete]
+        return min(vollstaendig or self.stores, key=lambda s: s.total_full)
 
     @property
     def savings(self) -> float:
-        """Was der Mehrfach-Einkauf gegenüber dem besten Einzelladen bringt.
-
-        Nur aussagekräftig, wenn der beste Einzelladen alles führt – sonst
-        vergleicht man unterschiedliche Warenkörbe.
-        """
+        """Was der Mehrfach-Einkauf gegenüber dem besten Einzelladen bringt."""
         einzeln = self.best_single
-        if einzeln is None or einzeln.covered < len(self.optimum):
+        if einzeln is None or not einzeln.complete:
             return 0.0
-        return round(einzeln.total - self.optimum_total, 2)
+        return round(einzeln.total_full - self.optimum_total, 2)
 
     def to_dict(self) -> dict:
         einzeln = self.best_single
@@ -170,6 +201,7 @@ async def compare(
     surroundings,
     cfg=None,
     limit_per_item: int = 30,
+    db=None,
 ) -> BasketResult:
     """Vergleicht den Warenkorb über alle Händler im Umkreis.
 
@@ -246,19 +278,44 @@ async def compare(
     gefundene_ids = set(bestes_je_artikel)
     namen = {i.id: i.name for i in items}
 
+    # Für jeden Artikel einmal schätzen, was er regulär kostet – damit ein
+    # Laden ohne Angebot dafür nicht fälschlich als der günstigste dasteht.
+    from piclaw.shopping.store import get_db
+
+    datenbank = db or get_db()
+    schaetzung: dict[int, tuple[float, str]] = {}
+    for item_id in gefundene_ids:
+        preis, quelle = datenbank.normal_price_estimate(item_id)
+        if preis:
+            schaetzung[item_id] = (preis, quelle)
+
     for key, treffer_map in je_haendler.items():
         shop = surroundings.nearest(key)
+        fehlend = gefundene_ids - set(treffer_map)
+        geschaetzt, ohne = [], []
+        for item_id in sorted(fehlend):
+            eintrag = schaetzung.get(item_id)
+            if eintrag is None:
+                ohne.append(namen[item_id])
+                continue
+            preis, quelle = eintrag
+            geschaetzt.append(Treffer(
+                item_id=item_id, item_name=namen[item_id], price=preis,
+                title="nicht im Angebot", estimated=quelle,
+            ))
         ergebnis.stores.append(StoreBasket(
             retailer_key=key,
             retailer=retailer_label(key, key),
             treffer=sorted(treffer_map.values(), key=lambda t: t.item_name),
-            missing=sorted(namen[i] for i in gefundene_ids - set(treffer_map)),
+            geschaetzt=geschaetzt,
+            missing=sorted(ohne),
             distance_km=shop["distance_km"] if shop else None,
             address=shop.get("street", "") if shop else "",
         ))
 
-    # Abdeckung schlägt Preis: 3 von 5 Artikeln sind kein günstigerer Einkauf.
-    ergebnis.stores.sort(key=lambda s: (-s.covered, s.total))
+    # Vollständig kalkulierbare Läden zuerst, darin nach Gesamtpreis.
+    # Der reine Aktionsware-Preis wäre irreführend – siehe total_full.
+    ergebnis.stores.sort(key=lambda s: (not s.complete, s.total_full))
     ergebnis.optimum = [t for _k, t in bestes_je_artikel.values()]
     ergebnis.optimum_stores = len({k for k, _t in bestes_je_artikel.values()})
     return ergebnis

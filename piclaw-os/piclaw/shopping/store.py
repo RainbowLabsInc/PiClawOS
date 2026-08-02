@@ -161,6 +161,9 @@ class PricePoint:
     price: float = 0.0
     ts: int = field(default_factory=lambda: int(time.time()))
     is_promo: bool = False
+    # Streichpreis, falls die Quelle einen liefert. Einzige direkte Quelle
+    # für den Normalpreis – deshalb mitschreiben, auch wenn selten.
+    old_price: float | None = None
 
 
 def address_hash(*parts: str) -> str:
@@ -273,9 +276,13 @@ class ShoppingDB:
                     ts         INTEGER NOT NULL,
                     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
                     price      REAL    NOT NULL,
-                    is_promo   INTEGER DEFAULT 0
+                    is_promo   INTEGER DEFAULT 0,
+                    old_price  REAL
                 )
             """)
+            # Streichpreis nachtragen: er ist die einzige direkte Quelle für
+            # den Normalpreis (nur ~8% der Angebote führen ihn).
+            _add_column(con, "price_points", "old_price", "REAL")
             con.execute(
                 "CREATE INDEX IF NOT EXISTS idx_pp_product ON price_points(product_id, ts)"
             )
@@ -490,10 +497,10 @@ class ShoppingDB:
                         (point.product_id, _SECS_PER_DAY, day),
                     )
                 con.execute(
-                    "INSERT INTO price_points (ts, product_id, price, is_promo)"
-                    " VALUES (?,?,?,?)",
+                    "INSERT INTO price_points (ts, product_id, price, is_promo,"
+                    " old_price) VALUES (?,?,?,?,?)",
                     (point.ts, point.product_id, point.price,
-                     1 if point.is_promo else 0),
+                     1 if point.is_promo else 0, point.old_price),
                 )
                 written += 1
         return written
@@ -577,6 +584,46 @@ class ShoppingDB:
                 ),
             }
         return [je_tag[t] for t in sorted(je_tag)]
+
+    def normal_price_estimate(
+        self, item_id: int, min_days: int = 5
+    ) -> tuple[float | None, str]:
+        """Schätzt, was der Artikel regulär kostet – ohne Aktion.
+
+        Gebraucht für den Warenkorb-Vergleich: ein Laden, der nur 4 von 5
+        Artikeln im Angebot hat, ist nicht billiger – man kauft den fünften
+        dort zum Normalpreis mit. Ohne diese Schätzung erscheinen Läden mit
+        wenigen Aktionsartikeln fälschlich als die günstigsten.
+
+        Die Quellen sind unterschiedlich verlässlich, deshalb wird sie
+        mitgegeben und in der Anzeige kenntlich gemacht:
+
+        1. **Streichpreis** – der einzige echte Normalpreis in den Daten.
+           Bei Lidl bei rund der Hälfte der Angebote dabei, bei marktguru nur
+           bei ~8 % (gemessen 08/2026).
+        2. **Höchster beobachteter Preis** der eigenen Historie – aber erst
+           ab `min_days` verschiedenen Messtagen. Alles darunter wäre nur
+           das Maximum der heutigen *Aktions*preise und läge damit
+           systematisch unter dem Regalpreis. Lieber keine Zahl als eine,
+           die den Vergleich in die falsche Richtung verschiebt.
+        3. Nichts davon → (None, ""), der Aufrufer muss den Laden als nicht
+           vergleichbar ausweisen statt eine Zahl zu erfinden.
+        """
+        with self._conn() as con:
+            row = con.execute(
+                "SELECT MAX(p.old_price) AS streich, MAX(p.price) AS hoechster,"
+                "       COUNT(DISTINCT p.ts / ?) AS tage"
+                " FROM price_points p JOIN products pr ON pr.id = p.product_id"
+                " WHERE pr.item_id = ?",
+                (_SECS_PER_DAY, item_id),
+            ).fetchone()
+        if not row:
+            return None, ""
+        if row["streich"]:
+            return float(row["streich"]), "streichpreis"
+        if row["hoechster"] and int(row["tage"] or 0) >= min_days:
+            return float(row["hoechster"]), "historie"
+        return None, ""
 
     def retailer_summary(self, item_id: int, since_ts: int | None = None) -> list[dict]:
         """Wie oft war welcher Händler der günstigste des Tages?"""

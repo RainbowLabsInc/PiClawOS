@@ -102,6 +102,101 @@ async def test_guenstigster_treffer_je_haendler_zaehlt(patch_search):
     assert r.stores[0].treffer[0].title == "billig"
 
 
+# ── Fehlende Artikel zum Normalpreis ─────────────────────────────────────
+
+
+class _SchaetzDB:
+    """Store-Ersatz, der Normalpreise liefert."""
+
+    def __init__(self, preise):
+        self._preise = preise      # item_id -> (preis, quelle)
+
+    def normal_price_estimate(self, item_id):
+        return self._preise.get(item_id, (None, ""))
+
+
+@pytest.mark.asyncio
+async def test_billige_aktionsware_gewinnt_nicht_gegen_vollen_korb(patch_search):
+    """Der Kern des Fixes.
+
+    Netto hat vier Artikel günstig im Angebot, aber keinen Kaffee – den
+    kauft man dort zum Normalpreis mit. Lidl hat alles im Angebot. Nach
+    Aktionsware wäre Netto billiger, in Wahrheit ist es Lidl.
+    """
+    items = [Item(id=1, name="Butter", query="butter"),
+             Item(id=2, name="Kaffee", query="kaffee")]
+    patch_search({
+        "butter": [angebot("netto", 0.79), angebot("lidl", 1.49)],
+        "kaffee": [angebot("lidl", 4.99)],          # Netto: kein Angebot
+    })
+    db = _SchaetzDB({2: (7.99, "historie")})        # Kaffee reguläre 7,99
+
+    r = await basket.compare(None, items, _Home(), umgebung("netto", "lidl"), db=db)
+
+    je_laden = {s.retailer_key: s for s in r.stores}
+    assert je_laden["netto"].total == 0.79          # nur Aktionsware …
+    assert je_laden["netto"].total_full == 8.78     # … plus Kaffee regulär
+    assert je_laden["lidl"].total_full == 6.48
+    assert r.best_single.retailer_key == "lidl"     # trotz teurerer Butter
+    assert [s.retailer_key for s in r.stores] == ["lidl", "netto"]
+
+
+@pytest.mark.asyncio
+async def test_geschaetzte_artikel_werden_als_solche_ausgewiesen(patch_search):
+    items = [Item(id=1, name="Butter", query="butter"),
+             Item(id=2, name="Kaffee", query="kaffee")]
+    patch_search({
+        "butter": [angebot("netto", 0.79)],
+        "kaffee": [angebot("lidl", 4.99)],
+    })
+    db = _SchaetzDB({2: (7.99, "streichpreis")})
+
+    r = await basket.compare(None, items, _Home(), umgebung("netto", "lidl"), db=db)
+
+    netto = next(s for s in r.stores if s.retailer_key == "netto")
+    assert [t.item_name for t in netto.geschaetzt] == ["Kaffee"]
+    assert netto.geschaetzt[0].estimated == "streichpreis"
+    assert netto.geschaetzt[0].title == "nicht im Angebot"
+    assert netto.complete is True                   # kalkulierbar
+    assert netto.missing == []
+
+
+@pytest.mark.asyncio
+async def test_ohne_schaetzung_gilt_der_laden_als_unvollstaendig(patch_search):
+    """Lieber ehrlich unvergleichbar als eine erfundene Zahl."""
+    items = [Item(id=1, name="Butter", query="butter"),
+             Item(id=2, name="Kaffee", query="kaffee")]
+    patch_search({
+        "butter": [angebot("netto", 0.79)],
+        "kaffee": [angebot("lidl", 4.99)],
+    })
+    db = _SchaetzDB({})                              # keine Historie
+
+    r = await basket.compare(None, items, _Home(), umgebung("netto", "lidl"), db=db)
+
+    netto = next(s for s in r.stores if s.retailer_key == "netto")
+    assert netto.complete is False
+    assert netto.missing == ["Kaffee"]
+    assert netto.total_full == 0.79                  # nichts hinzuerfunden
+
+
+@pytest.mark.asyncio
+async def test_vollstaendige_laeden_stehen_vor_unvollstaendigen(patch_search):
+    items = [Item(id=1, name="Butter", query="butter"),
+             Item(id=2, name="Kaffee", query="kaffee")]
+    patch_search({
+        "butter": [angebot("netto", 0.10), angebot("lidl", 1.49)],
+        "kaffee": [angebot("lidl", 4.99)],
+    })
+    db = _SchaetzDB({})
+
+    r = await basket.compare(None, items, _Home(), umgebung("netto", "lidl"), db=db)
+
+    # Netto ist auf dem Papier spottbillig, aber nicht kalkulierbar.
+    assert [s.retailer_key for s in r.stores] == ["lidl", "netto"]
+    assert r.best_single.retailer_key == "lidl"
+
+
 # ── Optimum und Ersparnis ────────────────────────────────────────────────
 
 
