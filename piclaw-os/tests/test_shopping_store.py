@@ -283,6 +283,80 @@ def test_best_current_nennt_haendler_und_titel(db):
     assert best["price"] == 1.59
 
 
+# ── Normalpreis-Schätzung ────────────────────────────────────────────────
+
+
+def test_streichpreis_schlaegt_historie(db):
+    """Der Streichpreis ist der einzige echte Normalpreis in den Daten."""
+    item = db.add_item("Butter")
+    pid = db.upsert_product(item.id, "lidl", "Butter", "butter")
+    now = int(time.time())
+    db.record_prices([PricePoint(pid, 1.10, now - 2 * DAY)])
+    db.record_prices([PricePoint(pid, 0.99, now, old_price=1.99)])
+
+    preis, quelle = db.normal_price_estimate(item.id)
+
+    assert preis == 1.99
+    assert quelle == "streichpreis"
+
+
+def test_ohne_streichpreis_zaehlt_der_hoechste_beobachtete(db):
+    """Angebote tauchen unter den Regalpreis – das Maximum kommt ihm am nächsten."""
+    item = db.add_item("Butter")
+    pid = db.upsert_product(item.id, "lidl", "Butter", "butter")
+    now = int(time.time())
+    for i, p in enumerate([1.49, 1.79, 0.99, 1.29, 1.19, 1.39]):
+        db.record_prices([PricePoint(pid, p, now - (6 - i) * DAY)])
+
+    preis, quelle = db.normal_price_estimate(item.id)
+
+    assert preis == 1.79
+    assert quelle == "historie"
+
+
+def test_ein_tag_historie_ergibt_keine_schaetzung(db):
+    """Das Maximum heutiger Aktionspreise ist kein Normalpreis.
+
+    Es läge systematisch darunter und würde den Warenkorb-Vergleich in die
+    falsche Richtung verschieben – lieber gar keine Zahl.
+    """
+    item = db.add_item("Butter")
+    a = db.upsert_product(item.id, "lidl", "Butter", "a")
+    b = db.upsert_product(item.id, "rewe", "Butter", "b")
+    now = int(time.time())
+    db.record_prices([PricePoint(a, 0.99, now), PricePoint(b, 2.49, now)])
+
+    assert db.normal_price_estimate(item.id) == (None, "")
+
+
+def test_streichpreis_gilt_auch_ohne_lange_historie(db):
+    """Er ist ein echter Normalpreis, kein Schätzwert – ein Tag genügt."""
+    item = db.add_item("Butter")
+    pid = db.upsert_product(item.id, "lidl", "Butter", "butter")
+    db.record_prices([PricePoint(pid, 0.99, int(time.time()), old_price=1.99)])
+
+    assert db.normal_price_estimate(item.id) == (1.99, "streichpreis")
+
+
+def test_ohne_daten_keine_schaetzung(db):
+    """Lieber keine Zahl als eine erfundene."""
+    item = db.add_item("Butter")
+
+    assert db.normal_price_estimate(item.id) == (None, "")
+
+
+def test_schaetzung_ueber_mehrere_haendler(db):
+    item = db.add_item("Butter")
+    a = db.upsert_product(item.id, "lidl", "Butter", "a")
+    b = db.upsert_product(item.id, "rewe", "Butter", "b")
+    now = int(time.time())
+    for i in range(6):
+        db.record_prices([PricePoint(a, 0.99, now - i * DAY),
+                          PricePoint(b, 2.49, now - i * DAY)])
+
+    assert db.normal_price_estimate(item.id) == (2.49, "historie")
+
+
 # ── Alerts ───────────────────────────────────────────────────────────────
 
 

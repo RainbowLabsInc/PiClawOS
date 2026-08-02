@@ -376,14 +376,20 @@ async def shopping_basket() -> str:
         for laden in ergebnis.stores[:6]:
             entfernung = (f" · {laden.distance_km:.1f} km"
                           if laden.distance_km is not None else "")
-            fehlt = ""
+            zusatz = ""
+            if laden.geschaetzt:
+                # Ohne diesen Hinweis wirkt der Preis wie reine Aktionsware.
+                namen = ", ".join(t.item_name for t in laden.geschaetzt[:2])
+                mehr = (f" +{len(laden.geschaetzt) - 2}"
+                        if len(laden.geschaetzt) > 2 else "")
+                zusatz = f"\n    inkl. {namen}{mehr} zum geschätzten Normalpreis"
             if laden.missing:
                 sichtbar = ", ".join(laden.missing[:3])
                 rest = f" +{len(laden.missing) - 3}" if len(laden.missing) > 3 else ""
-                fehlt = f"\n    ohne: {sichtbar}{rest}"
+                zusatz += f"\n    ⚠️ nicht kalkulierbar: {sichtbar}{rest}"
             lines.append(
-                f"• *{_price(laden.total)}* — {laden.retailer} "
-                f"({laden.covered}/{n}){entfernung}{fehlt}"
+                f"• *{_price(laden.total_full)}* — {laden.retailer} "
+                f"({laden.covered}/{n} im Angebot){entfernung}{zusatz}"
             )
 
         bester = ergebnis.best_single
@@ -398,7 +404,7 @@ async def shopping_basket() -> str:
                     f"→ spart {_price(ergebnis.savings)} gegenüber "
                     f"{bester.retailer}"
                 )
-            elif bester.covered == n:
+            elif bester.complete:
                 lines.append(f"→ {bester.retailer} allein ist genauso günstig")
 
         if ergebnis.hinweis:

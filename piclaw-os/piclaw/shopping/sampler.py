@@ -182,7 +182,8 @@ async def run_sample(
                          f"({offer.unit_price_text}) " if offer.unit_price_text else "",
                          verdict.reason)
 
-            points.append(PricePoint(product_id, price, now, bool(offer.old_price)))
+            points.append(PricePoint(product_id, price, now,
+                                     bool(offer.old_price), offer.old_price))
 
         summary["points"] += db.record_prices(points)
         # Eine Diagnosezeile pro Artikel – so lässt sich ein leeres Ergebnis
