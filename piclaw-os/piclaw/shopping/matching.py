@@ -260,31 +260,38 @@ def product_key(retailer: str, title_norm: str) -> str:
     return f"{normalize_retailer(retailer) or retailer.lower()}|{title_norm}"
 
 
-def _word_matches(word: str, token: str) -> bool:
+def _word_matches(word: str, token: str, strict: bool = True) -> bool:
     """Passt ein einzelnes Titelwort zum Suchtoken?
 
-    Regel: identisch oder **Kompositum mit dem Token als Kopf**. Im Deutschen
-    steht der Kopf hinten – "Weidebutter" und "Markenbutter" sind Butter,
-    "Buttermilch" ist Milch. Ein reiner Substring-Vergleich zieht genau diese
-    Fehltreffer herein: die Provider-Suche nach "Butter" liefert
-    "Hamfelder Hof Buttermilch Drink", was die Preisreihe verfälscht und in
-    der Liste als günstigster Butterpreis auftaucht.
+    `strict=True` (Kopf-Regel): identisch oder Kompositum mit dem Token als
+    **Kopf**. Im Deutschen steht der Kopf hinten – "Weidebutter" ist Butter,
+    "Buttermilch" ist Milch.
 
-    Preis der Regel: Marken-Komposita mit dem Token vorn ("Chipsfrisch" zu
-    "Chips") fallen raus. Dafür gibt es das Feld `query` am Artikel.
+    `strict=False`: zusätzlich Komposita mit dem Token **vorn**
+    ("Toastbrot" zu "toast", "Kaffeepads" zu "kaffee"). Deutlich mehr echte
+    Treffer, holt aber auch "Buttermilch" herein.
+
+    Welche Variante gilt, entscheidet die Datenlage: liefert eine Quelle
+    Warenkategorien (marktguru), übernimmt die Kategorie die Trennung und der
+    Wortvergleich wird gar nicht gebraucht. Nur für Quellen ohne Kategorien
+    (Lidl) bleibt er – dort lieber großzügig, weil eine Filialliste von ~56
+    Angeboten wenig Raum für Fehltreffer lässt.
     """
     if word == token:
         return True
-    return len(word) > len(token) and word.endswith(token)
+    if len(word) <= len(token):
+        return False
+    if word.endswith(token):
+        return True
+    return not strict and word.startswith(token)
 
 
-def matches_item(title_norm: str, search_term: str) -> bool:
+def matches_item(title_norm: str, search_term: str, strict: bool = True) -> bool:
     """Prüft, ob ein Treffer wirklich zum Suchbegriff gehört.
 
-    Die Volltextsuche machen die Provider serverseitig und großzügig; das
-    hier entfernt die thematischen Ausreißer, bevor sie zu einer eigenen
-    Preisreihe werden. Mehrwortsuchen ("griechischer joghurt") gelten als
-    Treffer, wenn irgendein Token passt.
+    Nur noch Rückfallebene für Quellen ohne Warenkategorien – die eigentliche
+    Trennung macht `dominant_category`. Mehrwortsuchen ("griechischer
+    joghurt") gelten als Treffer, wenn irgendein Token passt.
     """
     needle = normalize_title(search_term)
     if not needle:
@@ -293,10 +300,87 @@ def matches_item(title_norm: str, search_term: str) -> bool:
     if not words:
         return False
     return any(
-        _word_matches(word, token)
+        _word_matches(word, token, strict)
         for token in needle.split()
         for word in words
     )
+
+
+# Wie viele der bestplatzierten Treffer die Kategorien bestimmen.
+#
+# Entscheidend ist der RANG, nicht die Häufigkeit: die Provider-Suche
+# sortiert bereits nach Relevanz. Bei "toast" liegen auf 0-2 Brot/Brötchen
+# und erst ab Position 3 die Toaster (Kategorie Küchengeräte) – nach
+# Häufigkeit wären beide gleichauf (3:3) und die Toaster blieben drin.
+# Bei "nutella" steht auf 0 Schokoaufstrich und direkt dahinter Kekse
+# (Nutella & Go), beides richtig. Drei Plätze trennen beide Fälle korrekt.
+_RANG_FENSTER = 3
+
+
+def dominant_category(offers) -> tuple[int | None, str]:
+    """Die Ankerkategorie einer Trefferliste – die des besten Treffers.
+
+    Warum Kategorien besser sind als ein Titel-Wortvergleich, an echten
+    Zahlen (marktguru, 08/2026): zu "kaffee" kamen 33 Treffer, alle in der
+    Kategorie Kaffee – der Wortvergleich verwarf 21 davon (Kaffeepads,
+    Kaffeekapseln, Kaffeegetränk). Zu "butter" liegt "Kerrygold Extra" in
+    der Kategorie Butter, obwohl das Wort im Titel fehlt, während
+    "Nut Butter Cups" unter Veganes und "Buttermilch Dessert" unter Joghurt
+    liegen.
+    """
+    for offer in _nach_rang(offers):
+        if getattr(offer, "category_id", None):
+            return offer.category_id, offer.category
+    return None, ""
+
+
+def _nach_rang(offers) -> list:
+    """Stellt die Relevanz-Reihenfolge der Quelle wieder her.
+
+    search_all sortiert am Ende nach Preis; für die Kategorie-Auswahl zählt
+    aber, was die Suchmaschine oben hatte.
+    """
+    return sorted(offers, key=lambda o: getattr(o, "rank", 999))
+
+
+def relevant_categories(offers) -> set[int]:
+    """Kategorien, die als zum Suchbegriff gehörig gelten.
+
+    Alle, die unter den bestplatzierten `_RANG_FENSTER` Treffern vorkommen.
+    """
+    gesehen: list[int] = []
+    for offer in _nach_rang(offers):
+        kid = getattr(offer, "category_id", None)
+        if not kid:
+            continue
+        gesehen.append(kid)
+        if len(gesehen) >= _RANG_FENSTER:
+            break
+    return set(gesehen)
+
+
+def filter_relevant(offers, search_term: str, strict: bool = True) -> list:
+    """Entfernt thematische Ausreißer aus einer Trefferliste.
+
+    Kategorie schlägt Wortvergleich: gibt es Kategorien, entscheiden sie.
+    Angebote ohne Kategorie (Lidl) werden am Titel geprüft, dort bewusst
+    großzügig – siehe `_word_matches`.
+    """
+    if not offers:
+        return []
+    erlaubt = relevant_categories(offers)
+    out = []
+    for offer in offers:
+        kid = getattr(offer, "category_id", None)
+        if erlaubt and kid:
+            if kid in erlaubt:
+                out.append(offer)
+            continue
+        titel = normalize_title(offer.brand, offer.title)
+        # Ohne Kategorie-Anker der gelockerte Wortvergleich.
+        if matches_item(titel, search_term, strict=False if erlaubt else strict):
+            out.append(offer)
+    return out
 
 
 __all__ = [
@@ -305,5 +389,8 @@ __all__ = [
     "retailer_label",
     "product_key",
     "matches_item",
+    "dominant_category",
+    "relevant_categories",
+    "filter_relevant",
     "strip_accents",
 ]

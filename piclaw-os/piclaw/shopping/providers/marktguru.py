@@ -145,6 +145,13 @@ def parse_offer(raw: dict) -> Offer | None:
 
     retailer = str(_first_dict(raw.get("advertisers")).get("name") or "").strip()
 
+    kategorie = _first_dict(raw.get("categories"))
+    category_id = kategorie.get("id")
+    try:
+        category_id = int(category_id) if category_id is not None else None
+    except (TypeError, ValueError):
+        category_id = None
+
     validity = _first_dict(raw.get("validityDates"))
     valid_from = str(validity.get("from") or "")
     valid_to = str(validity.get("to") or "")
@@ -184,6 +191,8 @@ def parse_offer(raw: dict) -> Offer | None:
         unit_size=unit_size,
         unit_label=unit_label,
         brand=brand,
+        category_id=category_id,
+        category=str(kategorie.get("name") or "").strip(),
         valid_from=valid_from,
         valid_to=valid_to,
         source=NAME,
@@ -200,7 +209,7 @@ def _parse_all(results: list) -> list[Offer]:
     """
     offers: list[Offer] = []
     broken = 0
-    for raw in results:
+    for position, raw in enumerate(results):
         try:
             offer = parse_offer(raw)
         except Exception as exc:
@@ -208,6 +217,8 @@ def _parse_all(results: list) -> list[Offer]:
             log.debug("marktguru: Treffer nicht parsebar (%s)", exc)
             continue
         if offer:
+            # Die Antwortreihenfolge ist die Relevanz-Sortierung der Quelle.
+            offer.rank = position
             offers.append(offer)
     if broken:
         log.warning("marktguru: %d von %d Treffern nicht parsebar – "

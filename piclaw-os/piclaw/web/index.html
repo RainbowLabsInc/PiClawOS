@@ -1418,11 +1418,25 @@ function renderShoppingItems(items){
       : (it.trend==='up' ? '<span class="badge">↑</span>' : '');
     const details = [it.qty, it.max_price ? 'max. '+shopEuro(it.max_price) : '']
       .filter(Boolean).join(' · ');
+    // Zeigt, wie die Quelle den Begriff einordnet, plus Schalter für die
+    // ganze Kategorie. Antwort auf Gattungsnamen: "Tempo" findet nur Tempo,
+    // "Toilettenpapier" auch Zewa, Hakle und Eigenmarken.
+    const kat = it.category
+      ? `<div style="font-size:11px;margin-top:4px">
+           <span style="color:var(--text2)">Kategorie: ${esc(it.category)}</span>
+           <button class="btn btn-ghost" style="padding:1px 6px;font-size:10px;margin-left:6px"
+             onclick="shoppingToggleCategory(${it.id}, ${it.track_category ? 'false' : 'true'})"
+             title="${it.track_category
+               ? 'Zurück auf den Artikelnamen als Suchbegriff'
+               : 'Statt nur des Namens die ganze Kategorie verfolgen – findet auch andere Marken'}">
+             ${it.track_category ? '✓ ganze Kategorie' : 'ganze Kategorie'}</button>
+         </div>` : '';
     return `<div class="card" style="padding:14px;margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
         <div style="flex:1 1 200px">
           <div style="font-weight:600">${esc(it.name)} ${badge}</div>
           ${details ? `<div style="font-size:11px;color:var(--text2)">${esc(details)}</div>` : ''}
+          ${kat}
           <div style="margin-top:6px">${preis}</div>
         </div>
         <div style="flex:1 1 220px;min-width:180px">
@@ -1548,12 +1562,31 @@ async function shoppingDel(id){
   }catch(e){ showToast(e.message); }
 }
 
+async function shoppingToggleCategory(id, track){
+  try{
+    const r = await authFetch(`/api/shopping/items/${id}/category`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({track_category: track}),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    showToast(d.track_category
+      ? `Verfolgt jetzt die Kategorie „${d.category}"`
+      : 'Verfolgt wieder den Artikelnamen', 'ok');
+    loadShopping();
+  }catch(e){ showToast(e.message); }
+}
+
 function renderShoppingTest(d, target){
   const el = typeof target === 'string' ? document.getElementById(target) : target;
   if(!el) return;
   if(d.error){ el.innerHTML = `<span style="color:var(--red)">❌ ${esc(d.error)}</span>`; return; }
   const hits = d.matches || [], out = d.rejected || [];
-  let html = '';
+  // Macht sichtbar, wie der Bot den Begriff einordnet – wichtig bei
+  // Gattungsnamen wie Tempo oder Zewa.
+  let html = d.category
+    ? `<div style="color:var(--text2);margin-bottom:4px">Kategorie: <b>${esc(d.category)}</b></div>`
+    : '';
   if(hits.length){
     html += `<div style="color:var(--green)">✅ ${hits.length} passende Treffer</div>`
       + hits.slice(0,5).map(o=>
