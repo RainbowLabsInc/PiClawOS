@@ -28,13 +28,42 @@ import time
 import aiohttp
 
 from piclaw.shopping import analysis, location
-from piclaw.shopping.matching import matches_item, normalize_title
+from piclaw.shopping.matching import (
+    dominant_category,
+    filter_relevant,
+    normalize_title,
+)
 from piclaw.shopping.providers import Offer, search_all
 from piclaw.shopping.store import PricePoint, ShoppingDB, get_db
 
 log = logging.getLogger("piclaw.shopping.sampler")
 
 SILENT = "__SILENT__"
+
+
+# Unter so wenigen kategorisierten Treffern wird nichts gelernt: eine
+# einzelne Momentaufnahme (nachts, beim Wechsel der Angebotswoche) ist keine
+# verlässliche Aussage über den Suchbegriff.
+_MIN_KATEGORIE_BELEGE = 3
+
+
+def _lerne_kategorie(db, item, offers) -> None:
+    """Merkt sich, wie die Quelle den Suchbegriff einordnet.
+
+    Sichtbar im Dashboard ("Tempo → Toilettenpapier") und Grundlage für die
+    Kategorie-Verfolgung. Eine einmal gesetzte Kategorie wird nur bei
+    ausreichender Beleglage überschrieben – sonst kippt sie bei einem
+    ungünstigen Zeitpunkt auf etwas Falsches.
+    """
+    belege = sum(1 for o in offers if getattr(o, "category_id", None))
+    if belege < _MIN_KATEGORIE_BELEGE and item.category:
+        return
+    if not belege:
+        return
+    kid, kname = dominant_category(offers)
+    if kid and (item.category_id != kid or item.category != kname):
+        db.set_category(item.id, kid, kname)
+        log.debug("Kategorie für '%s': %s (%d Belege)", item.name, kname, belege)
 
 
 async def run_sample(
@@ -78,11 +107,16 @@ async def run_sample(
             continue
         summary["items"] += 1
         try:
-            offers = await search_all(
+            # BEWUSST ohne active_only: die Warenkategorie ist eine
+            # Eigenschaft des Suchbegriffs, nicht dessen, was gerade läuft.
+            # Auf der gefilterten Liste lernte "Toast" nachts beim
+            # Wochenwechsel die Kategorie "Küchengeräte" – die Brote waren
+            # abgelaufen, übrig blieb ein Toaster.
+            alle = await search_all(
                 session, term,
                 zip_code=home.zip_code, lat=home.lat, lon=home.lon,
                 providers=sc.providers, retailer_keys=retailer_keys,
-                active_only=True, limit=30,
+                active_only=False, limit=30,
             )
         except Exception as exc:
             # search_all fängt Provider-Fehler selbst ab; hier landet nur
@@ -91,28 +125,29 @@ async def run_sample(
             summary["skipped"].append(term)
             continue
 
+        _lerne_kategorie(db, item, alle)
+
+        offers = [o for o in alle if o.is_active()]
         if not offers:
             log.debug("shopping_sample '%s': keine aktiven Angebote", term)
             continue
 
+        # Thematische Ausreißer über die Warenkategorie der Quelle entfernen,
+        # bevor sie eine eigene Preisreihe bekommen: "Butter" liefert sonst
+        # auch Butterkäse und Buttercroissants.
+        roh = len(offers)
+        if item.strict_matching:
+            offers = filter_relevant(offers, term)
+        rejected = roh - len(offers)
+
         # Pro Produkt den günstigsten Treffer dieses Laufs behalten.
         best: dict[tuple[str, str], Offer] = {}
-        rejected = 0
         for offer in offers:
             if offer.price is None or offer.price <= 0:
                 continue
             retailer = offer.retailer_key or offer.retailer.lower()
             title_norm = normalize_title(offer.brand, offer.title)
             if not title_norm:
-                continue
-            # Thematische Ausreißer draußen halten: die Provider-Suche nach
-            # "Butter" liefert auch "Buttermilch". Ohne diesen Filter bekäme
-            # jeder Ausreißer eine eigene Preisreihe und würde als
-            # günstigster Preis des Artikels angezeigt. Bei einem selbst
-            # gesetzten Suchbegriff entfällt der Filter – siehe
-            # Item.strict_matching.
-            if item.strict_matching and not matches_item(title_norm, term):
-                rejected += 1
                 continue
             key = (retailer, title_norm)
             current = best.get(key)

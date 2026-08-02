@@ -69,6 +69,7 @@ ACTION_TOOLS = frozenset({
     "parcel_add", "parcel_remove", "parcel_status",
     # Einkaufsliste
     "shopping_add", "shopping_remove", "shopping_list", "shopping_home",
+    "shopping_category",
     # Netzwerk-Steuerung
     "wifi_connect", "wifi_disconnect", "wake_device",
     # LLM-Verwaltung
@@ -171,6 +172,7 @@ _OBJECT_GROUPS: list[tuple[str, frozenset[str]]] = [
         frozenset({
             "shopping_add", "shopping_remove", "shopping_list",
             "shopping_offers", "shopping_stores", "shopping_home", "shopping_basket",
+            "shopping_category",
             "shopping_test",
         }),
     ),

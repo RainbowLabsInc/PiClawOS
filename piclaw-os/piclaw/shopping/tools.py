@@ -21,7 +21,7 @@ import aiohttp
 
 from piclaw.llm.base import ToolDefinition
 from piclaw.shopping import analysis, location
-from piclaw.shopping.matching import matches_item, normalize_title
+from piclaw.shopping.matching import filter_relevant
 from piclaw.shopping.providers import search_all
 from piclaw.shopping.store import get_db
 
@@ -49,16 +49,13 @@ def _price(value) -> str:
 def _relevant(offers: list, term: str, strict: bool = True) -> list:
     """Filtert thematische Ausreißer der Provider-Suche.
 
-    Ohne das erscheint unter »Butter« auch »Buttermilch« – siehe
-    matching.matches_item. Bei einem selbst gesetzten Suchbegriff wird nicht
-    gefiltert (Item.strict_matching).
+    Entscheidet primär über die Warenkategorie der Quelle – siehe
+    matching.filter_relevant. Bei einem selbst gesetzten Suchbegriff wird
+    gar nicht gefiltert (Item.strict_matching).
     """
     if not strict:
         return list(offers)
-    return [
-        o for o in offers
-        if matches_item(normalize_title(o.brand, o.title), term)
-    ]
+    return filter_relevant(offers, term)
 
 
 # ── Liste pflegen ────────────────────────────────────────────────────────
@@ -328,6 +325,30 @@ async def shopping_offers(item: str = "") -> str:
         return f"❌ Angebotsabgleich fehlgeschlagen: {exc}"
 
 
+async def shopping_category(item: str = "", whole: bool = True) -> str:
+    """Schaltet die Kategorie-Verfolgung eines Artikels um."""
+    if not item.strip():
+        return "❌ Kein Artikel angegeben."
+    try:
+        db = get_db()
+        found = db.find_item_by_name(item, owner_id=_current_user_id())
+        if not found:
+            return f"❓ »{item}« steht nicht auf der Liste."
+        if whole and not found.category:
+            return (f"❓ Für »{found.name}« ist noch keine Kategorie bekannt.\n"
+                    "Erst einmal die Angebote abfragen, dann merkt sich der Bot,"
+                    " wie er den Begriff einordnet.")
+        db.set_track_category(found.id, bool(whole))
+        aktuell = db.get_item(found.id)
+        if aktuell.track_category:
+            return (f"🔎 »{found.name}« wird jetzt über die ganze Kategorie "
+                    f"»{aktuell.category}« verfolgt – findet damit auch andere Marken.")
+        return f"🔎 »{found.name}« wird wieder nur unter diesem Namen gesucht."
+    except Exception as exc:
+        log.exception("shopping_category: %s", exc)
+        return f"❌ Konnte die Kategorie nicht umstellen: {exc}"
+
+
 async def shopping_basket() -> str:
     """Vergleicht, in welchem Laden der ganze Einkauf am günstigsten ist."""
     try:
@@ -504,6 +525,31 @@ TOOL_DEFS: list[ToolDefinition] = [
         },
     ),
     ToolDefinition(
+        name="shopping_category",
+        description=(
+            "Stellt einen Artikel darauf um, die ganze Warenkategorie zu "
+            "verfolgen statt nur den eingegebenen Namen. Sinnvoll bei "
+            "Markennamen, die als Gattung gemeint sind: 'Tempo' findet nur "
+            "Tempo, die Kategorie Toilettenpapier auch Zewa und Eigenmarken. "
+            "Nutze das bei 'such nicht nur nach der Marke', 'nimm auch andere "
+            "Marken', 'nur diese Marke'."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "item": {"type": "string", "description": "Artikelname"},
+                "whole": {
+                    "type": "boolean",
+                    "description": (
+                        "true = ganze Kategorie verfolgen, false = zurück auf "
+                        "den Artikelnamen"
+                    ),
+                },
+            },
+            "required": ["item"],
+        },
+    ),
+    ToolDefinition(
         name="shopping_basket",
         description=(
             "Vergleicht, in welchem einzelnen Supermarkt der gesamte Einkauf "
@@ -593,6 +639,12 @@ def build_handlers() -> dict:
     async def _basket(**_kw):
         return await shopping_basket()
 
+    async def _category(**kw):
+        return await shopping_category(
+            item=kw.get("item", ""),
+            whole=kw.get("whole", True) is not False,
+        )
+
     async def _test(**kw):
         return await shopping_test(query=kw.get("query", ""))
 
@@ -608,6 +660,7 @@ def build_handlers() -> dict:
         "shopping_list": _list,
         "shopping_offers": _offers,
         "shopping_basket": _basket,
+        "shopping_category": _category,
         "shopping_stores": _stores,
         "shopping_home": _home,
         "shopping_test": _test,

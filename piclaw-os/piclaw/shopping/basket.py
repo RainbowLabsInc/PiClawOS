@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 import aiohttp
 
-from piclaw.shopping.matching import matches_item, normalize_title, retailer_label
+from piclaw.shopping.matching import filter_relevant, retailer_label
 from piclaw.shopping.providers import Offer, search_all
 
 log = logging.getLogger("piclaw.shopping.basket")
@@ -212,10 +212,7 @@ async def compare(
             continue
 
         if item.strict_matching:
-            offers = [
-                o for o in offers
-                if matches_item(normalize_title(o.brand, o.title), term)
-            ]
+            offers = filter_relevant(offers, term)
         if item.max_price:
             offers = [o for o in offers
                       if o.price is not None and o.price <= item.max_price]

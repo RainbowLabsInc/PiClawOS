@@ -512,6 +512,39 @@ async def shopping_item_remove(item_id: int, user: User = Depends(require_auth))
     return {"removed": db.remove_item(item.id), "name": item.name}
 
 
+@app.post("/api/shopping/items/{item_id}/category")
+async def shopping_item_category(
+    item_id: int, request: Request, user: User = Depends(require_auth)
+):
+    """Schaltet die Kategorie-Verfolgung fuer einen Artikel um.
+
+    Antwort auf Gattungsnamen: "Tempo" findet 2 Angebote (nur Tempo),
+    die Kategorie "Toilettenpapier" 14 – inklusive Zewa, Hakle und
+    Eigenmarken. Was gewuenscht ist, entscheidet der Nutzer pro Artikel.
+    """
+    from piclaw.shopping.store import get_db
+
+    db = get_db()
+    item = _shopping_item_or_404(db, item_id, user)
+
+    body = await request.json()
+    track = bool(body.get("track_category"))
+    if track and not item.category:
+        raise HTTPException(
+            409,
+            "Für diesen Artikel ist noch keine Kategorie bekannt – "
+            "erst „Testen“ oder einen Sammellauf ausführen.",
+        )
+    db.set_track_category(item.id, track)
+    aktualisiert = db.get_item(item.id)
+    return {
+        "id": item.id,
+        "track_category": aktualisiert.track_category,
+        "category": aktualisiert.category,
+        "search_term": aktualisiert.search_term,
+    }
+
+
 @app.get("/api/shopping/items/{item_id}/history")
 async def shopping_item_history(
     item_id: int, days: int = 90, user: User = Depends(require_auth)
@@ -570,38 +603,50 @@ async def shopping_test_item(item_id: int, user: User = Depends(require_auth)):
 
     db = get_db()
     item = _shopping_item_or_404(db, item_id, user)
-    return await _shopping_probe(item.search_term, strict=item.strict_matching)
+    ergebnis = await _shopping_probe(item.search_term, strict=item.strict_matching)
+    # Kategorie gleich merken – sonst laesst sich der Schalter fuer die
+    # Kategorie-Verfolgung direkt nach dem Anlegen nicht bedienen.
+    if ergebnis.get("category_id"):
+        db.set_category(item.id, ergebnis["category_id"], ergebnis["category"])
+    return ergebnis
 
 
 async def _shopping_probe(query: str, strict: bool = True) -> dict:
     import aiohttp
 
     from piclaw.shopping import location
-    from piclaw.shopping.matching import matches_item, normalize_title
+    from piclaw.shopping.matching import dominant_category, filter_relevant
     from piclaw.shopping.providers import search_all
 
     try:
         cfg = location._shopping_cfg(None)
         async with aiohttp.ClientSession() as session:
             home, _surroundings = await location.resolve(session)
-            offers = await search_all(
+            # Ohne active_only suchen und danach filtern: die Kategorie ist
+            # eine Eigenschaft des Begriffs, nicht dessen was gerade laeuft.
+            # Sonst lernt "Toast" nachts beim Wochenwechsel "Kuechengeraete".
+            alle = await search_all(
                 session, query,
                 zip_code=home.zip_code if home else "",
                 lat=home.lat if home else None,
                 lon=home.lon if home else None,
-                providers=cfg.providers, active_only=True, limit=20,
+                providers=cfg.providers, active_only=False, limit=20,
             )
-        matched, rejected = [], []
-        for offer in offers:
-            passt = not strict or matches_item(
-                normalize_title(offer.brand, offer.title), query
-            )
-            (matched if passt else rejected).append(offer.to_dict())
+        kid, kname = dominant_category(alle)
+        offers = [o for o in alle if o.is_active()]
+        passend = filter_relevant(offers, query) if strict else list(offers)
+        ids = {id(o) for o in passend}
+        matched = [o.to_dict() for o in passend]
+        rejected = [o.to_dict() for o in offers if id(o) not in ids]
         return {
             "query": query,
             "matches": matched[:8],
             "rejected": rejected[:5],
             "total": len(matched),
+            # Wie die Quelle den Begriff einordnet – macht sichtbar, was der
+            # Bot verstanden hat ("Tempo" -> "Toilettenpapier").
+            "category_id": kid,
+            "category": kname,
         }
     except Exception as e:
         log.exception("shopping test '%s': %s", query, e)

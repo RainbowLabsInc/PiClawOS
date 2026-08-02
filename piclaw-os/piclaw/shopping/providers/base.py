@@ -40,6 +40,19 @@ class Offer:
     unit_size: float | None = None
     unit_label: str = ""
     brand: str = ""
+    # Warenkategorie der Quelle (marktguru: stabile numerische ID aus einem
+    # Katalog von ~543). Deutlich verlässlicher als ein Titel-Wortvergleich:
+    # "Kerrygold Extra" enthält das Wort "Butter" gar nicht, liegt aber in
+    # der Kategorie Butter – und "Buttermilch Dessert" liegt in Joghurt.
+    # Der Name wird UNVERÄNDERT gespeichert, inkl. Umlauten: als Suchbegriff
+    # liefert "küchenrolle" 9 Treffer, "kuechenrolle" null.
+    category_id: int | None = None
+    category: str = ""
+    # Position in der Antwort der Quelle = deren Relevanz-Rangfolge. Muss
+    # mitgeführt werden, weil search_all die Liste anschließend nach Preis
+    # sortiert und die Reihenfolge damit verloren wäre – die Kategorie-
+    # Auswahl braucht sie aber (siehe matching.relevant_categories).
+    rank: int = 999
     valid_from: str = ""
     valid_to: str = ""
     source: str = ""            # Provider-Name
@@ -92,6 +105,8 @@ class Offer:
             "unit": self.unit,
             "unit_size": self.unit_size,
             "unit_label": self.unit_label,
+            "category_id": self.category_id,
+            "category": self.category,
             "unit_price": self.unit_price,
             "unit_price_text": self.unit_price_text,
             "brand": self.brand,

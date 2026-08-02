@@ -58,9 +58,25 @@ class Item:
     owner_id: str | None = None
     muted: bool = False
     created_at: int = 0
+    # Warenkategorie, die die Quelle für diesen Artikel liefert – der Bot
+    # zeigt damit, wie er den Begriff verstanden hat ("Tempo → Toilettenpapier").
+    category_id: int | None = None
+    category: str = ""
+    # Ganze Kategorie statt nur des Begriffs verfolgen. Antwort auf
+    # Gattungsnamen: "Tempo" findet 2 Angebote (nur Tempo),
+    # "Toilettenpapier" 14 – inklusive Zewa, Hakle und Eigenmarken.
+    track_category: bool = False
 
     @property
     def search_term(self) -> str:
+        """Womit tatsächlich gesucht wird.
+
+        Bei aktivierter Kategorie-Verfolgung die Kategoriebezeichnung –
+        UNVERÄNDERT mit Umlauten, das ist keine Kosmetik: "küchenrolle"
+        liefert 9 Treffer, "kuechenrolle" null.
+        """
+        if self.track_category and self.category:
+            return self.category.strip()
         return (self.query or self.name).strip()
 
     @property
@@ -86,6 +102,10 @@ class Item:
             "owner_id": self.owner_id,
             "muted": self.muted,
             "created_at": self.created_at,
+            "category_id": self.category_id,
+            "category": self.category,
+            "track_category": self.track_category,
+            "search_term": self.search_term,
         }
 
 
@@ -219,6 +239,10 @@ class ShoppingDB:
                 )
             """)
             con.execute("CREATE INDEX IF NOT EXISTS idx_items_owner ON items(owner_id)")
+            # Bestandsdatenbanken nachziehen (Kategorie kam spaeter dazu).
+            _add_column(con, "items", "category_id", "INTEGER")
+            _add_column(con, "items", "category", "TEXT DEFAULT ''")
+            _add_column(con, "items", "track_category", "INTEGER DEFAULT 0")
 
             # UNIQUE über (item_id, retailer, title_norm) ist die
             # Produkt-Identität – siehe Product-Docstring.
@@ -368,6 +392,25 @@ class ShoppingDB:
         with self._conn() as con:
             cur = con.execute(
                 "UPDATE items SET muted = ? WHERE id = ?", (1 if muted else 0, item_id)
+            )
+            return cur.rowcount > 0
+
+    def set_category(
+        self, item_id: int, category_id: int | None, category: str
+    ) -> bool:
+        """Merkt sich, wie die Quelle den Suchbegriff einordnet."""
+        with self._conn() as con:
+            cur = con.execute(
+                "UPDATE items SET category_id = ?, category = ? WHERE id = ?",
+                (category_id, category or "", item_id),
+            )
+            return cur.rowcount > 0
+
+    def set_track_category(self, item_id: int, track: bool) -> bool:
+        with self._conn() as con:
+            cur = con.execute(
+                "UPDATE items SET track_category = ? WHERE id = ?",
+                (1 if track else 0, item_id),
             )
             return cur.rowcount > 0
 
@@ -749,6 +792,8 @@ class ShoppingDB:
 
 
 def _row_to_item(row: sqlite3.Row) -> Item:
+    spalten = row.keys()
+    kid = row["category_id"] if "category_id" in spalten else None
     return Item(
         id=int(row["id"]),
         name=row["name"],
@@ -758,6 +803,11 @@ def _row_to_item(row: sqlite3.Row) -> Item:
         owner_id=row["owner_id"],
         muted=bool(row["muted"]),
         created_at=int(row["created_at"]),
+        category_id=int(kid) if kid is not None else None,
+        category=(row["category"] if "category" in spalten else "") or "",
+        track_category=bool(
+            row["track_category"] if "track_category" in spalten else 0
+        ),
     )
 
 
