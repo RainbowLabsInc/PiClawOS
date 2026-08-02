@@ -77,6 +77,28 @@ class Offer:
         return True
 
     @property
+    def starts_later(self) -> bool:
+        """Angebot läuft noch nicht, startet aber in der Zukunft.
+
+        Deutsche Prospekte werden Tage im Voraus veröffentlicht. Solche
+        Angebote gehören nicht in die Preisreihe und nicht in den aktuellen
+        Warenkorb – als Vorschau sind sie aber nützlich, gerade sonntags,
+        wenn die alte Woche abgelaufen ist.
+        """
+        start = _parse_ts(self.valid_from)
+        return bool(start and datetime.now(UTC) < start)
+
+    @property
+    def starts_on(self) -> str:
+        """Startdatum als 'Mo, 04.08.' – leer wenn schon aktiv."""
+        start = _parse_ts(self.valid_from)
+        if not start or not self.starts_later:
+            return ""
+        tage = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+        lokal = start.astimezone()
+        return f"{tage[lokal.weekday()]}, {lokal:%d.%m.}"
+
+    @property
     def savings_pct(self) -> float:
         if not (self.price and self.old_price) or self.old_price <= 0:
             return 0.0
@@ -116,6 +138,8 @@ class Offer:
             "url": self.url,
             "image": self.image,
             "active": self.is_active(),
+            "starts_later": self.starts_later,
+            "starts_on": self.starts_on,
         }
 
 

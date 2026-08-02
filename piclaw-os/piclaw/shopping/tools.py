@@ -250,7 +250,8 @@ async def shopping_offers(item: str = "") -> str:
                 from piclaw.shopping.store import Item
                 items = [Item(id=0, name=item.strip())]
         else:
-            items = [i for i in db.list_items(owner_id=user_id) if not i.muted]
+            items = [i for i in db.list_items(owner_id=user_id)
+                     if not i.muted and not i.is_bought()]
         if not items:
             return "🛒 Die Einkaufsliste ist leer."
 
@@ -349,13 +350,41 @@ async def shopping_category(item: str = "", whole: bool = True) -> str:
         return f"❌ Konnte die Kategorie nicht umstellen: {exc}"
 
 
+async def shopping_bought(item: str = "", days=None) -> str:
+    """Hakt einen Artikel ab – er bleibt auf der Liste, ruht aber."""
+    if not item.strip():
+        return "❌ Kein Artikel angegeben."
+    try:
+        db = get_db()
+        found = db.find_item_by_name(item, owner_id=_current_user_id())
+        if not found:
+            return f"❓ »{item}« steht nicht auf der Liste."
+        if days is None:
+            days = 0 if found.is_bought() else _cfg().bought_days
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            days = _cfg().bought_days
+        bis = db.set_bought(found.id, days)
+        if bis is None:
+            return f"↩️ »{found.name}« steht wieder auf der Einkaufsliste."
+        import time as _t
+        return (f"✅ »{found.name}« abgehakt – ruht {days} Tage "
+                f"(bis {_t.strftime('%d.%m.', _t.localtime(bis))}). "
+                "Die Preisbeobachtung läuft weiter.")
+    except Exception as exc:
+        log.exception("shopping_bought: %s", exc)
+        return f"❌ Konnte den Artikel nicht abhaken: {exc}"
+
+
 async def shopping_basket() -> str:
     """Vergleicht, in welchem Laden der ganze Einkauf am günstigsten ist."""
     try:
         from piclaw.shopping import basket
 
         db = get_db()
-        items = [i for i in db.list_items(owner_id=_current_user_id()) if not i.muted]
+        items = [i for i in db.list_items(owner_id=_current_user_id())
+                 if not i.muted and not i.is_bought()]
         if not items:
             return "🛒 Die Einkaufsliste ist leer."
 
@@ -363,7 +392,7 @@ async def shopping_basket() -> str:
             home, surroundings = await location.resolve(session)
             if home is None:
                 return location.NOT_CONFIGURED
-            ergebnis = await basket.compare(session, items, home, surroundings)
+            ergebnis = await basket.compare(session, items, home, surroundings, db=db)
 
         if ergebnis.error:
             return f"🛒 Warenkorb: {ergebnis.error}."
@@ -531,6 +560,26 @@ TOOL_DEFS: list[ToolDefinition] = [
         },
     ),
     ToolDefinition(
+        name="shopping_bought",
+        description=(
+            "Hakt einen Artikel als gekauft ab. Er bleibt auf der Liste und "
+            "wird weiter beobachtet, taucht aber vorübergehend nicht mehr in "
+            "Zusammenfassung und Warenkorb auf. Nutze das bei 'X hab ich', "
+            "'X gekauft', 'X brauche ich erstmal nicht'."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "item": {"type": "string", "description": "Artikelname"},
+                "days": {
+                    "type": "integer",
+                    "description": "Wie viele Tage ruhen. 0 macht es rückgängig.",
+                },
+            },
+            "required": ["item"],
+        },
+    ),
+    ToolDefinition(
         name="shopping_category",
         description=(
             "Stellt einen Artikel darauf um, die ganze Warenkategorie zu "
@@ -654,6 +703,17 @@ def build_handlers() -> dict:
     async def _test(**kw):
         return await shopping_test(query=kw.get("query", ""))
 
+    async def _digest(**_kw):
+        # Nur als direct_tool des Digest-Sub-Agenten; der Runner setzt den
+        # Nutzerkontext aus dessen owner_id.
+        from piclaw.shopping.digest import send_digest
+        return await send_digest()
+
+    async def _bought(**kw):
+        return await shopping_bought(
+            item=kw.get("item", ""), days=kw.get("days"),
+        )
+
     async def _sample(**_kw):
         # Nur als direct_tool des Sammel-Sub-Agenten; steht bewusst nicht in
         # TOOL_DEFS, damit das LLM es nicht selbst aufruft.
@@ -667,6 +727,8 @@ def build_handlers() -> dict:
         "shopping_offers": _offers,
         "shopping_basket": _basket,
         "shopping_category": _category,
+        "shopping_bought": _bought,
+        "shopping_digest": _digest,
         "shopping_stores": _stores,
         "shopping_home": _home,
         "shopping_test": _test,

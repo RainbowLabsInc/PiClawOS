@@ -243,6 +243,15 @@ class ShoppingConfig:
     min_span_days: int = 7         # Historie muss mindestens so viele Tage umfassen
     history_days: int = 400        # Retention der Preispunkte
 
+    # Tägliche Zusammenfassung per Messenger. Pro Nutzer über die
+    # Per-User-Overrides überschreibbar, damit jeder eigene Zeiten hat.
+    # Wochentage im cron-Format: 0=Sonntag … 6=Samstag.
+    digest_enabled: bool = False
+    digest_days: str = "1,2,3,4,5,6"
+    digest_time: str = "07:00"
+    # Wie lange ein abgehakter Artikel als erledigt gilt.
+    bought_days: int = 14
+
 
 @dataclass
 class PiClawConfig:
