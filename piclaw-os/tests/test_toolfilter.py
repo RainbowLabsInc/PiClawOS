@@ -32,7 +32,7 @@ ALL_TOOLS = [td(n) for n in [
     "parcel_add", "parcel_remove", "parcel_status",
     "shopping_add", "shopping_remove", "shopping_list", "shopping_offers",
     "shopping_stores", "shopping_home", "shopping_test", "shopping_basket",
-    "shopping_category",
+    "shopping_category", "shopping_bought",
     "llm_list", "llm_add", "llm_remove", "llm_update", "llm_test", "llm_discover",
     "memory_search", "memory_write", "memory_log", "memory_stats",
     "system_info", "system_report", "system_update", "pi_info", "thermal_status",

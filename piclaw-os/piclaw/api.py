@@ -770,6 +770,144 @@ async def shopping_stores_list(refresh: bool = False, _: User = Depends(require_
         return {"error": str(e), "shops": []}
 
 
+def _digest_agent_name(user: User) -> str:
+    sicher = "".join(c for c in (user.name or user.id) if c.isalnum() or c in "_-")
+    return f"Digest_Einkauf_{sicher or user.id[:8]}"
+
+
+def _digest_settings(user: User) -> dict:
+    """Zeitplan des Nutzers – Per-User-Override vor globalem Default."""
+    from piclaw.shopping import location
+
+    sc = location._shopping_cfg(None)
+    hole = users_mod.get_setting
+    return {
+        "enabled": bool(hole(user.id, "shopping", "digest_enabled",
+                             sc.digest_enabled)),
+        "days": str(hole(user.id, "shopping", "digest_days", sc.digest_days)),
+        "time": str(hole(user.id, "shopping", "digest_time", sc.digest_time)),
+    }
+
+
+@app.get("/api/shopping/digest")
+async def shopping_digest_get(user: User = Depends(require_auth)):
+    """Zeitplan der taeglichen Zusammenfassung."""
+    from piclaw.shopping.digest import cron_expression
+
+    try:
+        s = _digest_settings(user)
+        agent = (_agent.sa_registry.get(_digest_agent_name(user))
+                 if _agent and _agent.sa_registry else None)
+        return {
+            **s,
+            "cron": cron_expression(s["days"], s["time"]),
+            "agent": _digest_agent_name(user),
+            "agent_exists": agent is not None,
+            "last_run": getattr(agent, "last_run", "") if agent else "",
+        }
+    except Exception as e:
+        log.exception("shopping_digest_get: %s", e)
+        return {"error": str(e), "enabled": False}
+
+
+@app.post("/api/shopping/digest")
+async def shopping_digest_set(request: Request, user: User = Depends(require_auth)):
+    """Setzt Wochentage und Uhrzeit und pflegt den Sub-Agenten dazu.
+
+    Der Zeitplan liegt in den Per-User-Overrides, damit jeder eigene Zeiten
+    haben kann. Aus Tagen und Uhrzeit wird der cron-Ausdruck des
+    Sub-Agenten abgeleitet und bei jeder Aenderung nachgezogen.
+    """
+    from piclaw.agents.sa_registry import SubAgentDef
+    from piclaw.shopping.digest import cron_expression
+
+    body = await request.json()
+    enabled = bool(body.get("enabled"))
+    days = str(body.get("days") or "").strip()
+    zeit = str(body.get("time") or "").strip()
+
+    gueltig = [d for d in days.split(",") if d.strip().isdigit() and 0 <= int(d) <= 6]
+    if enabled and not gueltig:
+        raise HTTPException(400, "Mindestens einen Wochentag auswählen")
+
+    reg = users_mod.registry()
+    # set_override gibt bei unbekanntem Nutzer still False zurueck – etwa
+    # beim Legacy-Admin-Fallback, der nicht in users.json steht. Ohne diese
+    # Pruefung meldet die Oberflaeche "gespeichert", waehrend nichts passiert.
+    if not reg.set_override(user.id, "shopping", "digest_enabled", enabled):
+        raise HTTPException(
+            409,
+            "Zeitplan konnte nicht gespeichert werden – für diesen Zugang "
+            "gibt es keinen Benutzereintrag. Bitte mit einem registrierten "
+            "Benutzer anmelden.",
+        )
+    if gueltig:
+        reg.set_override(user.id, "shopping", "digest_days", ",".join(gueltig))
+    if zeit:
+        reg.set_override(user.id, "shopping", "digest_time", zeit)
+
+    s = _digest_settings(user)
+    cron = cron_expression(s["days"], s["time"])
+    name = _digest_agent_name(user)
+
+    if not _agent or not _agent.sa_registry:
+        return {**s, "cron": cron, "agent": name, "warning": "Agent nicht bereit"}
+
+    vorhanden = _agent.sa_registry.get(name)
+    if not enabled:
+        if vorhanden:
+            _agent.sa_registry.remove(name)
+            from piclaw import ipc
+            ipc.write_remove(vorhanden.id)
+        return {**s, "cron": cron, "agent": name, "agent_exists": False}
+
+    if vorhanden:
+        _agent.sa_registry.update(name, schedule=cron)
+    else:
+        _agent.sa_registry.add(SubAgentDef(
+            name=name,
+            description=f"Tägliche Einkaufs-Zusammenfassung für {user.name}",
+            mission="Fasst Bestpreise, Warenkorb und Preisrutsche zusammen",
+            schedule=cron,
+            tools=[],
+            notify=True,
+            direct_tool="shopping_digest",
+            owner_id=user.id,
+            created_by="dashboard",
+        ))
+    log.info("Digest-Sub-Agent %s auf %s gesetzt", name, cron)
+    return {**s, "cron": cron, "agent": name, "agent_exists": True}
+
+
+@app.post("/api/shopping/items/{item_id}/bought")
+async def shopping_item_bought(
+    item_id: int, request: Request, user: User = Depends(require_auth)
+):
+    """Hakt einen Artikel ab (oder macht es rueckgaengig).
+
+    Der Artikel bleibt auf der Liste und wird weiter gesampelt – so reisst
+    die Preisreihe nicht ab –, taucht aber nicht mehr im Digest und im
+    Warenkorb auf.
+    """
+    from piclaw.shopping import location
+    from piclaw.shopping.store import get_db
+
+    db = get_db()
+    item = _shopping_item_or_404(db, item_id, user)
+    body = await request.json() if await request.body() else {}
+    tage = body.get("days")
+    if tage is None:
+        tage = 0 if item.is_bought() else location._shopping_cfg(None).bought_days
+    try:
+        tage = int(tage)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "days muss eine Zahl sein") from None
+
+    bis = db.set_bought(item.id, tage)
+    return {"id": item.id, "name": item.name, "bought_until": bis,
+            "is_bought": bis is not None}
+
+
 @app.post("/api/shopping/basket")
 async def shopping_basket_compare(user: User = Depends(require_auth)):
     """In welchem einzelnen Laden ist der ganze Einkauf am guenstigsten?
@@ -785,7 +923,7 @@ async def shopping_basket_compare(user: User = Depends(require_auth)):
     try:
         db = get_db()
         items = [i for i in db.list_items(owner_id=_shopping_scope(user))
-                 if not i.muted]
+                 if not i.muted and not i.is_bought()]
         if not items:
             return {"error": "Die Einkaufsliste ist leer.", "stores": []}
 

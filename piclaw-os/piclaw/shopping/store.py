@@ -58,6 +58,10 @@ class Item:
     owner_id: str | None = None
     muted: bool = False
     created_at: int = 0
+    # Bis wann der Artikel als erledigt gilt (abgehakt). Er bleibt auf der
+    # Liste und wird weiter gesampelt, taucht aber nicht im Digest oder
+    # Warenkorb auf – so reißt die Preisreihe nicht ab.
+    bought_until: int | None = None
     # Warenkategorie, die die Quelle für diesen Artikel liefert – der Bot
     # zeigt damit, wie er den Begriff verstanden hat ("Tempo → Toilettenpapier").
     category_id: int | None = None
@@ -78,6 +82,12 @@ class Item:
         if self.track_category and self.category:
             return self.category.strip()
         return (self.query or self.name).strip()
+
+    def is_bought(self, now: int | None = None) -> bool:
+        """Gerade abgehakt – gehört nicht auf die Einkaufsliste."""
+        if not self.bought_until:
+            return False
+        return (now if now is not None else int(time.time())) < self.bought_until
 
     @property
     def strict_matching(self) -> bool:
@@ -106,6 +116,8 @@ class Item:
             "category": self.category,
             "track_category": self.track_category,
             "search_term": self.search_term,
+            "bought_until": self.bought_until,
+            "is_bought": self.is_bought(),
         }
 
 
@@ -246,6 +258,9 @@ class ShoppingDB:
             _add_column(con, "items", "category_id", "INTEGER")
             _add_column(con, "items", "category", "TEXT DEFAULT ''")
             _add_column(con, "items", "track_category", "INTEGER DEFAULT 0")
+            # Abgehakte Artikel: gelten bis zu diesem Zeitpunkt als erledigt,
+            # werden aber weiter gesampelt – so bleibt die Preisreihe dicht.
+            _add_column(con, "items", "bought_until", "INTEGER")
 
             # UNIQUE über (item_id, retailer, title_norm) ist die
             # Produkt-Identität – siehe Product-Docstring.
@@ -316,6 +331,15 @@ class ShoppingDB:
                     fetched_at INTEGER NOT NULL,
                     payload    TEXT    NOT NULL,
                     PRIMARY KEY (addr_hash, radius_km)
+                )
+            """)
+            # Merkt sich, was zuletzt gemeldet wurde – damit der Digest nur
+            # bei tatsächlichen Änderungen zugestellt wird.
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS digest_state (
+                    user_id     TEXT PRIMARY KEY,
+                    fingerprint TEXT NOT NULL,
+                    sent_at     INTEGER NOT NULL
                 )
             """)
             con.execute("""
@@ -412,6 +436,37 @@ class ShoppingDB:
                 (category_id, category or "", item_id),
             )
             return cur.rowcount > 0
+
+    def set_bought(self, item_id: int, days: int = 14) -> int | None:
+        """Hakt einen Artikel ab. days<=0 macht das Abhaken rückgängig."""
+        bis = int(time.time()) + days * _SECS_PER_DAY if days > 0 else None
+        with self._conn() as con:
+            cur = con.execute(
+                "UPDATE items SET bought_until = ? WHERE id = ?", (bis, item_id)
+            )
+            return bis if cur.rowcount else None
+
+    # ── Digest ───────────────────────────────────────────────────────────
+
+    def digest_changed(self, user_id: str | None, fingerprint: str) -> bool:
+        """Ob sich seit der letzten Zustellung etwas geändert hat."""
+        key = user_id or "__system__"
+        with self._conn() as con:
+            row = con.execute(
+                "SELECT fingerprint FROM digest_state WHERE user_id = ?", (key,)
+            ).fetchone()
+        return not row or row["fingerprint"] != fingerprint
+
+    def digest_sent(self, user_id: str | None, fingerprint: str) -> None:
+        key = user_id or "__system__"
+        with self._conn() as con:
+            con.execute(
+                "INSERT INTO digest_state (user_id, fingerprint, sent_at)"
+                " VALUES (?,?,?)"
+                " ON CONFLICT(user_id) DO UPDATE SET fingerprint=excluded.fingerprint,"
+                " sent_at=excluded.sent_at",
+                (key, fingerprint, int(time.time())),
+            )
 
     def set_track_category(self, item_id: int, track: bool) -> bool:
         with self._conn() as con:
@@ -850,6 +905,8 @@ def _row_to_item(row: sqlite3.Row) -> Item:
         owner_id=row["owner_id"],
         muted=bool(row["muted"]),
         created_at=int(row["created_at"]),
+        bought_until=(int(row["bought_until"])
+                      if "bought_until" in spalten and row["bought_until"] else None),
         category_id=int(kid) if kid is not None else None,
         category=(row["category"] if "category" in spalten else "") or "",
         track_category=bool(

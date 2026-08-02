@@ -138,6 +138,7 @@ def _display_name(name: str) -> str:
 _PREFORMATTED_DIRECT_TOOLS: frozenset[str] = frozenset({
     "marketplace_monitor",
     "parcel_monitor",
+    "shopping_digest",
 })
 
 
@@ -682,9 +683,17 @@ class SubAgentRunner:
         if not handler:
             return f"[ERROR] Direct tool '{agent.direct_tool}' nicht gefunden."
         try:
-            result = handler()
-            if asyncio.iscoroutine(result):
-                result = await result
+            # Nutzerkontext aus dem Sub-Agenten setzen, damit nutzerbezogene
+            # Tools nur die Daten ihres Owners sehen. Ohne das läuft jedes
+            # direct_tool im System-Scope und sieht ALLES – bei einem
+            # Digest je Nutzer bekäme jeder die Liste des anderen.
+            # owner_id=None bleibt System-Scope (bisheriges Verhalten).
+            from piclaw.agent_context import user_scope
+
+            with user_scope(getattr(agent, "owner_id", None)):
+                result = handler()
+                if asyncio.iscoroutine(result):
+                    result = await result
             # Leeres Ergebnis = kein neues Gerät → stilles Token
             if not result:
                 return "__NO_NEW_DEVICES__"

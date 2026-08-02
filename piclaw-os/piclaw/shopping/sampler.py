@@ -86,6 +86,9 @@ async def run_sample(
         "skipped": [], "error": "",
     }
 
+    # Abgehakte Artikel bleiben BEWUSST dabei: die Preisreihe soll nicht
+    # reißen, nur weil man den Artikel diese Woche schon gekauft hat. Aus
+    # Digest und Warenkorb sind sie draußen, hier nicht.
     items = [i for i in db.list_items(owner_id=None) if not i.muted]
     if not items:
         summary["error"] = "keine Artikel auf der Liste"

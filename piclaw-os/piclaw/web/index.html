@@ -583,6 +583,31 @@ Frag mich alles über diesen Raspberry Pi – Hardware, Services, WLAN, GPIO, Su
 
     <div id="shopping-basket" style="margin-bottom:20px"></div>
 
+    <!-- Tägliche Zusammenfassung. Wochentage und Uhrzeit frei wählbar,
+         daraus wird der cron-Ausdruck des Sub-Agenten abgeleitet. -->
+    <details id="shopping-digest-box" style="margin-bottom:20px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--accent)">
+        📬 Tägliche Zusammenfassung</summary>
+      <div class="card" style="padding:16px;margin-top:10px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px">
+          <input type="checkbox" id="digest-enabled"> per Telegram zuschicken
+        </label>
+        <div id="digest-tage" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;
+             font-size:12px"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text2)">um</span>
+          <input id="digest-zeit" type="time" value="07:00" style="flex:0 0 110px">
+          <button class="btn btn-primary" onclick="shoppingDigestSave()"
+                  id="digest-save-btn">Speichern</button>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-top:8px">
+          Kommt nur, wenn sich etwas geändert hat — kein neuer Bestpreis,
+          kein neuer Laden, kein Preisrutsch heißt keine Nachricht.
+        </div>
+        <div id="digest-result" style="margin-top:10px;font-size:12px"></div>
+      </div>
+    </details>
+
     <div id="shopping-location" style="font-size:12px;color:var(--text2);margin-bottom:8px"></div>
 
     <!-- Wohnort. Die Umkreissuche haengt an der Hausnummer, nicht an der PLZ:
@@ -1383,6 +1408,7 @@ async function loadShopping(){
     if(box) box.innerHTML = `<p style="color:var(--red);font-size:12px">❌ ${esc(e.message)}</p>`;
   }
   loadShoppingHome();
+  loadShoppingDigest();
   loadShoppingStores();
 }
 
@@ -1431,10 +1457,13 @@ function renderShoppingItems(items){
                : 'Statt nur des Namens die ganze Kategorie verfolgen – findet auch andere Marken'}">
              ${it.track_category ? '✓ ganze Kategorie' : 'ganze Kategorie'}</button>
          </div>` : '';
-    return `<div class="card" style="padding:14px;margin-bottom:12px">
+    const erledigt = it.is_bought
+      ? ' <span class="badge">erledigt</span>' : '';
+    return `<div class="card" style="padding:14px;margin-bottom:12px${
+        it.is_bought ? ';opacity:.6' : ''}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
         <div style="flex:1 1 200px">
-          <div style="font-weight:600">${esc(it.name)} ${badge}</div>
+          <div style="font-weight:600">${esc(it.name)} ${badge}${erledigt}</div>
           ${details ? `<div style="font-size:11px;color:var(--text2)">${esc(details)}</div>` : ''}
           ${kat}
           <div style="margin-top:6px">${preis}</div>
@@ -1447,6 +1476,11 @@ function renderShoppingItems(items){
             ${esc(it.status||'')} · ${it.points||0} Messwerte</div>
         </div>
         <div style="display:flex;gap:6px;align-items:flex-start">
+          <button class="btn ${it.is_bought?'btn-yellow':'btn-green'}"
+            onclick="shoppingBought(${it.id})"
+            title="${it.is_bought ? 'Wieder auf die Liste setzen'
+                    : 'Abhaken – ruht eine Weile, Preisbeobachtung läuft weiter'}"
+            >${it.is_bought ? '↩' : '✓'}</button>
           <button class="btn btn-ghost" onclick="shoppingTestItem(${it.id},this)">🔍</button>
           <button class="btn btn-red" onclick="shoppingDel(${it.id})">✕</button>
         </div>
@@ -1558,6 +1592,75 @@ async function shoppingDel(id){
     const d = await r.json();
     if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
     showToast(`"${name}" entfernt`,'ok');
+    loadShopping();
+  }catch(e){ showToast(e.message); }
+}
+
+// cron zählt 0=Sonntag; die Anzeige beginnt bei Montag.
+const DIGEST_TAGE = [['1','Mo'],['2','Di'],['3','Mi'],['4','Do'],['5','Fr'],
+                     ['6','Sa'],['0','So']];
+
+async function loadShoppingDigest(){
+  const box = document.getElementById('digest-tage');
+  if(box && !box.children.length){
+    box.innerHTML = DIGEST_TAGE.map(([w,l])=>
+      `<label style="display:flex;align-items:center;gap:4px">
+         <input type="checkbox" class="digest-tag" value="${w}"> ${l}</label>`).join('');
+  }
+  try{
+    const r = await authFetch('/api/shopping/digest');
+    const d = await r.json();
+    if(d.error) return;
+    document.getElementById('digest-enabled').checked = !!d.enabled;
+    document.getElementById('digest-zeit').value = d.time || '07:00';
+    const aktiv = new Set(String(d.days||'').split(','));
+    document.querySelectorAll('.digest-tag').forEach(c=>{ c.checked = aktiv.has(c.value); });
+    const res = document.getElementById('digest-result');
+    if(res && d.enabled && d.agent_exists){
+      res.innerHTML = `<span style="color:var(--text2)">aktiv als `
+        + `<code>${esc(d.agent)}</code>${d.last_run ? ' · zuletzt '+esc(d.last_run) : ''}</span>`;
+    }
+  }catch(e){ console.debug('Digest:',e); }
+}
+
+async function shoppingDigestSave(){
+  const tage = [...document.querySelectorAll('.digest-tag:checked')].map(c=>c.value);
+  const body = {
+    enabled: document.getElementById('digest-enabled').checked,
+    days: tage.join(','),
+    time: document.getElementById('digest-zeit').value || '07:00',
+  };
+  const btn = document.getElementById('digest-save-btn');
+  const res = document.getElementById('digest-result');
+  if(btn) btn.disabled = true;
+  try{
+    const r = await authFetch('/api/shopping/digest', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    res.innerHTML = d.enabled
+      ? `<span style="color:var(--green)">✅ Aktiv — ${esc(d.days
+          .split(',').map(w=>(DIGEST_TAGE.find(t=>t[0]===w)||[,w])[1]).join(', '))}`
+        + ` um ${esc(d.time)}</span>`
+      : '<span style="color:var(--text2)">Zusammenfassung ausgeschaltet</span>';
+    showToast('Zeitplan gespeichert','ok');
+  }catch(e){
+    res.innerHTML = `<span style="color:var(--red)">❌ ${esc(e.message)}</span>`;
+  }finally{ if(btn) btn.disabled = false; }
+}
+
+async function shoppingBought(id){
+  try{
+    const r = await authFetch(`/api/shopping/items/${id}/bought`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}',
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    showToast(d.is_bought
+      ? `"${d.name}" abgehakt — Preisbeobachtung läuft weiter`
+      : `"${d.name}" wieder auf der Liste`, 'ok');
     loadShopping();
   }catch(e){ showToast(e.message); }
 }
