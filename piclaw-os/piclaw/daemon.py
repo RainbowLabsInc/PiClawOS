@@ -233,6 +233,15 @@ async def _daemon_main():
         await proactive_mod.stop()
     except Exception as _e:
         log.debug("proactive stop: %s", _e)
+    # Messaging-Adapter schliessen. Der Daemon startet den Telegram-
+    # Poll-Loop nicht (das macht die API), sendet aber ueber den Hub -
+    # und `send()` legt die ClientSession lazy an. Ohne diesen Aufruf
+    # meldete asyncio bei JEDEM Shutdown "Unclosed client session".
+    if _hub:
+        try:
+            await _hub.stop()
+        except Exception as _e:
+            log.debug("hub stop: %s", _e)
     log.info("piclaw-agent stopped.")
 
 

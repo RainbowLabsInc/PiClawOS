@@ -163,6 +163,17 @@ class TestCapacityErrorsAreNotOutages:
         )
         assert h.rate_limited_until > time.time(), "Backend muss zurückgestellt werden"
 
+    @pytest.mark.parametrize("code", [502, 503, 504, 529])
+    def test_overload_status_codes_are_capacity(self, registry, monitor, code):
+        """529 kam am 23.08.2026 von NVIDIA und wurde nur ueber den
+        Meldungstext erkannt - also nur, solange ein brauchbarer Body
+        mitkommt. Der Status allein muss reichen."""
+        registry.add(_make_backend("b%d" % code))
+        monitor.report_error("b%d" % code, code, "")
+        h = monitor._health["b%d" % code]
+        assert h.consecutive_failures == 0
+        assert h.rate_limited_until > time.time()
+
     def test_capacity_message_detected_without_503_status(self, registry, monitor):
         registry.add(_make_backend("groq-actions"))
         monitor.report_error("groq-actions", 500, "upstream connect: overloaded")

@@ -332,7 +332,12 @@ class LLMHealthMonitor:
         bei 429, nur ohne Retry-After. Als Ausfall gezaehlt fuehrt das zur
         Deaktivierung eines Backends, das Minuten spaeter normal antwortet.
         """
-        if error_code == 503:
+        # 503 Service Unavailable, 502/504 Gateway (Upstream voll oder weg),
+        # 529 "site is overloaded" (u.a. NVIDIA NIM, beobachtet 23.08.2026 an
+        # auto-nvidia-deepseek - wurde bis dahin nur ueber den Meldungstext
+        # erkannt, also nur solange der Provider einen brauchbaren Body
+        # mitschickt).
+        if error_code in (502, 503, 504, 529):
             return True
         return bool(error_msg and _RE_CAPACITY.search(error_msg))
 
