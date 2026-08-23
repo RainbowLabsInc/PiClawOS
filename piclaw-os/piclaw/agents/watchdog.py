@@ -86,7 +86,7 @@ class Watchdog:
         self._hostname       = socket.gethostname()
         self._integrity_base: dict[str, str] = {}
         self._service_fail_counts: dict[str, int] = {}
-        self._perm_denied_warned: set[str] = {}  # log PermissionError nur 1× pro Pfad
+        self._perm_denied_warned: set[str] = set()  # log PermissionError nur 1× pro Pfad
         self._cfg            = self._load_config()
         WATCHDOG_LOG_DIR.mkdir(parents=True, exist_ok=True)
         init_watchdog_db()
