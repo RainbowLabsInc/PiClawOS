@@ -637,6 +637,14 @@ class MultiLLMRouter(LLMBackend):
             return 413
         if "404" in err_str:
             return 404
+        # 410 "Gone" = Modell ausgemustert (NVIDIA NIM End-of-Life). Muss
+        # eigenstaendig durchgereicht werden, damit der Health-Monitor den
+        # Auto-Repair anwirft statt das Backend als 500er stillzulegen.
+        if "410" in err_str:
+            return 410
+        # 503 = Provider ausgelastet, kein Ausfall des Backends.
+        if "503" in err_str:
+            return 503
         if "401" in err_str or "403" in err_str:
             return 401
         if "timeout" in err_str.lower():
