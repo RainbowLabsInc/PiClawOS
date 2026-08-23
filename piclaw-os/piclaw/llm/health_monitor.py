@@ -111,27 +111,37 @@ _FREE_TIER_MODELS = {
     ],
     "integrate.api.nvidia.com": [
         # NVIDIA NIM Free API: 40 RPM, 100+ Modelle
-        # Quelle: https://build.nvidia.com/models (Juni 2026)
-        # ── Llama 4 (Meta) ──
-        "meta/llama-4-maverick-17b-128e-instruct",
-        "meta/llama-4-scout-17b-16e-instruct",
-        # ── Llama 3.3 / 3.1 (Meta) ──
+        # Quelle: GET /v1/models, live gegengeprueft 23.08.2026.
+        # Jeder Eintrag hier wurde mit einem echten chat/completions-Call
+        # verifiziert - Katalog-Praesenz allein genuegt nicht: 
+        # nvidia/llama-3.1-nemotron-ultra-253b-v1 steht im Katalog, liefert
+        # aber 404 "Function not found".
+        # Reihenfolge = Auto-Repair-Praeferenz (erster Treffer gewinnt).
+        # ── Meta ──
         "meta/llama-3.3-70b-instruct",
-        "meta/llama-3.1-405b-instruct",
         "meta/llama-3.1-70b-instruct",
         "meta/llama-3.1-8b-instruct",
         # ── Nemotron (NVIDIA) ──
-        "nvidia/llama-3.3-nemotron-super-49b-v1",
-        "nvidia/llama-3_1-nemotron-ultra-253b-v1",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  # neu, multimodal reasoning
+        "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+        "nvidia/nemotron-3-super-120b-a12b",
+        "nvidia/nemotron-3-nano-30b-a3b",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         # ── DeepSeek ──
-        "deepseek-ai/deepseek-r1",
-        "deepseek-ai/deepseek-v3.1",
-        "deepseek-ai/deepseek-v4-flash",                  # neu: 284B MoE, 1M context
-        # ── Andere ──
-        "qwen/qwen3-coder-480b-a35b-instruct",
-        # ── Entfernt: zu alt ──
-        # - mistralai/mixtral-8x7b-instruct-v0.1 (Mixtral 8x22b/Magistral neuer)
+        "deepseek-ai/deepseek-v4-flash-0731",
+        # ── Entfernt: 410 Gone / End-of-Life (verifiziert 23.08.2026) ──
+        # - meta/llama-4-maverick-17b-128e-instruct  → EOL, war das Modell
+        #   von 'nemotron-nvidia' und hat es dauerhaft lahmgelegt
+        # - meta/llama-4-scout-17b-16e-instruct      → EOL
+        # ── Entfernt: nicht mehr im Katalog ──
+        # - meta/llama-3.1-405b-instruct
+        # - deepseek-ai/deepseek-r1, deepseek-ai/deepseek-v3.1
+        # - qwen/qwen3-coder-480b-a35b-instruct
+        # ── Entfernt: Tippfehler, konnte nie matchen ──
+        # - nvidia/llama-3_1-nemotron-ultra-253b-v1  (Unterstriche statt Punkte;
+        #   die korrekte ID nvidia/llama-3.1-nemotron-ultra-253b-v1 liefert 404)
+        # ── Entfernt: zu langsam fuer die Probe ──
+        # - nvidia/llama-3.3-nemotron-super-49b-v1   (18.4s gemessen; die
+        #   Nachfolge-Version v1.5 antwortet in ~0.5s)
     ],
     "api.cerebras.ai": [
         # Cerebras Inference: 1M Tokens/Tag, 30 RPM, ~2600-3000 t/s
@@ -207,6 +217,26 @@ _RE_RETRY_SECONDS = re.compile(r"retry.after[\":\s]+(\d+)", re.IGNORECASE)
 _RE_TPM_LIMIT = re.compile(r"\bLimit\s+(\d+)", re.IGNORECASE)
 _RE_TPM_REQUESTED = re.compile(r"\bRequested\s+(\d+)", re.IGNORECASE)
 
+# HTTP 503 - "ResourceExhausted: Worker local total request limit reached
+# (21/16)". NVIDIA NIM meldet so einen ueberbuchten Shared-Worker im
+# Free-Tier. Das ist eine Kapazitaetsgrenze wie 429/413, KEIN Ausfall: das
+# Backend antwortet Minuten spaeter voellig normal. Als Fehler gezaehlt trieb
+# es 'openai-default' regelmaessig in die Deaktivierung (Vorfall 23.08.2026).
+_RE_CAPACITY = re.compile(
+    r"ResourceExhausted|Worker local total request limit|"
+    r"no healthy upstream|temporarily unavailable|overloaded",
+    re.IGNORECASE,
+)
+
+# Health-Probe-Timeouts. 15s war zu knapp: meta/llama-3.3-70b-instruct auf
+# NVIDIA NIM braucht warm ~8s und bei belegtem Worker deutlich laenger. Das
+# wurde als 408 "Timeout" gezaehlt und erzeugte das Flapping ueberhaupt erst.
+PROBE_TIMEOUT_TOTAL = 45
+PROBE_TIMEOUT_CONNECT = 10
+
+# Backoff, wenn ein Provider Kapazitaetsprobleme meldet (503/ueberlastet).
+CAPACITY_BACKOFF_SECONDS = 300
+
 
 @dataclass
 class BackendHealth:
@@ -218,6 +248,10 @@ class BackendHealth:
     rate_limited_until: float = 0.0
     original_priority: int | None = None
     is_tpd_limited: bool = False  # Tokens-per-Day Limit (24h Sperre)
+    # Wurde fuer dieses Backend je eine Stoerungs-Meldung verschickt? Nur
+    # dann ist eine Entwarnung eine Nachricht wert - sonst meldet der
+    # Monitor Erholungen von Ausfaellen, die nie jemand gesehen hat.
+    outage_notified: bool = False
 
 
 class LLMHealthMonitor:
@@ -278,6 +312,18 @@ class LLMHealthMonitor:
             return
         create_background_task(self._safe_notify(msg), name=name)
 
+    @staticmethod
+    def _is_capacity_error(error_code: int | None, error_msg: str) -> bool:
+        """503/„kein freier Worker" = Auslastung, nicht Ausfall.
+
+        Der Provider sagt hier „gerade nicht, versuch es spaeter" - genau wie
+        bei 429, nur ohne Retry-After. Als Ausfall gezaehlt fuehrt das zur
+        Deaktivierung eines Backends, das Minuten spaeter normal antwortet.
+        """
+        if error_code == 503:
+            return True
+        return bool(error_msg and _RE_CAPACITY.search(error_msg))
+
     # ── Echtzeit-Meldung vom Multirouter ──────────────────────────
 
     def report_error(self, backend_name: str, error_code: int, error_msg: str):
@@ -294,6 +340,19 @@ class LLMHealthMonitor:
             h.last_error = error_msg[:200]
             h.last_error_code = error_code
             self._handle_request_too_large(backend_name, error_msg)
+            return
+
+        # 503/ueberlastet: gleiche Logik wie 413 - kein Strike, aber kurz
+        # zurueckstellen, damit der Router waehrenddessen andere Backends
+        # nimmt statt in dieselbe volle Warteschlange zu laufen.
+        if self._is_capacity_error(error_code, error_msg):
+            h.last_error = error_msg[:200]
+            h.last_error_code = error_code
+            h.rate_limited_until = time.time() + CAPACITY_BACKOFF_SECONDS
+            log.info(
+                "Backend '%s': Provider ausgelastet (%s) - %.0fmin zurueckgestellt",
+                backend_name, error_code, CAPACITY_BACKOFF_SECONDS / 60,
+            )
             return
 
         h.consecutive_failures += 1
@@ -378,6 +437,17 @@ class LLMHealthMonitor:
         h.rate_limited_until = 0.0
         h.is_tpd_limited = False
         self._all_api_down_notified = False
+        # Genau eine Entwarnung pro gemeldeter Stoerung. Ohne das blieb eine
+        # verschickte Ausfall-Meldung unaufgeloest, weil run_check die
+        # Erholung nicht mehr sieht (report_success hat den Zaehler schon
+        # genullt) - der Nutzer sah nur die Stoerung, nie das Ende.
+        if h.outage_notified:
+            h.outage_notified = False
+            self._notify_soon(
+                f"✅ *LLM Health Monitor*\n\nBackend `{backend_name}` "
+                f"antwortet wieder normal.",
+                name="llm-notify-recovered",
+            )
 
     # ── 429 Handling ──────────────────────────────────────────────
 
@@ -427,6 +497,7 @@ class LLMHealthMonitor:
 
         # Telegram wenn TPD-Limit
         if h.is_tpd_limited and self.notify:
+            h.outage_notified = True
             hours_left = retry_seconds / 3600
             msg = (
                 f"⚠️ *LLM Health Monitor*\n\n"
@@ -466,15 +537,31 @@ class LLMHealthMonitor:
         if not api_backends:
             return
 
+        # Schwelle bewusst = failure_threshold: mit ">= 1" reichte EIN
+        # transienter Fehler pro Backend, um den 🚨-Alarm samt Auto-Discovery
+        # auszuloesen. Bei fuenf Backends an zwei ueberlasteten Providern ist
+        # das ein Zustand, der im Normalbetrieb staendig kurz eintritt.
         all_down = all(
-            self._health.get(b.name, BackendHealth(b.name)).consecutive_failures >= 1
+            self._health.get(b.name, BackendHealth(b.name)).consecutive_failures
+            >= self.failure_threshold
             or self._health.get(b.name, BackendHealth(b.name)).rate_limited_until > time.time()
             for b in api_backends
         )
 
         if all_down:
-            # Auto-Discovery starten (async, im Hintergrund)
-            create_background_task(self._auto_discover_backends(api_backends), name="llm-auto-discover")
+            # Auto-Discovery starten (async, im Hintergrund). Wie bei
+            # _notify_soon: report_error kommt auch aus synchronem Code
+            # (Multirouter-Except-Zweig, CLI, Tests). Ohne laufenden Loop
+            # wirft create_task RuntimeError und reisst den Aufrufer mit.
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                log.debug("Auto-Discovery uebersprungen (kein Event-Loop)")
+            else:
+                create_background_task(
+                    self._auto_discover_backends(api_backends),
+                    name="llm-auto-discover",
+                )
 
             if not self._all_api_down_notified and self.notify:
                 self._all_api_down_notified = True
@@ -497,6 +584,10 @@ class LLMHealthMonitor:
                     "🔍 Auto-Discovery läuft – suche alternative Backends..."
                 )
                 self._notify_soon(msg, name="llm-notify")
+                for b in api_backends:
+                    self._health.setdefault(
+                        b.name, BackendHealth(b.name)
+                    ).outage_notified = True
                 log.warning("ALLE API-Backends ausgefallen – Auto-Discovery gestartet")
 
     # ── Auto-Discovery: Neue Backends auf bekannten Providern finden ──
@@ -902,9 +993,35 @@ class LLMHealthMonitor:
                     or self._cycle_count % self.DISABLED_RETRY_EVERY == 0
                 ):
                     continue
+                repaired_model = None
                 probe_code, probe_err = await self._test_backend(backend)
                 h.last_checked = time.time()
-                if probe_code is not None:
+                if probe_code in (404, 410):
+                    # Deaktiviert UND das Modell existiert nicht mehr: die
+                    # Probe kann per Definition nie gruen werden, das Backend
+                    # bliebe fuer immer tot. Genau das war der Zustand von
+                    # 'nemotron-nvidia' seit dem llama-4-EOL (410, 23.08.2026)
+                    # - jeder sechste Zyklus loggte "bleibt deaktiviert",
+                    # ohne dass je ein Ersatz gesucht wurde.
+                    fixed = await self._auto_repair_404(backend)
+                    if not fixed:
+                        log.info(
+                            "Backend '%s': bleibt deaktiviert (Modell weg: %s, "
+                            "kein Ersatz gefunden)", backend.name, probe_code,
+                        )
+                        continue
+                    probe_code, probe_err = await self._test_backend(
+                        self.registry.get(backend.name)
+                    )
+                    if probe_code is not None:
+                        log.info(
+                            "Backend '%s': Ersatzmodell '%s' antwortet nicht "
+                            "(Probe: %s) - bleibt deaktiviert",
+                            backend.name, fixed, probe_code,
+                        )
+                        continue
+                    repaired_model = fixed
+                elif probe_code is not None:
                     log.info(
                         "Backend '%s': bleibt deaktiviert (Probe: %s)",
                         backend.name, probe_code,
@@ -929,7 +1046,16 @@ class LLMHealthMonitor:
                     backend.name,
                     f" (Prio {parked} wiederhergestellt)" if parked is not None else "",
                 )
-                recovered.append(f"✅ `{backend.name}`: wieder erreichbar – reaktiviert")
+                h.outage_notified = False
+                if repaired_model:
+                    recovered.append(
+                        f"🔧 `{backend.name}`: Modell ersetzt → "
+                        f"`{repaired_model}` – reaktiviert"
+                    )
+                else:
+                    recovered.append(
+                        f"✅ `{backend.name}`: wieder erreichbar – reaktiviert"
+                    )
                 continue
 
             # ── Health-Test ─────────────────────────────────────────
@@ -942,11 +1068,29 @@ class LLMHealthMonitor:
                 self._handle_request_too_large(backend.name, error_msg)
                 continue
 
+            # 503/ueberlastet: der Provider hat gerade keinen freien Worker.
+            # Kurz zurueckstellen statt als Ausfall zaehlen - sonst sammelt
+            # ein voellig gesundes Backend Strikes, bis es deaktiviert wird.
+            if self._is_capacity_error(error_code, error_msg):
+                h.rate_limited_until = time.time() + CAPACITY_BACKOFF_SECONDS
+                log.info(
+                    "Backend '%s': Provider ausgelastet (%s) - %.0fmin zurueckgestellt",
+                    backend.name, error_code, CAPACITY_BACKOFF_SECONDS / 60,
+                )
+                continue
+
             if error_code is None:
                 if h.consecutive_failures > 0:
                     log.info("Backend '%s': wieder gesund nach %d Fehlern",
                              backend.name, h.consecutive_failures)
-                    recovered.append(f"✅ `{backend.name}`: wieder erreichbar")
+                    # Nur melden, wenn der Ausfall auch gemeldet wurde. Ein
+                    # einzelner Probe-Fehler zwischen zwei Zyklen ist kein
+                    # Ereignis - vorher erzeugte jeder Blip eine Entwarnung
+                    # fuer eine Stoerung, die nie verschickt worden war
+                    # (17 Telegram-Meldungen in 2 Tagen, 23.08.2026).
+                    if h.outage_notified:
+                        recovered.append(f"✅ `{backend.name}`: wieder erreichbar")
+                        h.outage_notified = False
                 h.consecutive_failures = 0
                 h.last_error = ""
                 # Verwaiste Priorität-Parkung aufräumen: nach einem Restart ist
@@ -976,20 +1120,29 @@ class LLMHealthMonitor:
                         backend.name, error_code, h.consecutive_failures,
                         self.failure_threshold, error_msg[:80])
 
-            if error_code == 404:
+            # 410 "Gone" = Modell hat sein End-of-Life erreicht (NVIDIA NIM
+            # meldet so ausgemusterte Modelle). Fachlich identisch zu 404:
+            # das Modell kommt nicht zurueck, ein Ersatz muss her. Vorher
+            # fiel 410 in den generischen Zweig - 'nemotron-nvidia' war
+            # dadurch seit dem EOL dauerhaft deaktiviert (23.08.2026).
+            if error_code in (404, 410):
                 fixed = await self._auto_repair_404(backend)
                 if fixed:
                     repaired.append(f"🔧 `{backend.name}`: Modell ersetzt → `{fixed}`")
                     h.consecutive_failures = 0
+                    # Repariert = erledigt; keine spaetere Entwarnung noetig.
+                    h.outage_notified = False
                 else:
                     deactivated.append(f"⚠️ `{backend.name}`: Kein Ersatz gefunden, deaktiviert")
                     self.registry.update(backend.name, enabled=False)
+                    h.outage_notified = True
 
             elif error_code == 429:
                 self._handle_rate_limit(backend.name, error_msg)
 
             elif h.consecutive_failures >= self.failure_threshold:
                 self.registry.update(backend.name, enabled=False)
+                h.outage_notified = True
                 deactivated.append(
                     f"❌ `{backend.name}`: Nach {h.consecutive_failures} Fehlern deaktiviert"
                 )
@@ -1144,7 +1297,27 @@ class LLMHealthMonitor:
 
 
     async def _test_backend(self, backend) -> tuple[int | None, str]:
-        """Backend testen. Gibt (error_code, message) oder (None, "") wenn OK."""
+        """Backend testen, mit einem Retry bei transienten Codes.
+
+        Messung 23.08.2026 gegen NVIDIA NIM: dasselbe Modell antwortete in
+        vier Laeufen mit 2.4s / 2.1s / Timeout / 47.7s. Ein einzelner
+        Probe-Versuch sagt unter solcher Provider-Last nichts ueber die
+        Gesundheit des Backends aus - er erzeugt nur Fehlalarme. Ein
+        zweiter Versuch kostet wenig und faengt den Grossteil davon ab.
+        """
+        code, msg = await self._probe_once(backend)
+        if code in (408, 503):
+            await asyncio.sleep(2)
+            code2, msg2 = await self._probe_once(backend)
+            if code2 is None:
+                log.debug("Backend '%s': Probe-Retry erfolgreich (erst %s)",
+                          backend.name, code)
+                return None, ""
+            return code2, msg2
+        return code, msg
+
+    async def _probe_once(self, backend) -> tuple[int | None, str]:
+        """Ein einzelner Probe-Request. (None, "") = OK."""
         try:
             import aiohttp
 
@@ -1161,7 +1334,10 @@ class LLMHealthMonitor:
             async with aiohttp.ClientSession() as s:
                 async with s.post(
                     url, json=payload, headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=15)
+                    timeout=aiohttp.ClientTimeout(
+                        total=PROBE_TIMEOUT_TOTAL,
+                        connect=PROBE_TIMEOUT_CONNECT,
+                    ),
                 ) as r:
                     if r.status == 200:
                         return None, ""
