@@ -352,3 +352,57 @@ class TestAllBackendsDownThreshold:
                 monitor.report_error(name, 500, "boom")
 
         assert any("ALLE API-Backends down" in m for m in sent)
+
+
+# ── 6. Retry-After-Parsing ────────────────────────────────────────
+
+
+class TestRetryAfterParsing:
+    """Groq nennt die Wartezeit mal mit, mal ohne Minuten-Anteil.
+
+    Beobachtet 23.08.2026 direkt nach einem Restart: Groq antwortete mit
+    "Please try again in 6.765s", die Regex verlangte aber zwingend einen
+    "Xm"-Anteil. Kein Match, kein Header -> Default 10min. Damit stand
+    'groq-actions' (Prio 10, der schnelle Pfad fuer deutsche Aktionen) fuer
+    600 Sekunden auf Prio 0, obwohl es nach 7 Sekunden wieder bereit war.
+    """
+
+    @pytest.mark.parametrize(
+        "msg,expected",
+        [
+            ("Please try again in 6.765s.", 6.765),
+            ("try again in 12s", 12.0),
+            ("try again in 5m45.6s", 345.6),
+            ("try again in 2m0s", 120.0),
+            ("retry-after: 360", 360.0),
+        ],
+    )
+    def test_parses_both_groq_formats(self, monitor, msg, expected):
+        assert monitor._parse_retry_after(msg) == pytest.approx(expected)
+
+    def test_unknown_format_falls_back_to_default(self, monitor):
+        assert monitor._parse_retry_after("slow down") == 600
+
+    def test_short_rate_limit_does_not_park_backend_for_ten_minutes(
+        self, registry, monitor
+    ):
+        registry.add(_make_backend("groq-actions", priority=10))
+
+        monitor.report_error(
+            "groq-actions",
+            429,
+            "Rate limit reached for model `openai/gpt-oss-120b` on tokens per "
+            "minute (TPM): Limit 8000, Used 4542, Requested 4360. Please try "
+            "again in 6.765s.",
+        )
+
+        h = monitor._health["groq-actions"]
+        wait = h.rate_limited_until - time.time()
+        assert wait < 30, (
+            f"Sperre von {wait:.0f}s fuer ein 6.8s-Rate-Limit - der schnelle "
+            "Aktions-Pfad faellt dadurch unnoetig lange aus."
+        )
+        assert registry.get("groq-actions").original_priority == 10, (
+            "Ohne persistierte original_priority bleibt das Backend nach "
+            "einem Restart dauerhaft auf Prio 0."
+        )

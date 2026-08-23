@@ -205,7 +205,13 @@ _PROVIDER_PREFERRED_MODELS = _FREE_TIER_MODELS
 
 # Regex für Groq TPD-Limit Erkennung
 _RE_TPD = re.compile(r"tokens per day", re.IGNORECASE)
-_RE_RETRY_AFTER = re.compile(r"try again in (\d+)m(\d+(?:\.\d+)?)s", re.IGNORECASE)
+# Groq schreibt je nach Wartezeit "try again in 5m45.6s" ODER "try again
+# in 6.765s". Die Minuten-Gruppe muss optional sein - sonst greift keine
+# der beiden Regeln und der Default von 10min parkt ein Backend, das in
+# 7 Sekunden wieder bereit waere (beobachtet 23.08.2026 an groq-actions).
+_RE_RETRY_AFTER = re.compile(
+    r"try again in (?:(\d+)m)?(\d+(?:\.\d+)?)s", re.IGNORECASE
+)
 _RE_RETRY_SECONDS = re.compile(r"retry.after[\":\s]+(\d+)", re.IGNORECASE)
 
 # HTTP 413 – "Request too large": der Provider meldet ein Input-Budget, das
@@ -510,10 +516,10 @@ class LLMHealthMonitor:
 
     def _parse_retry_after(self, error_msg: str) -> float:
         """Extrahiert Retry-After Sekunden aus Fehlermeldung."""
-        # Format: "try again in 5m45.6s"
+        # Format: "try again in 5m45.6s" oder "try again in 6.765s"
         m = _RE_RETRY_AFTER.search(error_msg)
         if m:
-            minutes = int(m.group(1))
+            minutes = int(m.group(1)) if m.group(1) else 0
             seconds = float(m.group(2))
             return minutes * 60 + seconds
 
