@@ -406,3 +406,71 @@ class TestRetryAfterParsing:
             "Ohne persistierte original_priority bleibt das Backend nach "
             "einem Restart dauerhaft auf Prio 0."
         )
+
+
+# ── 7. Discovery-Zeitstempel ueberlebt den Restart ────────────────
+
+
+class TestDiscoveryTimestampPersists:
+    """Die "taegliche" Discovery lief bei JEDEM Neustart.
+
+    `_last_discovery_time` stand nach dem Start auf 0.0, also war
+    `time.time() - 0 > 86400` immer wahr. Beobachtet 23.08.2026: zwei
+    Service-Restarts kurz nacheinander loesten zwei volle Discovery-Runden
+    aus (~10 Test-Calls gegen die Provider) und legten einen auto-*-Pool an,
+    den der Cleanup erst im naechsten Zyklus - bis zu eine Stunde spaeter -
+    abraeumt. Genau so wuchs der Pool am 25.07.2026 auf 16 Eintraege.
+    """
+
+    def test_timestamp_is_written_to_status_file(self, registry, monitor, tmp_path):
+        from piclaw.llm import health_monitor as hm
+
+        monitor._last_discovery_time = 1_700_000_000.0
+        target = tmp_path / "llm_health_status.json"
+
+        with patch.object(hm, "_status_file_path", lambda: target):
+            hm.write_status_file(monitor)
+
+        import json
+
+        assert json.loads(target.read_text())["last_discovery_ts"] == 1_700_000_000.0
+
+    def test_timestamp_is_restored_on_boot(self, registry, tmp_path):
+        import json
+        from piclaw.llm import health_monitor as hm
+
+        target = tmp_path / "llm_health_status.json"
+        target.write_text(json.dumps({"last_discovery_ts": 1_700_000_000.0}))
+
+        with patch.object(hm, "_status_file_path", lambda: target):
+            fresh = hm.LLMHealthMonitor(
+                registry=registry, multirouter=None, notify=None
+            )
+
+        assert fresh._last_discovery_time == 1_700_000_000.0, (
+            "Ohne den persistierten Wert laeuft nach jedem Restart eine "
+            "volle Discovery-Runde."
+        )
+
+    def test_missing_status_file_is_not_fatal(self, registry, tmp_path):
+        from piclaw.llm import health_monitor as hm
+
+        with patch.object(hm, "_status_file_path", lambda: tmp_path / "weg.json"):
+            fresh = hm.LLMHealthMonitor(
+                registry=registry, multirouter=None, notify=None
+            )
+
+        assert fresh._last_discovery_time == 0.0
+
+    def test_corrupt_status_file_is_not_fatal(self, registry, tmp_path):
+        from piclaw.llm import health_monitor as hm
+
+        target = tmp_path / "llm_health_status.json"
+        target.write_text("{kaputt")
+
+        with patch.object(hm, "_status_file_path", lambda: target):
+            fresh = hm.LLMHealthMonitor(
+                registry=registry, multirouter=None, notify=None
+            )
+
+        assert fresh._last_discovery_time == 0.0

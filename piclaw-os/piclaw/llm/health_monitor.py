@@ -299,6 +299,12 @@ class LLMHealthMonitor:
         self._warned_no_notification_email = False  # AgentMail-Backup: nur 1× warnen
         self._last_discovery_time: float = 0.0  # Unix-Timestamp der letzten Discovery
         self.DISCOVERY_INTERVAL = 86400  # 24h – proaktive Discovery
+        # Aus der Statusdatei uebernehmen. Ohne das steht der Wert nach jedem
+        # Restart auf 0, die "taegliche" Discovery lief also bei JEDEM
+        # Neustart: ~10 Test-Calls gegen die Provider plus ein frischer
+        # auto-*-Pool, den der Cleanup erst eine Stunde spaeter abraeumt.
+        # Genau so wuchs der Pool am 25.07.2026 auf 16 Eintraege.
+        self._last_discovery_time = _read_last_discovery_ts()
         self._cycle_count = 0  # run_check-Zähler, steuert den Disabled-Retry
 
     # ── Notify-Hilfe ──────────────────────────────────────────────
@@ -1518,6 +1524,21 @@ def _status_file_path():
         return Path("/etc/piclaw") / _STATUS_FILE_NAME
 
 
+def _read_last_discovery_ts() -> float:
+    """Letzten Discovery-Zeitpunkt aus der Statusdatei lesen. 0.0 = unbekannt."""
+    import json
+    try:
+        p = _status_file_path()
+        if not p.exists():
+            return 0.0
+        return float(json.loads(p.read_text(encoding="utf-8")).get(
+            "last_discovery_ts", 0.0
+        ))
+    except Exception as _e:
+        log.debug("last_discovery_ts nicht lesbar: %s", _e)
+        return 0.0
+
+
 def write_status_file(monitor: "LLMHealthMonitor") -> None:
     """Schreibt aktuellen Monitor-Status in Datei (für API-Prozess lesbar).
 
@@ -1532,6 +1553,9 @@ def write_status_file(monitor: "LLMHealthMonitor") -> None:
             "available": True,
             "ts": int(_time.time()),
             "backends": monitor.status_dict(),
+            # Ueberlebt den Restart, damit die taegliche Discovery auch
+            # taeglich laeuft und nicht bei jedem Neustart erneut.
+            "last_discovery_ts": monitor._last_discovery_time,
         }
         p = _status_file_path()
         tmp = p.with_suffix(p.suffix + ".tmp")
