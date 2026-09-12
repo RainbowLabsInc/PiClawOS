@@ -143,19 +143,35 @@ RE_HTML_TAGS = re.compile(r"<[^>]+>")
 RE_PARSE_PRICE = re.compile(r"(\d+(?:\.\d+)?)")
 
 # Kleinanzeigen Parsing
+# Seit dem Relaunch (~09/2026) nutzt Kleinanzeigen Utility-Klassen statt der
+# alten aditem-*-Klassen. Die neuen Regexe hängen deshalb an Struktur
+# (<h3>, /s-anzeige/-Link, locationOutline-Icon) statt an Klassennamen;
+# die alten Muster bleiben als Fallback für gecachte/alte Seiten erhalten.
 RE_KA_ARTICLES = re.compile(
     r'<article[^>]+data-adid="(\d+)"[^>]*>(.*?)</article>', re.DOTALL
 )
+RE_KA_H3 = re.compile(r'<h3[^>]*>(.*?)</h3>', re.DOTALL)
+# Detailseiten-Link: als <a href> (Angebot) oder <span data-url> (z.B. "Zu verschenken")
+RE_KA_LINK = re.compile(r'(?:href|data-url)="(/s-anzeige/[^"]+)"')
+# Preis: einziges <p> mit font-strong im Artikel ("6 €", "90 € VB", "VB", leer)
+RE_KA_PRICE = re.compile(
+    r'<p[^>]*class="[^"]*font-strong[^"]*"[^>]*>(.*?)</p>', re.DOTALL
+)
+# Ort: erster <span> hinter dem Standort-Icon ("22850 Norderstedt")
+RE_KA_LOCATION = re.compile(
+    r'data-title="locationOutline".*?</svg>\s*<span[^>]*>(.*?)</span>', re.DOTALL
+)
+# Fallbacks auf das alte Layout (vor 09/2026)
 RE_KA_TITLE_1 = re.compile(
     r'class="[^"]*text-module-begin[^"]*"[^>]*>\s*<a[^>]*>(.*?)</a>', re.DOTALL
 )
 RE_KA_TITLE_2 = re.compile(
     r'<a[^>]*class="[^"]*ellipsis[^"]*"[^>]*>(.*?)</a>', re.DOTALL
 )
-RE_KA_PRICE = re.compile(
+RE_KA_PRICE_OLD = re.compile(
     r'<p[^>]*class="[^"]*aditem-main--middle--price[^"]*"[^>]*>(.*?)</p>', re.DOTALL
 )
-RE_KA_LOCATION = re.compile(
+RE_KA_LOCATION_OLD = re.compile(
     r'<span[^>]*class="[^"]*aditem-main--top--left[^"]*"[^>]*>(.*?)</span>', re.DOTALL
 )
 
@@ -333,6 +349,11 @@ async def _resolve_kleinanzeigen_location_id(
         return None
 
 
+def _ka_text(raw: str) -> str:
+    """HTML-Fragment → normalisierter Klartext (Tags raus, Whitespace glätten)."""
+    return " ".join(RE_HTML_TAGS.sub(" ", raw).split()).strip()
+
+
 async def _search_kleinanzeigen(
     session: aiohttp.ClientSession,
     query: str,
@@ -383,39 +404,34 @@ async def _search_kleinanzeigen(
         return []
 
     # Inserate parsen
-    # Artikel-Blöcke: <article class="aditem ...">
+    # Artikel-Blöcke: <article ... data-adid="...">
     articles = RE_KA_ARTICLES.findall(html)
 
     for ad_id, content in articles[:max_results]:
-        # Titel
-        title_match = RE_KA_TITLE_1.search(content)
-        if not title_match:
-            title_match = RE_KA_TITLE_2.search(content)
-        title = (
-            " ".join(RE_HTML_TAGS.sub(" ", title_match.group(1)).split()).strip()
-            if title_match
-            else ""
-        )
+        # Titel: neues Layout hat ihn im <h3>, altes in text-module-begin/ellipsis
+        h3_match = RE_KA_H3.search(content)
+        title_match = h3_match or RE_KA_TITLE_1.search(content) or RE_KA_TITLE_2.search(content)
+        title = _ka_text(title_match.group(1)) if title_match else ""
 
         # Preis
-        price_match = RE_KA_PRICE.search(content)
-        price_text = (
-            " ".join(RE_HTML_TAGS.sub(" ", price_match.group(1)).split()).strip()
-            if price_match
-            else ""
-        )
+        price_match = RE_KA_PRICE.search(content) or RE_KA_PRICE_OLD.search(content)
+        price_text = _ka_text(price_match.group(1)) if price_match else ""
         price = _parse_price(price_text)
 
         # Ort
-        loc_match = RE_KA_LOCATION.search(content)
-        location_text = (
-            " ".join(RE_HTML_TAGS.sub(" ", loc_match.group(1)).split()).strip()
-            if loc_match
-            else ""
-        )
+        loc_match = RE_KA_LOCATION.search(content) or RE_KA_LOCATION_OLD.search(content)
+        location_text = _ka_text(loc_match.group(1)) if loc_match else ""
 
         if not title:
             continue
+
+        # Detailseiten-URL: echten Link nehmen, sonst aus der ID bauen
+        link_match = RE_KA_LINK.search(h3_match.group(1) if h3_match else "") or RE_KA_LINK.search(content)
+        url_detail = (
+            f"https://www.kleinanzeigen.de{link_match.group(1)}"
+            if link_match
+            else f"https://www.kleinanzeigen.de/s-anzeige/{ad_id}"
+        )
 
         results.append(
             {
@@ -425,8 +441,16 @@ async def _search_kleinanzeigen(
                 "price": price,
                 "price_text": price_text,
                 "location": location_text,
-                "url": f"https://www.kleinanzeigen.de/s-anzeige/{ad_id}",
+                "url": url_detail,
             }
+        )
+
+    # Artikel gefunden, aber keiner parsebar → Layout-Änderung, nicht "nichts da"
+    if articles and not results:
+        log.error(
+            "Kleinanzeigen: %d Artikel-Blöcke, aber 0 parsebar für '%s' – "
+            "Layout-Änderung? (URL: %s)",
+            len(articles), query, url,
         )
 
     log.info("Kleinanzeigen: %d Inserate gefunden für '%s'", len(results), query)
