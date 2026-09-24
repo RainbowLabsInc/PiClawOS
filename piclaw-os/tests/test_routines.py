@@ -175,7 +175,10 @@ async def test_routine_run_now_not_found(handlers):
 async def test_briefing_now_with_hub(mock_generate, mock_runner, handlers):
     mock_generate.return_value = "Briefing content here."
 
-    result = await handlers["briefing_now"](briefing_type="morning")
+    # Aufruf wie der Agent: handler(**call.arguments) mit dem Schema-Namen
+    # "type". Der alte Handler-Parameter "briefing_type" hat dieses Argument
+    # still in **_ verschluckt – jedes Briefing wurde zum Status-Briefing.
+    result = await handlers["briefing_now"](type="morning")
 
     mock_generate.assert_called_once_with("morning", mock_runner.cfg, mock_runner.llm)
     mock_runner.hub.send_all.assert_called_once_with("Briefing content here.")
