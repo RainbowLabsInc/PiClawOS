@@ -232,6 +232,36 @@ _HA_STOP_WORDS = frozenset({
     "mal", "doch", "jetzt", "sofort", "kurz", "einmal"
 })
 
+# Richtungswörter für _ha_shortcut – als GANZE Wörter verglichen, siehe dort.
+_HA_ON_WORDS = frozenset({
+    "ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen",
+})
+_HA_OFF_WORDS = frozenset({
+    "aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen",
+})
+_HA_TOGGLE_WORDS = frozenset({"toggle", "umschalten", "wechseln"})
+
+
+def _ha_direction(t: str) -> str | None:
+    """Schaltrichtung eines HA-Befehls: "on" | "off" | "toggle" | None.
+
+    Vergleicht über GANZE Wörter, nicht Substrings: "an" steckt in
+    "Wandlampe" und "Gang", "ein" in "einfach". Mit dem alten
+    Substring-Vergleich schaltete "Schalte die Wandlampe aus" das Licht
+    EIN (der On-Zweig wurde zuerst geprüft und traf auf das "an" im
+    Gerätenamen). Aus wird vor Ein geprüft, weil Ortsangaben in
+    Aus-Befehlen oft ein echtes "an" enthalten ("mach das Licht an der
+    Decke aus").
+    """
+    wortmenge = frozenset(re.findall(r"[a-zäöüß]+", t))
+    if wortmenge & _HA_OFF_WORDS:
+        return "off"
+    if wortmenge & _HA_ON_WORDS:
+        return "on"
+    if wortmenge & _HA_TOGGLE_WORDS:
+        return "toggle"
+    return None
+
 _HA_AREA_EXCLUSION_WORDS = frozenset({
     "ein", "an", "on", "einschalten", "anmachen", "anschalten", "einmachen",
     "aus", "off", "ausschalten", "ausmachen", "ausknipsen", "löschen",
@@ -957,21 +987,9 @@ class Agent:
         ):
             return None
 
-        # Richtung bestimmen
-        action = None
-        if (
-            "ein" in t or "an" in t or "on" in t or "einschalten" in t or
-            "anmachen" in t or "anschalten" in t or "einmachen" in t
-        ):
-            action = "on"
-        elif (
-            "aus" in t or "off" in t or "ausschalten" in t or "ausmachen" in t or
-            "ausknipsen" in t or "löschen" in t
-        ):
-            action = "off"
-        elif "toggle" in t or "umschalten" in t or "wechseln" in t:
-            action = "toggle"
-        else:
+        # Richtung bestimmen – Wortvergleich statt Substring, siehe _ha_direction.
+        action = _ha_direction(t)
+        if action is None:
             return None  # Kein klarer On/Off Intent
 
         # Raum/Gerät extrahieren – alles zwischen Befehlswort und Richtungswort
@@ -1902,9 +1920,15 @@ class Agent:
                     )
 
         if mp_kwargs:
-            log.info("Marketplace intent detected: %s", mp_kwargs)
-            # Direct delegation to SearchAssistant (it will call the tool)
-            # to avoid double-searching and inconsistent query cleaning.
+            # Follow-up ("erhöhe den Radius auf 50 km"): die eben aus dem
+            # Verlauf gemergten Parameter DIREKT ausführen. Vorher wurde nur
+            # der rohe Follow-up-Text an den SearchAssistant delegiert – der
+            # kennt weder die ursprüngliche Query noch Ort/Preis, die Merge-
+            # Logik oberhalb war damit wirkungslos.
+            log.info("Marketplace follow-up detected: %s", mp_kwargs)
+            handler = self._handlers.get("marketplace_search")
+            if handler:
+                return await handler(**mp_kwargs, notify_all=True)
             return await self._delegate_to_search_assistant(user_input)
 
         # Memory-Recall: kurzer Timeout damit Agent immer antwortet
