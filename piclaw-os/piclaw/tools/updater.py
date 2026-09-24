@@ -10,6 +10,7 @@ Update-Flow:
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from piclaw.llm.base import ToolDefinition
 from piclaw.config import UpdaterConfig
@@ -27,6 +28,35 @@ VENV_PIP = INSTALL_DIR / ".venv" / "bin" / "pip"
 # privates/unsichtbares Repo) auf eine Username-Eingabe wartet und der
 # Updater ohne TTY hängt.
 _GIT_ENV = "LC_ALL=C GIT_TERMINAL_PROMPT=0"
+
+# Alle Dienste, die Code aus /opt/piclaw laden. Fehlt hier einer, läuft er
+# nach einem Update mit altem Code weiter (Crawler und Watchdog liefen so
+# wochenlang auf altem Stand). Ein sudo-Aufruf pro Unit: die Regel in
+# /etc/sudoers.d/piclaw erlaubt nur "systemctl restart <unit>" mit genau
+# einer Unit, mehrere Units in einem Aufruf matchen keine Zeile.
+_RESTART_UNITS = ("piclaw-crawler", "piclaw-watchdog", "piclaw-api", "piclaw-agent")
+
+
+def _own_unit() -> str | None:
+    """systemd-Unit dieses Prozesses (aus /proc/self/cgroup), sonst None."""
+    try:
+        text = Path("/proc/self/cgroup").read_text()
+    except OSError:
+        return None
+    m = re.search(r"/(piclaw-[\w-]+)\.service", text)
+    return m.group(1) if m else None
+
+
+def _restart_order(own: str | None) -> list[str]:
+    """Reihenfolge der Neustarts: die eigene Unit zuletzt.
+
+    Der Restart der eigenen Unit beendet diesen Prozess samt seiner
+    sudo/systemctl-Kinder - alles danach würde nie mehr ausgeführt.
+    """
+    units = [u for u in _RESTART_UNITS if u != own]
+    if own in _RESTART_UNITS:
+        units.append(own)
+    return units
 
 # Signaturen von GitHub-Auth-Fehlern in git-Output (mit LC_ALL=C stabil)
 _AUTH_ERROR_MARKERS = (
@@ -240,12 +270,17 @@ async def system_update(target: str, cfg: UpdaterConfig) -> str:
         if out2 and "dependencies unchanged" not in out2:
             results.append(f"pip: {out2[:200]}")
 
-        # 4. sudo systemctl restart
-        rc3, out3 = await _run("sudo systemctl restart piclaw-api piclaw-agent 2>&1")
-        if rc3 == 0:
-            results.append("✅ Services neu gestartet")
+        # 4. sudo systemctl restart – alle Dienste, eigener zuletzt
+        failed = []
+        for unit in _restart_order(_own_unit()):
+            rc3, out3 = await _run(f"sudo systemctl restart {unit} 2>&1")
+            if rc3 != 0:
+                log.warning("Restart %s fehlgeschlagen: %s", unit, out3[:200])
+                failed.append(f"{unit}: {out3[:100]}")
+        if failed:
+            results.append("⚠️ Service-Neustart fehlgeschlagen:\n" + "\n".join(failed))
         else:
-            results.append(f"⚠️ Service-Neustart: {out3[:100]}")
+            results.append("✅ Services neu gestartet")
 
         return "✅ PiClaw aktualisiert\n" + "\n".join(results)
 
