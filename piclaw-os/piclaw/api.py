@@ -1308,8 +1308,18 @@ async def sensor_delete(name: str, _: User = Depends(require_admin)):
 
 
 @app.websocket("/ws/chat")
-async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
-    """WebSocket chat. Auth via ?token=<token> query param."""
+async def chat_ws(websocket: WebSocket, user: User = Depends(require_auth_ws)):
+    """WebSocket chat. Auth via ?token=<token> query param.
+
+    Multi-User: user_id MUSS an Agent.run durchgereicht werden. user_id=None
+    ist überall die System-/„sieht alles"-Konvention – ohne das Durchreichen
+    bekam jeder Web-Chat-Nutzer (auch Non-Admin) über die Tools die volle
+    Sicht auf fremde Einkaufslisten, Pakete und Sub-Agenten. Der Telegram-
+    Pfad (_agent_message_handler) übergibt die user_id seit v0.18 korrekt.
+    Nur der synthetische legacy-admin (Single-User-Modus, kein Registry-
+    Eintrag) behält None = Vollsicht wie vor der Migration.
+    """
+    ws_user_id = None if user.id == "legacy-admin" else user.id
     await _manager.connect(websocket)
     session_id = id(websocket)
     _sessions[session_id] = []
@@ -1356,6 +1366,7 @@ async def chat_ws(websocket: WebSocket, _: str = Depends(require_auth_ws)):
                 with request_scope():
                     reply = await _agent.run(
                         user_text, history=history, on_token=on_token,
+                        user_id=ws_user_id,
                     )
             finally:
                 ping_task.cancel()
@@ -1413,6 +1424,22 @@ async def api_metrics_latest(_: str = Depends(require_auth)):
         return {"error": str(e), "metrics": {}}
 
 
+@app.get("/api/metrics/stats")
+async def api_metrics_stats(_: str = Depends(require_auth)):
+    """Datenbank-Statistiken.
+
+    MUSS vor /api/metrics/{metric_name} registriert sein: FastAPI matcht in
+    Registrierungs-Reihenfolge, und der dynamische Pfad fängt "stats" sonst
+    als Metrik-Namen ab – dieser Endpoint war dadurch nie erreichbar und
+    lieferte stattdessen die (leere) Zeitreihe einer Metrik namens "stats".
+    """
+    try:
+        from piclaw.metrics import get_db
+        return get_db().stats()
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/metrics/{metric_name}")
 async def api_metric_history(
     metric_name: str,
@@ -1454,16 +1481,6 @@ async def api_metric_chart(
         }
     except Exception as e:
         return {"error": str(e), "data": []}
-
-
-@app.get("/api/metrics/stats")
-async def api_metrics_stats(_: str = Depends(require_auth)):
-    """Datenbank-Statistiken."""
-    try:
-        from piclaw.metrics import get_db
-        return get_db().stats()
-    except Exception as e:
-        return {"error": str(e)}
 
 
 # ── Obs.4: Trace-Endpoint ─────────────────────────────────────────
