@@ -113,7 +113,7 @@ _FREE_TIER_MODELS = {
         # NVIDIA NIM Free API: 40 RPM, 100+ Modelle
         # Quelle: GET /v1/models, live gegengeprueft 23.08.2026.
         # Jeder Eintrag hier wurde mit einem echten chat/completions-Call
-        # verifiziert - Katalog-Praesenz allein genuegt nicht: 
+        # verifiziert - Katalog-Praesenz allein genuegt nicht:
         # nvidia/llama-3.1-nemotron-ultra-253b-v1 steht im Katalog, liefert
         # aber 404 "Function not found".
         # Reihenfolge = Auto-Repair-Praeferenz (erster Treffer gewinnt).

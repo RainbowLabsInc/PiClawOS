@@ -168,9 +168,9 @@ class TestCapacityErrorsAreNotOutages:
         """529 kam am 23.08.2026 von NVIDIA und wurde nur ueber den
         Meldungstext erkannt - also nur, solange ein brauchbarer Body
         mitkommt. Der Status allein muss reichen."""
-        registry.add(_make_backend("b%d" % code))
-        monitor.report_error("b%d" % code, code, "")
-        h = monitor._health["b%d" % code]
+        registry.add(_make_backend(f"b{code}"))
+        monitor.report_error(f"b{code}", code, "")
+        h = monitor._health[f"b{code}"]
         assert h.consecutive_failures == 0
         assert h.rate_limited_until > time.time()
 

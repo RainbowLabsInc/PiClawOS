@@ -779,7 +779,7 @@ class Agent:
             )
             task = task_match.group(1).strip() if task_match else text.strip()
         # Cleaning: Zeitrauschen entfernen
-        task = re.sub(r"(täglich|jeden tag|um \d{1,2}[:.]\d{0,2}\s*uhr?)", "", task, flags=re.IGNORECASE).strip()
+        task = re.sub(r"\b(?:täglich|jeden tag|um \d{1,2}(?:[:.]\d{2})?(?:\s*uhr)?)\b", "", task, flags=re.IGNORECASE).strip()
         task = re.sub(r"\s+", " ", task).strip() or text.strip()
 
         return {"cron_expr": cron_expr, "hour": hour, "minute": minute,
