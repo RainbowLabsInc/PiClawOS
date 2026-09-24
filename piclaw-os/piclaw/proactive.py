@@ -56,6 +56,18 @@ def _log_check_failure(key: str, exc: Exception, *, silent: bool = False) -> Non
         log.debug("Monitor-Check '%s' fehlgeschlagen: %r", key, exc)
 
 
+def _routine_prev_due(cron_expr: str, now: datetime) -> datetime:
+    """Letzter Fälligkeitszeitpunkt von `cron_expr` vor `now`.
+
+    Baut bewusst pro Aufruf ein frisches croniter-Objekt: dessen get_prev()
+    bewegt einen internen Cursor rückwärts, ein wiederverwendetes Objekt
+    liefert also bei jedem Aufruf einen älteren Termin statt des jüngsten.
+    """
+    from croniter import croniter
+
+    return croniter(cron_expr, now, ret_type=datetime).get_prev(datetime)
+
+
 class ProactiveRunner:
     """
     Verwaltet den proaktiven Hintergrund-Loop.
@@ -176,18 +188,10 @@ class ProactiveRunner:
     async def _routine_loop(self) -> None:
         """Prüft minütlich ob eine Routine fällig ist."""
         try:
-            from croniter import croniter as _croniter
+            import croniter  # noqa: F401 – nur Verfügbarkeits-Check
         except ImportError:
             log.warning("croniter nicht installiert – Routine-Loop deaktiviert")
             return
-
-        # Vorab kompilierte croniter-Objekte pro Routine-ID (Caching)
-        _cron_cache: dict[str, _croniter] = {}
-
-        def _get_cron(routine) -> _croniter:
-            if routine.id not in _cron_cache:
-                _cron_cache[routine.id] = _croniter(routine.cron, ret_type=datetime)
-            return _cron_cache[routine.id]
 
         last_minute = ""
         # Boot-Schutz: erste Prüfung erst nach 10s damit Daemon vollständig läuft
@@ -203,9 +207,15 @@ class ProactiveRunner:
                     enabled = self.registry.enabled()
                     for routine in enabled:
                         try:
-                            cron = _get_cron(routine)
-                            # get_prev() gibt letzten Fälligkeitszeitpunkt zurück
-                            prev = cron.get_prev(datetime)
+                            # Pro Prüfung ein FRISCHES croniter mit `now` als
+                            # Anker. Ein früher hier gecachtes Objekt wanderte
+                            # mit jedem get_prev() einen Fälligkeitstermin
+                            # weiter in die Vergangenheit (croniter bewegt den
+                            # internen Cursor) – delta_s wurde nie < 60 und
+                            # keine Routine hat je planmäßig gefeuert. Ein
+                            # Neuaufbau pro Minute ist billig und sieht auch
+                            # geänderte Cron-Ausdrücke sofort.
+                            prev = _routine_prev_due(routine.cron, now)
                             delta_s = (now - prev).total_seconds()
                             already_ran = routine.last_run and routine.last_run[
                                 :16
@@ -223,8 +233,6 @@ class ProactiveRunner:
                                 )
                         except Exception as e:
                             log.warning("Cron-Prüfung '%s' Fehler: %s", routine.name, e)
-                            # Bei ungültiger Cron-Expression: aus Cache entfernen
-                            _cron_cache.pop(routine.id, None)
 
             except Exception as e:
                 log.error("Routine-Loop Fehler: %s", e)

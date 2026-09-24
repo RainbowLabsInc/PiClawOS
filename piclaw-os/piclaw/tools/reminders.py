@@ -88,8 +88,12 @@ def _next_due(current_iso: str, recurrence: str) -> str | None:
         return None
 
     if recurrence in _RECURRENCE_TO_CRON:
+        # Cron zählt Wochentage ab Sonntag (0=So … 6=Sa), Python ab Montag
+        # (0=Mo … 6=So). base.weekday() direkt einzusetzen verschob jeden
+        # wöchentlichen Reminder um einen Tag nach vorn (Mi-Reminder → Di).
+        cron_dow = (base.weekday() + 1) % 7
         pattern = _RECURRENCE_TO_CRON[recurrence].format(
-            m=base.minute, h=base.hour, dow=base.weekday(), dom=base.day
+            m=base.minute, h=base.hour, dow=cron_dow, dom=base.day
         )
     else:
         pattern = recurrence

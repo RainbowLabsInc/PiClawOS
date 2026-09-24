@@ -508,10 +508,15 @@ def build_handlers(registry: RoutineRegistry, runner: ProactiveRunner) -> dict:
         result = await runner.execute_routine(r)
         return f"✓ Routine '{r.name}' ausgeführt:\n{result[:200]}"
 
-    async def briefing_now(briefing_type: str = "status", **_) -> str:
+    # Der Parameter MUSS "type" heißen: der Agent ruft Handler mit
+    # handler(**call.arguments) auf, und das Tool-Schema oben definiert die
+    # Property "type". Ein anders benannter Parameter (früher: briefing_type)
+    # fiel still in **_ – jedes "briefing_now type=morning" lieferte nur das
+    # Status-Briefing.
+    async def briefing_now(type: str = "status", **_) -> str:  # noqa: A002
         from piclaw.briefing import generate_briefing
 
-        msg = await generate_briefing(briefing_type, runner.cfg, runner.llm)
+        msg = await generate_briefing(type or "status", runner.cfg, runner.llm)
         if runner.hub:
             await runner.hub.send_all(msg)
             return f"Briefing gesendet:\n{msg[:300]}"
