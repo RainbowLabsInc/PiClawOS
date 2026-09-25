@@ -10,6 +10,7 @@ Nutzung durch den Agent:
 
 import asyncio
 import hashlib
+import html as html_lib
 import json
 import logging
 import re
@@ -56,6 +57,13 @@ HEADERS = {
 RE_CLEAN_CHAT_PREFIX = re.compile(r"\[.*?\]")
 RE_CLEAN_PLZ = re.compile(r"(?<!\d)\d{5}(?!\d)")
 RE_CLEAN_RADIUS = re.compile(r"\d+\s*km", flags=re.IGNORECASE)
+# Preisangaben ("bis 500 Euro", "unter 1500€", "max 80") – max_price wird separat
+# erkannt; im Suchbegriff würden sie bei UND-Suchen (z.B. eGun) Treffer verhindern.
+# Nackte Zahlen ohne Preis-Kontext bleiben (Modellnamen wie "AR 15", "KKM 200").
+RE_CLEAN_PRICE = re.compile(
+    r"(?i)(?:(?<!\w)(?:unter|bis|max(?:imal)?|höchstens)\s+\d[\d.,]*(?:\s*(?:€|euro\b|eur\b))?"
+    r"|(?<![\w.,])\d[\d.,]*\s*(?:€|euro\b|eur\b))"
+)
 _platform_terms = [
     "kleinanzeigen.de", "ebay.de", "willhaben.at", "egun.de",
     "troostwijkauctions.com", "troostwijk",
@@ -108,6 +116,7 @@ _noise_words = [
     "hamburg",
     "berlin",
     "nach",
+    "bei",
     "mit",
     "den",
     "auf",
@@ -199,9 +208,39 @@ RE_EBAY_LINK = re.compile(
 
 # Web Parsing
 # ── eGun.de ────────────────────────────────────────────────────────────────────
-# eGun nutzt klassisches tabellenbasiertes HTML, ISO-8859-1 Encoding.
-# Links: <a href="item.php?id=XXXXX">Titel</a>
-# Thumbnail-Links haben leeren Text, Titel-Links haben den Inseratstitel.
+# Neues Layout (09/2026, UTF-8): Suche unter /search?query=… (Parameter laut
+# Suchformular: wheremode=and|or, maxprice, order=starts|ends|price|…, asdes),
+# jedes Inserat ist
+#   <li data-auction-id="ID"><div class="list-item"> <a class="list-item__link"
+#   href="https://www.egun.de/item/ID/slug"> … list-item__title-text / __price /
+#   __price-label / __ends ("9 Tage, 0 Std") … </a></li>
+# Klassisches Layout (list_items.php, ISO-8859-1, laut eGun nur bis 15.11.2026):
+#   <a href="item.php?id=ID">Titel</a>, Thumbnail-Links mit leerem Text.
+EGUN_BASE = "https://www.egun.de"
+RE_EGUN_CARD = re.compile(r'<li\b[^>]*\bdata-auction-id="(\d+)"', re.IGNORECASE)
+RE_EGUN_CARD_LINK = re.compile(
+    r'<a\b[^>]*class="[^"]*\blist-item__link\b[^"]*"[^>]*href="([^"]+)"', re.IGNORECASE
+)
+# Titel-Span kann verschachtelte Badges enthalten (<span class="badge badge--new">neu</span>)
+# → bis zum nächsten Block lesen und Badges danach entfernen.
+RE_EGUN_CARD_TITLE = re.compile(
+    r'class="[^"]*\blist-item__title-text\b[^"]*"[^>]*>(.*?)'
+    r'(?=<span class="list-item__(?:ref|tags)|</a>)',
+    re.DOTALL,
+)
+RE_EGUN_BADGE = re.compile(r'<span class="badge\b[^"]*"[^>]*>.*?</span>', re.DOTALL)
+RE_EGUN_IMG_ALT = re.compile(r'<img\b[^>]*\balt="([^"]*)"', re.IGNORECASE)
+RE_EGUN_CARD_PRICE = re.compile(r'class="list-item__price"[^>]*>(.*?)</span>', re.DOTALL)
+RE_EGUN_CARD_PRICE_LABEL = re.compile(
+    r'class="[^"]*\blist-item__price-label\b[^"]*"[^>]*>(.*?)</span>', re.DOTALL
+)
+RE_EGUN_CARD_HAGGLE = re.compile(r'class="list-item__haggle"[^>]*>(.*?)</span>', re.DOTALL)
+RE_EGUN_CARD_ENDS = re.compile(r'class="list-item__ends"[^>]*>(.*?)</span>', re.DOTALL)
+RE_EGUN_ITEM_HREF = re.compile(r'href="[^"]*/item/\d+', re.IGNORECASE)
+RE_EGUN_OLD_LINK = re.compile(
+    r'<a\s[^>]*href="[^"]*item\.php\?id=(\d+)[^"]*"[^>]*>(.*?)</a>',
+    re.DOTALL | re.IGNORECASE,
+)
 RE_EGUN_PRICE = re.compile(
     r"\d[\d.,]+\s*(?:€|EUR|Euro)",
     re.IGNORECASE,
@@ -210,6 +249,7 @@ RE_EGUN_DATE = re.compile(
     r"(\d{1,2}\s+(?:Tag|Stunde|Minute|Sekunde)e?n?|\d{2}:\d{2})",
     re.IGNORECASE,
 )
+RE_CHARSET = re.compile(rb'charset=["\']?([\w-]+)', re.IGNORECASE)
 
 RE_WEB_HITS = re.compile(
     r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL
@@ -263,6 +303,9 @@ def _clean_query(query: str) -> str:
 
     # Radius (z.B. "20km", "20 km")
     q = RE_CLEAN_RADIUS.sub(" ", q)
+
+    # Preisangaben (z.B. "bis 500 Euro", "unter 1500€")
+    q = RE_CLEAN_PRICE.sub(" ", q)
 
     # Plattformnamen und Domains
     q = RE_CLEAN_PLATFORMS.sub(" ", q)
@@ -627,73 +670,79 @@ async def _search_ebay(
 # ── eGun.de ────────────────────────────────────────────────────────────────────
 
 
-async def _search_egun(
-    session: aiohttp.ClientSession,
-    query: str,
-    max_price: float | None = None,
-    max_results: int = 10,
-) -> list[dict]:
-    """
-    Sucht auf eGun.de – Marktplatz für Jäger, Schützen und Angler.
+def _egun_text(fragment: str) -> str:
+    return re.sub(r"\s+", " ", html_lib.unescape(RE_HTML_TAGS.sub("", fragment))).strip()
 
-    HTML-Struktur (tabellenbasiert, ISO-8859-1):
-      - Jedes Inserat hat ZWEI Links auf item.php?id=XXXXX:
-        1. Thumbnail-Link (leerer Link-Text)
-        2. Titel-Link (enthält den Anzeigentitel)
-      - TDs in der TR: [Titel, Preis, Stück/Gebote, Restzeit]
-    """
-    results: list[dict] = []
-    q = quote_plus(query)
 
-    url = (
-        "https://www.egun.de/market/list_items.php"
-        f"?mode=qry&plusdescr=off&wheremode=and&query={q}&quick=1"
-        "&order=date&asdes=desc"
-    )
-    if max_price:
-        url += f"&maxpr={int(max_price)}"
-
-    # eGun liefert ISO-8859-1 – explizit decodieren statt _fetch_html zu nutzen
-    html = None
+def _decode_egun(raw: bytes, content_type: str = "") -> str:
+    """Neues eGun liefert UTF-8, die klassische Ansicht ISO-8859-1."""
+    m = RE_CHARSET.search(content_type.encode("ascii", "ignore")) or RE_CHARSET.search(raw[:2048])
+    charset = m.group(1).decode("ascii").lower() if m else "utf-8"
     try:
-        egun_headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept-Language": "de-DE,de;q=0.9",
-            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-            "Referer": "https://www.egun.de/",
-        }
-        async with session.get(
-            url, headers=egun_headers, timeout=aiohttp.ClientTimeout(total=20)
-        ) as resp:
-            if resp.status == 200:
-                raw = await resp.read()
-                html = raw.decode("latin-1", errors="replace")
-                log.debug("eGun: HTTP 200, %d Bytes", len(html))
-            else:
-                log.warning("eGun: HTTP %s für '%s'", resp.status, query)
-    except Exception as e:
-        log.warning("eGun: Fetch-Fehler: %s", e)
+        return raw.decode(charset)
+    except (LookupError, UnicodeDecodeError):
+        return raw.decode("latin-1", errors="replace")
 
-    if not html:
-        return []
 
-    # ── Parsen ────────────────────────────────────────────────────────────
-    # Thumbnail-Links haben leeren Text, Titel-Links haben Text.
-    # Muster: <a href="item.php?id=ID">Titel</a>
-    item_link_re = re.compile(
-        r'<a\s[^>]*href="[^"]*item\.php\?id=(\d+)[^"]*"[^>]*>(.*?)</a>',
-        re.DOTALL | re.IGNORECASE,
-    )
-
+def _parse_egun_cards(html: str) -> list[dict]:
+    """Parst das neue eGun-Layout (list-item-Karten)."""
+    results: list[dict] = []
+    starts = list(RE_EGUN_CARD.finditer(html))
     seen_ids: set[str] = set()
-
-    for m in item_link_re.finditer(html):
+    for i, m in enumerate(starts):
         item_id = m.group(1)
-        link_text = RE_HTML_TAGS.sub("", m.group(2)).strip()
+        if item_id in seen_ids:
+            continue
+        end = starts[i + 1].start() if i + 1 < len(starts) else m.end() + 6000
+        card = html[m.end():end]
+
+        title_m = RE_EGUN_CARD_TITLE.search(card)
+        title = _egun_text(RE_EGUN_BADGE.sub("", title_m.group(1))) if title_m else ""
+        if not title:
+            alt_m = RE_EGUN_IMG_ALT.search(card)
+            title = _egun_text(alt_m.group(1)) if alt_m else ""
+        if not title:
+            continue
+        seen_ids.add(item_id)
+
+        link_m = RE_EGUN_CARD_LINK.search(card)
+        url = html_lib.unescape(link_m.group(1)) if link_m else f"/item/{item_id}"
+        if url.startswith("/"):
+            url = EGUN_BASE + url
+
+        price_m = RE_EGUN_CARD_PRICE.search(card)
+        price_raw = _egun_text(price_m.group(1)) if price_m else ""
+        label_m = RE_EGUN_CARD_PRICE_LABEL.search(card)
+        label = _egun_text(label_m.group(1)) if label_m else ""
+        price = _parse_price(price_raw) if price_raw else None
+        # "Aktuelles Gebot 526,00 €" / "Sofortkauf 549,00 €" – Angebotsart mitliefern
+        price_text = f"{label} {price_raw}".strip() if price_raw else ""
+        haggle_m = RE_EGUN_CARD_HAGGLE.search(card)
+        if price_text and haggle_m:
+            price_text += " " + _egun_text(haggle_m.group(1))  # "oder Preisvorschlag"
+
+        ends_m = RE_EGUN_CARD_ENDS.search(card)
+        ends = _egun_text(ends_m.group(1)) if ends_m else ""
+
+        results.append({
+            "id": item_id,
+            "platform": "egun",
+            "title": title,
+            "price": price,
+            "price_text": price_text,
+            "location": f"endet in {ends}" if ends else "",
+            "url": url,
+        })
+    return results
+
+
+def _parse_egun_classic(html: str) -> list[dict]:
+    """Parst die klassische eGun-Ansicht (list_items.php, item.php?id=)."""
+    results: list[dict] = []
+    seen_ids: set[str] = set()
+    for m in RE_EGUN_OLD_LINK.finditer(html):
+        item_id = m.group(1)
+        link_text = _egun_text(m.group(2))
 
         # Thumbnail-Links überspringen (leerer Text)
         if not link_text or len(link_text) < 4:
@@ -719,11 +768,83 @@ async def _search_egun(
             "price": price,
             "price_text": price_text,
             "location": date_str,
-            "url": f"https://www.egun.de/market/item.php?id={item_id}",
+            "url": f"{EGUN_BASE}/market/item.php?id={item_id}",
         })
+    return results
 
-        if len(results) >= max_results:
+
+def _parse_egun(html: str) -> list[dict]:
+    results = _parse_egun_cards(html)
+    if not results:
+        results = _parse_egun_classic(html)
+    if not results and (RE_EGUN_CARD.search(html) or RE_EGUN_ITEM_HREF.search(html)):
+        # Inserate verlinkt, aber nicht parsebar → laut statt stillem 0
+        log.error("eGun: Inserate im HTML, aber 0 geparst – vermutlich Layout-Änderung")
+    return results
+
+
+async def _search_egun(
+    session: aiohttp.ClientSession,
+    query: str,
+    max_price: float | None = None,
+    max_results: int = 10,
+) -> list[dict]:
+    """
+    Sucht auf eGun.de – Marktplatz für Jäger, Schützen und Angler.
+
+    Primär über die neue Suche (/search?query=…), neueste zuerst
+    (order=starts – Standard wäre "endet bald", ungeeignet für Monitoring).
+    Liefert die nichts Parsebares, wird die klassische list_items.php
+    versucht (laut eGun nur bis 15.11.2026 verfügbar). max_price wird
+    zusätzlich clientseitig angewendet (Gebote steigen, Fallback-Layout).
+    """
+    q = quote_plus(query)
+    classic_url = (
+        f"{EGUN_BASE}/market/list_items.php"
+        f"?mode=qry&plusdescr=off&wheremode=and&query={q}&quick=1"
+        "&order=date&asdes=desc"
+    )
+    if max_price:
+        classic_url += f"&maxpr={int(max_price)}"
+    search_url = f"{EGUN_BASE}/search?query={q}&wheremode=and&order=starts&asdes=desc"
+    if max_price:
+        search_url += f"&maxprice={int(max_price)}"
+    urls = [search_url, classic_url]
+
+    egun_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "de-DE,de;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+        "Referer": f"{EGUN_BASE}/",
+    }
+
+    results: list[dict] = []
+    for url in urls:
+        try:
+            async with session.get(
+                url, headers=egun_headers, timeout=aiohttp.ClientTimeout(total=20)
+            ) as resp:
+                if resp.status != 200:
+                    log.warning("eGun: HTTP %s für '%s' (%s)", resp.status, query, url)
+                    continue
+                raw = await resp.read()
+                html = _decode_egun(raw, resp.headers.get("Content-Type", ""))
+                log.debug("eGun: HTTP 200, %d Bytes (%s)", len(html), url)
+        except Exception as e:
+            log.warning("eGun: Fetch-Fehler (%s): %s", url, e)
+            continue
+
+        results = _parse_egun(html)
+        if results:
             break
+
+    if max_price:
+        results = [r for r in results if r["price"] is None or r["price"] <= max_price]
+    results = results[:max_results]
 
     log.info("eGun: %d Inserate gefunden für '%s'", len(results), query)
     return results
