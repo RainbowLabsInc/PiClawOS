@@ -72,6 +72,60 @@ HTML_NEW = """<!DOCTYPE html>
 </ul></body></html>
 """
 
+# Aus einer echten Suchseite (/search?query=Blaser, 09/2026): relative Links,
+# "oder Preisvorschlag", Grundpreis und Stückzahl
+HTML_SEARCH = """<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"></head><body>
+<ul class="auction-list">
+<li data-auction-id="19992648"><div class="list-item list-item--featured list-item--fett">
+    <a class="list-item__link" href="/item/19992648/blaser-r8-austauschlauf-30-06sp-58cm-offene-visierung">
+        <span class="list-item__thumb">
+            <img src="/thumb/fit-256x192/3.19992648.596016232.jpg" alt="Blaser R8 Austauschlauf 30-06Sp 58cm offene Visierung" loading="lazy">
+        </span>
+        <span class="list-item__body">
+            <span class="list-item__title">
+                <span class="list-item__title-text">
+                     Blaser R8 Austauschlauf 30-06Sp 58cm offene Visierung                </span>
+                <span class="list-item__ref">
+                    <span class="list-item__number">Nr. 19992648</span> <span class="list-item__seller">Waffen_Huber</span></span>
+            </span>
+            <span class="list-item__price-line">
+                <span class="list-item__price-label list-item__price-label--buynow">Sofortkauf</span>
+                <span class="list-item__price">950,00 €</span>
+                <span class="list-item__haggle">oder Preisvorschlag</span>
+            </span>
+            <span class="list-item__meta">
+                <span class="list-item__ends" data-ends="1790435009">20 Std, 12 Min</span>
+            </span>
+        </span>
+    </a>
+    <a rel="nofollow" class="list-item__watch list-item__watch--disabled" href="/watchlist/remember/19992648?redirect=/search?query%3DBlaser" title="Merkliste (Anmeldung erforderlich)">&#9734;</a>
+</div>
+</li>
+<li data-auction-id="20482865"><div class="list-item">
+    <a class="list-item__link" href="/item/20482865/blaser-r8-verschluss">
+        <span class="list-item__body">
+            <span class="list-item__title">
+                <span class="list-item__title-text">
+                     Blaser R8 Verschluss Verschlussführung rechts iControl                </span>
+                <span class="list-item__tags"><span class="badge badge--condition">Neuware</span></span>
+            </span>
+            <span class="list-item__price-line">
+                <span class="list-item__price-label list-item__price-label--buynow">Sofortkauf</span>
+                <span class="list-item__price">415,00 €</span>
+                <span class="list-item__base-price"><span class="visually-hidden">Grundpreis: </span>(415,00 € / Stück)</span>
+                <span class="list-item__price-sub">noch 5 Stück</span>
+            </span>
+            <span class="list-item__meta">
+                <span class="list-item__qty">noch 5 Stück</span>
+                <span class="list-item__ends" data-ends="1790412045">13 Std, 50 Min</span>
+            </span>
+        </span>
+    </a>
+</div>
+</li>
+</ul></body></html>
+"""
+
 HTML_CLASSIC = (
     '<html><head><meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1"></head>'
     '<table><tr>'
@@ -108,6 +162,28 @@ def test_parst_neues_layout():
     assert second["price"] == 526.0
     assert second["price_text"] == "Aktuelles Gebot 526,00 €"
     assert second["location"] == "endet in 21 Tage, 23 Std"
+
+
+def test_parst_suchseite_mit_relativen_links():
+    results = _parse_egun(_decode_egun(HTML_SEARCH.encode("utf-8")))
+
+    assert [r["id"] for r in results] == ["19992648", "20482865"]
+
+    first = results[0]
+    assert first["title"] == "Blaser R8 Austauschlauf 30-06Sp 58cm offene Visierung"
+    assert first["url"] == (
+        "https://www.egun.de/item/19992648/blaser-r8-austauschlauf-30-06sp-58cm-offene-visierung"
+    )
+    assert first["price"] == 950.0
+    assert first["price_text"] == "Sofortkauf 950,00 € oder Preisvorschlag"
+    assert first["location"] == "endet in 20 Std, 12 Min"
+
+    # Grundpreis-Span darf den Preis nicht überlagern
+    second = results[1]
+    assert second["title"] == "Blaser R8 Verschluss Verschlussführung rechts iControl"
+    assert second["price"] == 415.0
+    assert second["price_text"] == "Sofortkauf 415,00 €"
+    assert second["location"] == "endet in 13 Std, 50 Min"
 
 
 def test_neues_layout_utf8_wird_nicht_als_latin1_verstuemmelt():
@@ -175,7 +251,11 @@ async def test_suche_nutzt_neue_url_und_filtert_max_preis():
 
     results = await _search_egun(session, "AR 15", max_price=600, max_results=10)
 
-    assert session.urls[0] == f"{marketplace.EGUN_BASE}/search?query=AR+15"
+    # Neueste zuerst (Standard wäre "endet bald"), Preisfilter serverseitig
+    assert session.urls[0] == (
+        f"{marketplace.EGUN_BASE}/search?query=AR+15"
+        "&wheremode=and&order=starts&asdes=desc&maxprice=600"
+    )
     assert len(session.urls) == 1  # Treffer → kein Fallback auf klassische Ansicht
     assert [r["id"] for r in results] == ["20483938"]
 

@@ -208,7 +208,9 @@ RE_EBAY_LINK = re.compile(
 
 # Web Parsing
 # ── eGun.de ────────────────────────────────────────────────────────────────────
-# Neues Layout (09/2026, UTF-8): Suche unter /search?query=…, jedes Inserat ist
+# Neues Layout (09/2026, UTF-8): Suche unter /search?query=… (Parameter laut
+# Suchformular: wheremode=and|or, maxprice, order=starts|ends|price|…, asdes),
+# jedes Inserat ist
 #   <li data-auction-id="ID"><div class="list-item"> <a class="list-item__link"
 #   href="https://www.egun.de/item/ID/slug"> … list-item__title-text / __price /
 #   __price-label / __ends ("9 Tage, 0 Std") … </a></li>
@@ -232,6 +234,7 @@ RE_EGUN_CARD_PRICE = re.compile(r'class="list-item__price"[^>]*>(.*?)</span>', r
 RE_EGUN_CARD_PRICE_LABEL = re.compile(
     r'class="[^"]*\blist-item__price-label\b[^"]*"[^>]*>(.*?)</span>', re.DOTALL
 )
+RE_EGUN_CARD_HAGGLE = re.compile(r'class="list-item__haggle"[^>]*>(.*?)</span>', re.DOTALL)
 RE_EGUN_CARD_ENDS = re.compile(r'class="list-item__ends"[^>]*>(.*?)</span>', re.DOTALL)
 RE_EGUN_ITEM_HREF = re.compile(r'href="[^"]*/item/\d+', re.IGNORECASE)
 RE_EGUN_OLD_LINK = re.compile(
@@ -714,6 +717,9 @@ def _parse_egun_cards(html: str) -> list[dict]:
         price = _parse_price(price_raw) if price_raw else None
         # "Aktuelles Gebot 526,00 €" / "Sofortkauf 549,00 €" – Angebotsart mitliefern
         price_text = f"{label} {price_raw}".strip() if price_raw else ""
+        haggle_m = RE_EGUN_CARD_HAGGLE.search(card)
+        if price_text and haggle_m:
+            price_text += " " + _egun_text(haggle_m.group(1))  # "oder Preisvorschlag"
 
         ends_m = RE_EGUN_CARD_ENDS.search(card)
         ends = _egun_text(ends_m.group(1)) if ends_m else ""
@@ -786,10 +792,11 @@ async def _search_egun(
     """
     Sucht auf eGun.de – Marktplatz für Jäger, Schützen und Angler.
 
-    Primär über die neue Suche (/search?query=…). Liefert die nichts
-    Parsebares, wird die klassische list_items.php versucht (nur bis
-    15.11.2026 verfügbar). Der Preisfilter der neuen Suche ist nicht
-    dokumentiert – max_price wird daher zusätzlich clientseitig angewendet.
+    Primär über die neue Suche (/search?query=…), neueste zuerst
+    (order=starts – Standard wäre "endet bald", ungeeignet für Monitoring).
+    Liefert die nichts Parsebares, wird die klassische list_items.php
+    versucht (laut eGun nur bis 15.11.2026 verfügbar). max_price wird
+    zusätzlich clientseitig angewendet (Gebote steigen, Fallback-Layout).
     """
     q = quote_plus(query)
     classic_url = (
@@ -799,7 +806,10 @@ async def _search_egun(
     )
     if max_price:
         classic_url += f"&maxpr={int(max_price)}"
-    urls = [f"{EGUN_BASE}/search?query={q}", classic_url]
+    search_url = f"{EGUN_BASE}/search?query={q}&wheremode=and&order=starts&asdes=desc"
+    if max_price:
+        search_url += f"&maxprice={int(max_price)}"
+    urls = [search_url, classic_url]
 
     egun_headers = {
         "User-Agent": (
