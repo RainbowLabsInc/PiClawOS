@@ -2056,6 +2056,9 @@ class Agent:
         await self.llm.boot()
         self._start_workers()
         self._wire_sa_runner()
+        # Ohne eigenen Scheduler (API-Prozess) gehören die Schedule-Loops dem
+        # Daemon – start/stop/run_now laufen dann per IPC dorthin.
+        self.sa_runner.delegate_to_daemon = not start_sub_agents
         create_background_task(self._boot_memory(), name="memory-boot")
         create_background_task(heartbeat_loop(), name="heartbeat")
 

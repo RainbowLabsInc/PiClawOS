@@ -337,12 +337,8 @@ def build_handlers(registry: SubAgentRegistry, runner: SubAgentRunner) -> dict:
         agent = registry.get(name)
         if not agent:
             return _not_found(name)
-        # Sofortige Ausführung als Background-Task, ohne den regulären Schedule zu berühren
-        from piclaw.taskutils import create_background_task
-        create_background_task(
-            runner._execute(agent),
-            name=f"subagent-oneoff-{agent.id}",
-        )
+        # Sofortige Ausführung, ohne den regulären Schedule zu berühren
+        runner.run_now(agent)
         return f"Sub-agent '{name}' wird sofort ausgeführt."
 
     return {

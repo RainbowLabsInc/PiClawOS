@@ -178,6 +178,12 @@ class SubAgentRunner:
         # new one is leaked, so its done-callback is the last chance to log
         # when (if ever) the runaway work actually finishes. See _execute().
         self._abandoned: dict[str, asyncio.Task] = {}
+        # True im API-Prozess: Schedule-Loops gehören dem Daemon. start/stop/
+        # run_now werden dann per IPC an den Daemon weitergereicht, statt eine
+        # zweite Kopie des Loops im API-Prozess laufen zu lassen (die bei einem
+        # Neustart nur einer der beiden Dienste verloren ginge bzw. doppelt
+        # liefe). Gesetzt von Agent.boot(start_sub_agents=False).
+        self.delegate_to_daemon = False
 
     # ── Public API ─────────────────────────────────────────────────
 
@@ -185,7 +191,9 @@ class SubAgentRunner:
         """Stop all running sub-agents. Returns count stopped."""
         running = self.running_agents()
         for aid in running:
-            await self.stop_agent(aid)
+            # Nur die lokalen Tasks – beim Shutdown des API-Prozesses darf
+            # kein stop-Trigger an den Daemon gehen.
+            self._stop_local(aid)
         # Give tasks a moment to finish cleanly
         if running:
             await asyncio.sleep(0.5)
@@ -198,6 +206,19 @@ class SubAgentRunner:
             return f"Sub-Agent '{id_or_name}' nicht gefunden."
         if agent.id in self._tasks and not self._tasks[agent.id].done():
             return f"Sub-Agent '{agent.name}' läuft bereits."
+
+        # once-Agents (z.B. SearchAssistant) bleiben lokal: sie laufen genau
+        # einmal, ohne Loop, der bei einem Neustart verloren gehen könnte –
+        # und der Daemon räumt beim Boot nie gelaufene once-Agents weg.
+        if self.delegate_to_daemon and agent.schedule != "once":
+            from piclaw import ipc
+            if ipc.write_start(agent.id):
+                log.info("Sub-agent '%s': Start an Daemon delegiert", agent.name)
+                return f"Sub-Agent '{agent.name}' gestartet."
+            # IPC kaputt → lieber lokal laufen lassen als gar nicht.
+            log.warning(
+                "Sub-agent '%s': IPC-Start fehlgeschlagen – starte lokal", agent.name
+            )
 
         stop_event = asyncio.Event()
         self._stop_events[agent.id] = stop_event
@@ -227,14 +248,37 @@ class SubAgentRunner:
         agent = self.registry.get(id_or_name)
         if not agent:
             return f"Sub-Agent '{id_or_name}' nicht gefunden."
-        ev = self._stop_events.get(agent.id)
+        if self._stop_local(agent.id):
+            return f"Sub-Agent '{agent.name}' gestoppt."
+        if self.delegate_to_daemon:
+            from piclaw import ipc
+            if ipc.write_stop(agent.id):
+                log.info("Sub-agent '%s': Stopp an Daemon delegiert", agent.name)
+                return f"Sub-Agent '{agent.name}' gestoppt."
+        return f"Sub-Agent '{agent.name}' lief nicht."
+
+    def _stop_local(self, agent_id: str) -> bool:
+        """Stoppt den Schedule-Loop in diesem Prozess. True wenn einer lief."""
+        ev = self._stop_events.get(agent_id)
         if ev:
             ev.set()
-        task = self._tasks.get(agent.id)
+        task = self._tasks.get(agent_id)
         if task and not task.done():
             task.cancel()
-            return f"Sub-Agent '{agent.name}' gestoppt."
-        return f"Sub-Agent '{agent.name}' lief nicht."
+            return True
+        return False
+
+    def run_now(self, agent: SubAgentDef) -> None:
+        """Einmalige Sofort-Ausführung, ohne den Schedule zu berühren."""
+        if self.delegate_to_daemon:
+            from piclaw import ipc
+            if ipc.write_run_now(agent.id):
+                log.info("Sub-agent '%s': run_now an Daemon delegiert", agent.name)
+                return
+        create_background_task(
+            self._execute(agent),
+            name=f"subagent-oneoff-{agent.id}",
+        )
 
     async def start_all_scheduled(self):
         """Start all enabled sub-agents that have a recurring schedule.

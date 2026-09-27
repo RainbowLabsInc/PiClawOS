@@ -13,6 +13,16 @@ Protokolle:
             ohne diesen Trigger feuert der Daemon-Loop weiter und sein
             nächster mark_run schreibt die alte Memory zurück.
 
+  start:    API schreibt  /etc/piclaw/ipc/start_<agent_id>.trigger
+            Daemon lädt die Definition frisch von Disk (der Agent ist
+            typischerweise gerade erst im API-Prozess angelegt worden und
+            steht noch nicht in seiner Registry-Memory) und startet den
+            Schedule-Loop. So laufen Schedules nur im Daemon – auch für
+            Agents, die per Telegram/Web-UI erstellt wurden.
+
+  stop:     API schreibt  /etc/piclaw/ipc/stop_<agent_id>.trigger
+            Daemon stoppt den Schedule-Loop (Agent bleibt in der Registry).
+
 Gewählt weil:
   - Kein zusätzlicher Service nötig
   - Atomares Schreiben/Lesen via rename
@@ -67,9 +77,35 @@ def write_remove(agent_id: str) -> bool:
         return False
 
 
+def write_start(agent_id: str) -> bool:
+    """API: Schreibt einen start Trigger – Daemon übernimmt den Schedule-Loop."""
+    try:
+        IPC_DIR.mkdir(parents=True, exist_ok=True)
+        trigger = IPC_DIR / f"start_{agent_id}{TRIGGER_SUFFIX}"
+        atomic_write_text(trigger, agent_id)
+        log.debug("IPC: start trigger geschrieben für %s", agent_id)
+        return True
+    except Exception as e:
+        log.warning("IPC: Fehler beim Schreiben des start-Triggers: %s", e)
+        return False
+
+
+def write_stop(agent_id: str) -> bool:
+    """API: Schreibt einen stop Trigger – Daemon beendet den Schedule-Loop."""
+    try:
+        IPC_DIR.mkdir(parents=True, exist_ok=True)
+        trigger = IPC_DIR / f"stop_{agent_id}{TRIGGER_SUFFIX}"
+        atomic_write_text(trigger, agent_id)
+        log.debug("IPC: stop trigger geschrieben für %s", agent_id)
+        return True
+    except Exception as e:
+        log.warning("IPC: Fehler beim Schreiben des stop-Triggers: %s", e)
+        return False
+
+
 async def poll_triggers(sa_runner) -> None:
     """
-    Daemon: Pollt IPC-Verzeichnis auf run_now/remove Trigger.
+    Daemon: Pollt IPC-Verzeichnis auf start/stop/run_now/remove Trigger.
     Läuft als Background-Task im Daemon.
     """
     log.info("IPC: Trigger-Polling gestartet (%s)", IPC_DIR)
@@ -81,7 +117,10 @@ async def poll_triggers(sa_runner) -> None:
                     try:
                         agent_id = trigger.read_text().strip()
                         trigger.unlink()  # Sofort löschen damit kein Doppel-Trigger
-                        agent = sa_runner.registry.get(agent_id)
+                        agent = (
+                            sa_runner.registry.get(agent_id)
+                            or sa_runner.registry.reload_agent(agent_id)
+                        )
                         if agent:
                             log.info("IPC: run_now für '%s' empfangen", agent.name)
                             create_background_task(
@@ -90,6 +129,32 @@ async def poll_triggers(sa_runner) -> None:
                             )
                         else:
                             log.warning("IPC: Agent '%s' nicht gefunden", agent_id)
+                    except Exception as e:
+                        log.warning("IPC: Fehler beim Verarbeiten von %s: %s", trigger, e)
+
+                # ── start Trigger ──────────────────────────────────────
+                for trigger in list(IPC_DIR.glob(f"start_*{TRIGGER_SUFFIX}")):
+                    try:
+                        agent_id = trigger.read_text().strip()
+                        trigger.unlink()
+                        # Disk ist maßgeblich: der API-Prozess hat den Agent
+                        # gerade gespeichert, unsere Memory kennt ihn noch nicht.
+                        agent = sa_runner.registry.reload_agent(agent_id)
+                        if agent:
+                            log.info("IPC: start für '%s' empfangen", agent.name)
+                            await sa_runner.start_agent(agent_id)
+                        else:
+                            log.warning("IPC: Agent '%s' nicht gefunden", agent_id)
+                    except Exception as e:
+                        log.warning("IPC: Fehler beim Verarbeiten von %s: %s", trigger, e)
+
+                # ── stop Trigger ───────────────────────────────────────
+                for trigger in list(IPC_DIR.glob(f"stop_*{TRIGGER_SUFFIX}")):
+                    try:
+                        agent_id = trigger.read_text().strip()
+                        trigger.unlink()
+                        result = await sa_runner.stop_agent(agent_id)
+                        log.info("IPC: stop für '%s' verarbeitet: %s", agent_id, result)
                     except Exception as e:
                         log.warning("IPC: Fehler beim Verarbeiten von %s: %s", trigger, e)
 
