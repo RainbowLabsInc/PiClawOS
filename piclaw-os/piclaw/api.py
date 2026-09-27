@@ -400,10 +400,7 @@ async def subagent_run_now(name: str, _: str = Depends(require_auth)):
     sa = _agent.sa_registry.get(name)
     if not sa:
         raise HTTPException(404, f"Sub-agent '{name}' not found")
-    create_background_task(
-        _agent.sa_runner._execute(sa),
-        name=f"subagent-api-run-{sa.id}",
-    )
+    _agent.sa_runner.run_now(sa)
     return {"triggered": True, "name": name}
 
 

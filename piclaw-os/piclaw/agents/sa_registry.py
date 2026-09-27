@@ -269,6 +269,28 @@ class SubAgentRegistry:
         self._save()
         return agent.id
 
+    def reload_agent(self, agent_id: str) -> SubAgentDef | None:
+        """Übernimmt die On-Disk-Definition eines Agents in die Memory.
+
+        Für Agents, die der andere Prozess (api ↔ daemon) nach unserem
+        _load() angelegt oder geändert hat. Die Disk-Version gewinnt; ist
+        die ID nicht (mehr) auf Disk, bleibt die Memory unverändert.
+        """
+        if not SA_REGISTRY_FILE.exists():
+            return None
+        try:
+            raw = json.loads(SA_REGISTRY_FILE.read_text(encoding="utf-8")).get(agent_id)
+            if raw is None:
+                return None
+            agent = SubAgentDef(**raw)
+        except Exception as e:
+            log.warning("Sub-agent registry: reload von '%s' fehlgeschlagen: %s", agent_id, e)
+            return None
+        self._tombstones.discard(agent_id)
+        self._agents[agent_id] = agent
+        self._loaded_ids.add(agent_id)
+        return agent
+
     def get(self, id_or_name: str) -> SubAgentDef | None:
         """Löst ID oder Name auf – tolerant, aber nie ratend.
 
